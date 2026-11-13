@@ -186,10 +186,25 @@ export function restoreSteps(plan) {
  * ({ plan, pane }): "adopt" it when it is this copy's own pane (a reload), "undo" it when its pane
  * no longer exists (a crash or a restart), "leave" it when another live pane owns it, else "none".
  */
-export function recoveryFor(saved, paneIds, ownPane) {
+export function recoveryFor(saved, paneIds, ownPane, officeIds = []) {
   if (!saved || !saved.plan || !saved.pane) return "none";
   if (saved.pane === ownPane) return "adopt";
-  return (paneIds || []).includes(saved.pane) ? "leave" : "undo";
+  if (!(paneIds || []).includes(saved.pane)) return "undo";
+  // A copy that cannot tell which pane is its own may still be the owner's reload: it is when the
+  // saved pane is the only office pane there is.
+  if (!ownPane && officeIds.length === 1 && officeIds[0] === saved.pane) return "adopt";
+  return "leave";
+}
+
+/**
+ * What pressing Full screen does given the saved plan: "enter" with none, "adopt" a live one that
+ * is this office's own (it is on already), "blocked" when another live office's plan is saved, and
+ * "restore" when the saved plan's pane is gone (put its chrome back first, then press again).
+ * Never "enter" over a saved plan, so the plan that knows what was hidden is not lost.
+ */
+export function entryFor(saved, paneIds, mine, officeIds = []) {
+  const r = recoveryFor(saved, paneIds, mine, officeIds);
+  return r === "none" ? "enter" : r === "adopt" ? "adopt" : r === "leave" ? "blocked" : "restore";
 }
 
 /** A restore step as the arguments of `herdr-app do`, or null for one with no command (the window). */

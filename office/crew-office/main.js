@@ -8,7 +8,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, window as appWindow } from "herdr";
-import { PAD, aspectOf, doArgs, findNode as findNodeById, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -43,7 +43,8 @@ export default class CrewOffice extends View {
     try {
       const left = shared(FS_KEY);
       const now = panes();
-      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()));
+      const offices = now.filter((p) => p.mod === "crew-office").map((p) => p.pane);
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()), offices);
       if (what === "adopt") this.fs = left;
       else if (what === "undo") this.recover(left);
     } catch (_) { /* nothing to recover */ }
@@ -137,6 +138,13 @@ export default class CrewOffice extends View {
   enterFullscreen(view, cx) {
     if (this.fs) return;
     const all = panes();
+    // A plan is already saved: never write over it, it is the only record of what was hidden.
+    let saved = null;
+    try { saved = shared(FS_KEY); } catch (_) { /* none */ }
+    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
+    if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
+    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "Another office is in full screen. Leave it there first.", level: "warning" }); return; }
+    if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
     const me = all.find((p) => p.pane === view.mine);
     const plan = fullscreenPlan(layout(), {
       fullscreen: !!(appWindow() || {}).fullscreen,

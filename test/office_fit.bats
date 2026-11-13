@@ -223,6 +223,24 @@ console.log([r(saved, ["p1", "p2"], "p1"), r(saved, ["p1", "p2"], "p2"), r(saved
   [ "$output" = "adopt leave undo undo none none" ]
 }
 
+@test "startup recovery with an unknown own pane: adopt when the saved pane is the only office pane, else leave" {
+  run crew_js '
+const saved = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
+const r = (panes, offices) => crew.recoveryFor(saved, panes, null, offices);
+console.log([r(["p1", "p2"], ["p1"]), r(["p1", "p2", "p3"], ["p1", "p3"]), r(["p1", "p2"], []), r(["p2"], ["p2"]), r(["p2"], [])].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "adopt leave leave undo undo" ]
+}
+
+@test "pressing Full screen never overwrites a saved plan whose pane is still open" {
+  run crew_js '
+const saved = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
+const e = (s, panes, mine, offices) => crew.entryFor(s, panes, mine, offices);
+console.log([e(null, ["p1"], "p1", ["p1"]), e(saved, ["p1"], "p1", ["p1"]), e(saved, ["p1"], null, ["p1"]), e(saved, ["p1", "p2"], "p2", ["p1", "p2"]), e(saved, ["p1", "p2"], null, ["p1", "p2"]), e(saved, ["p2"], "p2", ["p2"])].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "enter adopt adopt blocked blocked restore" ]
+}
+
 @test "full-screen restore as herdr-app commands, for use when the app quits" {
   run crew_js '
 console.log(JSON.stringify(crew.doArgs({ show: "sidebar" }, "p1")), JSON.stringify(crew.doArgs({ zoom: true }, "p1")), JSON.stringify(crew.doArgs({ window: true }, "p1")));'
