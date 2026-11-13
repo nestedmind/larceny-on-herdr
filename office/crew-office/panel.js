@@ -126,9 +126,13 @@ export class Panel {
       }
       this.fetchedKey = null;
       cx.notify();
-    }).catch(() => {
+    }).catch((e) => {
+      // herdr's exec rejects when the program could not be started (loh missing, folder gone):
+      // nothing ran, so nothing was sent and the text goes back in the box.
       this.sending = false;
-      unknown();
+      this.pending = this.pending.filter((p) => p !== entry);
+      this.error = `could not run loh: ${String((e && e.message) || e || "").slice(0, 160)}`.trim();
+      st.set_value(text);
       this.fetchedKey = null;
       cx.notify();
     });

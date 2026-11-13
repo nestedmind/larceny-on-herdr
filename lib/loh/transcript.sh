@@ -61,7 +61,10 @@ if [[ -d "$dir" ]]; then
   if [[ -n "$agent" ]]; then
     while IFS= read -r f; do
       [[ -n "$f" ]] || continue
-      if head -n 20 "$f" | grep -qF "\"agentSetting\":\"$agent\""; then
+      # Read the lines into a variable first: `head | grep -q` makes head die of SIGPIPE
+      # when grep stops at its match, and pipefail then turns that into "no match".
+      first="$(head -n 20 "$f")"
+      if grep -qF "\"agentSetting\":\"$agent\"" <<<"$first"; then
         file="$f"
         break
       fi

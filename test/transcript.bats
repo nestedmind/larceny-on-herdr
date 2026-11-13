@@ -115,3 +115,20 @@ fixture() { cp "$REPO_ROOT/test/fixtures/transcripts/$1.jsonl" "$PROJ/$2.jsonl";
   run "$LOH" transcript scofield
   [ "$(jq -r '.[1].text | length' <<<"$output")" -le 4001 ]
 }
+
+@test "transcript matches the agent when the first lines of the session file are over 64 KiB" {
+  # Real sessions start with large lines. A match found while the rest of the head is still being
+  # written must not turn into a SIGPIPE failure (exit 141 under pipefail) and an empty log.
+  fixture coordinator c1
+  big="$(head -c 200000 /dev/zero | tr '\0' x)"
+  {
+    head -n 2 "$PROJ/c1.jsonl"
+    for _ in 1 2 3 4; do printf '{"type":"attachment","blob":"%s"}\n' "$big"; done
+    tail -n +3 "$PROJ/c1.jsonl"
+  } >"$PROJ/c2.jsonl"
+  rm "$PROJ/c1.jsonl"
+  [ "$(head -n 20 "$PROJ/c2.jsonl" | wc -c)" -gt 65536 ]
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.[0].text' <<<"$output")" = "Hello coordinator, what is open?" ]
+}
