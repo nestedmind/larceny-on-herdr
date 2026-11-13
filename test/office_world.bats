@@ -344,12 +344,37 @@ console.log(["12", "0", "", "1a", "-3", " 4", "007"].map((s) => crew.validTicket
   [ "$output" = "true,false,false,false,false,false,true" ]
 }
 
-@test "with no agent running the office finds the workspace from a pane in its own tab, then any pane, then dir" {
+
+@test "the workspace folder is the dir prop first, then a running agent, then a pane in the office's own tab, and never another tab" {
   run crew_js "$HELPERS"'
-const ps = [{pane: "p1", tab: "a", cwd: "/other", mod: null}, {pane: "p2", tab: "b", cwd: "/mine"}, {pane: "p3", tab: "b", mod: "crew-office", cwd: null}];
-console.log(crew.ownCwd(ps, "p3"), crew.ownCwd(ps, "p9"), crew.ownCwd([{pane: "p3", tab: "b", cwd: null}], "p3") === "");'
+const ps = [{pane: "p1", tab: "a", cwd: "/other"}, {pane: "p2", tab: "b", cwd: "/mine"}, {pane: "p3", tab: "b", mod: "crew-office", cwd: null}];
+const c = crew.crewOf([T("sucre", "idle", {role: "coder"})], "w");
+console.log(crew.workspaceDir(c, {dir: "/d"}, ps, "p3"), crew.workspaceDir(c, {}, ps, "p3"), crew.workspaceDir([], {}, ps, "p3"),
+  crew.workspaceDir([], {}, [{pane: "p1", tab: "a", cwd: "/other"}, {pane: "p3", tab: "b", cwd: null}], "p3") === "", crew.workspaceDir([], {}, ps, "p9") === "");'
   [ "$status" -eq 0 ]
-  [ "$output" = "/mine /other true" ]
+  [ "$output" = "/d /ws/sucre /mine true true" ]
+}
+
+@test "the Start prompt names the folder it will run in" {
+  run crew_js "$HELPERS"'
+const L = lay([], ["api"]);
+console.log(crew.startPlan(P(L, "scofield"), [], "/ws/sandbox").ask);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "Start Scofield and Amy in /ws/sandbox?" ]
+}
+
+@test "desks go to working and blocked coders before idle ones" {
+  run crew_js "$HELPERS"'
+const ts = [T("maya", "idle", {role: "advisor"}), T("opemipo", "idle", {role: "advisor"}),
+  T("sucre", "idle", {role: "coder", task: "r#1"}), T("mahone", "idle", {role: "coder", task: "r#2"}), T("sheba", "working", {role: "coder", task: "r#3"})];
+const L = lay(ts, ["r"]);
+console.log(P(L, "sheba").place, ["sucre", "mahone"].filter((id) => P(L, id).desk !== null).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk 1" ]
+}
+
+@test "the start form handles keys only while the office's own focus handle is focused" {
+  grep -A3 'offerKey(e, cx) {' "$(mod_dir)/main.js" | grep -q 'is_focused()'
 }
 
 @test "the folder loh runs in is a running agent's, else the dir prop" {

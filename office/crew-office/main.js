@@ -8,7 +8,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { anchorCwd, chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, ownCwd, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED } from "./crew.js";
+import { chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -169,7 +169,7 @@ export default class CrewOffice extends View {
 
   // A click on someone who is not running: say what would start them, and ask first.
   offerStart(p, cx) {
-    const plan = startPlan(p, this.repos);
+    const plan = startPlan(p, this.repos, this.workspaceDir(this.crewNow));
     this.offer = { person: p, plan, repo: plan.kind === "spawn" ? (plan.repos[0] || "") : "", ticket: "" };
     this.handle.focus();
     cx.notify();
@@ -178,7 +178,7 @@ export default class CrewOffice extends View {
   // The folder loh runs in to find the workspace: a running agent's, else a pane in this tab or
   // any pane (a terminal in the same workspace), else the `dir` prop.
   workspaceDir(crew) {
-    return anchorCwd(crew, {}) || ownCwd(panes(), officePane(panes(), props())) || anchorCwd([], props());
+    return workspaceDir(crew, props(), panes(), officePane(panes(), props()));
   }
 
   confirmStart(cx) {
@@ -195,6 +195,8 @@ export default class CrewOffice extends View {
 
   // Keys while a coder's form is open: digits make the ticket, Enter starts, Esc cancels.
   offerKey(e, cx) {
+    // Only while the office itself has the keyboard: typing in the chat panel's input must never reach the form.
+    if (!this.handle.is_focused()) return false;
     const o = this.offer;
     if (!o || o.plan.kind !== "spawn") return false;
     if (e.key === "escape") { this.offer = null; cx.notify(); return true; }

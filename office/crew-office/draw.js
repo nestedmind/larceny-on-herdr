@@ -32,7 +32,7 @@ export const BLOCKED = { permission: [PAL.perm, "allow?"], question: [PAL.q, "?"
 const STATE_RING = { working: PAL.work, done: PAL.work };
 const BOX = 30; // half the side of a person's box, in world units: room for a bubble and a flag
 
-// A shape is a list of path commands; consecutive fills of one colour become one path (one element).
+// A shape is a list of path commands, built into its own path once and reused by every render.
 function buildPath(cmds, stroke) {
   let b = stroke ? PathBuilder.stroke(stroke) : PathBuilder.fill();
   for (const [name, ...args] of cmds) b = b[name](...args);
@@ -48,9 +48,7 @@ export class Layer {
   Y(y) { return (y - this.y) * this.k; }
   add(cmds, fill, stroke = 0) {
     const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
-    const last = this.ops[this.ops.length - 1];
-    if (!stroke && last && !last.stroke && last.fill === c) last.cmds.push(...cmds);
-    else this.ops.push({ cmds: [...cmds], fill: c, stroke });
+    this.ops.push({ cmds: [...cmds], fill: c, stroke });
     this.groups = null;
     return this;
   }

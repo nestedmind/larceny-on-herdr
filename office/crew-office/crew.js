@@ -379,15 +379,18 @@ export function layoutCrew(crew, repoList = []) {
 
   const sit = (p, d) => { p.desk = d.key; p.place = "desk"; p.x = d.seat.x; p.y = d.seat.y; p.face = d.side === "n" ? "s" : "n"; };
   const coders = people.filter((p) => p.role === "coder" && p.agent);
-  for (const p of coders.filter((c) => c.agent.repo)) {
-    const list = slots.get("repo:" + p.agent.repo);
-    if (list && list.length) p.desk = list.shift();
-  }
-  // A working or blocked coder is never in the lounge while any desk is free: one with no task, or
-  // whose own room is full, takes a free desk in the first room that has one.
-  for (const p of coders.filter((c) => !c.desk && (c.state === "working" || c.state === "blocked"))) {
+  const busy = (c) => c.state === "working" || c.state === "blocked";
+  const own = (p) => { const list = slots.get("repo:" + p.agent.repo); if (list && list.length) p.desk = list.shift(); };
+  // Everyone with a task takes a desk in their own room, in name order, so desks stay put while the
+  // crew is the same. Then a working or blocked coder with none takes a free desk in the first room
+  // that has one; if every desk is held, it takes the desk of an idle or done coder (who goes to the
+  // kitchen, ping pong or lounge instead). A busy coder is never in the lounge while a desk could be theirs.
+  for (const p of coders.filter((c) => c.agent.repo)) own(p);
+  for (const p of coders.filter((c) => !c.desk && busy(c))) {
     const list = [...slots.values()].find((l) => l.length);
-    if (list) p.desk = list.shift();
+    if (list) { p.desk = list.shift(); continue; }
+    const victim = [...coders].reverse().find((c) => c.desk && !busy(c));
+    if (victim) { p.desk = victim.desk; victim.desk = null; }
   }
 
   // Standing places first: desks, the meeting table, Matt.
@@ -490,9 +493,9 @@ export function stackTags(items) {
  * starts with `loh spawn <coder> <repo> <ticket>`: the offer lists `repos` (the manifest's) and
  * takes a ticket number. loh has no command for anyone else.
  */
-export function startPlan(p, repos = []) {
+export function startPlan(p, repos = [], dir = "") {
   if (!p || p.running) return { kind: "running" };
-  if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: "Start Scofield and Amy with loh up?", hint: "loh up" };
+  if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: dir ? `Start Scofield and Amy in ${dir}?` : "Start Scofield and Amy with loh up?", hint: "loh up" };
   if (p.role === "coder") return { kind: "spawn", coder: p.id, repos: [...repos], hint: `loh spawn ${p.id} <repo> <ticket>` };
   return { kind: "none", hint: `loh has no command to start ${p.name}` };
 }
@@ -531,6 +534,11 @@ export function ownCwd(panes, minePane) {
   const list = panes || [];
   const mine = list.find((p) => p.pane === minePane);
   const same = mine ? list.find((p) => p.tab === mine.tab && p.pane !== minePane && typeof p.cwd === "string" && p.cwd) : null;
-  const any = same || list.find((p) => p.pane !== minePane && typeof p.cwd === "string" && p.cwd);
-  return any ? any.cwd : "";
+  return same ? same.cwd : "";
+}
+
+/** The folder loh runs in: the `dir` prop, else a running agent's, else a pane in the office's own tab, else "". */
+export function workspaceDir(crew, props, panes, minePane) {
+  if (props && typeof props.dir === "string" && props.dir) return props.dir;
+  return anchorCwd(crew, {}) || ownCwd(panes, minePane);
 }
