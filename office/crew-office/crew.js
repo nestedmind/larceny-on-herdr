@@ -11,6 +11,9 @@ const SIDE_W = 100;
 const LOUNGE_Y = 155;
 const LOUNGE_H = 95;
 const MAX_DESKS = 4;
+const KITCHEN_W = 100;
+// Standing spots around the kitchen table, relative to the bottom row's top edge.
+const KITCHEN_SPOTS = [{ x: 28, y: 40, face: "e" }, { x: 72, y: 40, face: "w" }, { x: 28, y: 70, face: "e" }, { x: 72, y: 70, face: "w" }];
 
 export const STATES = ["working", "blocked", "done", "idle"];
 
@@ -199,12 +202,20 @@ export function layoutCrew(crew, repoList = []) {
     return { x: cx - 16, y: 30, side: "s", seat: { x: cx, y: 22 }, tag: { x: cx, y: 49 }, w: 32 };
   };
 
+  let inKitchen = 0;
   for (const a of crew) {
     if (a.role === "coder" && a.repo) {
       const room = rooms.find((r) => r.key === "repo:" + a.repo);
       const slot = used.get(room.key) || 0;
       if (slot < MAX_DESKS) {
+        // The desk slot is taken either way, so the others do not move up while this coder is away.
         used.set(room.key, slot + 1);
+        // A coder whose work is done takes a coffee in the kitchen (if there is a spot) until it works again.
+        if (a.status === "done" && inKitchen < KITCHEN_SPOTS.length) {
+          const p = KITCHEN_SPOTS[inKitchen++];
+          seats.push({ agent: a, x: p.x, y: LOUNGE_Y + p.y, face: p.face, tag: { x: p.x, y: LOUNGE_Y + p.y + 9 }, place: "kitchen" });
+          continue;
+        }
         const d = repoDesks(room)[slot];
         seats.push({ agent: a, x: d.seat.x, y: d.seat.y, face: d.side === "n" ? "s" : "n", tag: d.tag, place: "desk" });
         continue;
@@ -229,16 +240,20 @@ export function layoutCrew(crew, repoList = []) {
     lounge.push(a);
   }
 
-  const perRow = Math.max(1, Math.floor((W - 20) / 70));
+  const loungeX = KITCHEN_W;
+  const perRow = Math.max(1, Math.floor((W - loungeX - 20) / 70));
   lounge.forEach((a, i) => {
     const row = Math.floor(i / perRow);
     const col = i % perRow;
-    const x = 40 + col * 70;
+    const x = loungeX + 40 + col * 70;
     const y = LOUNGE_Y + 28 + row * 40;
     seats.push({ agent: a, x, y, face: "s", tag: { x, y: y + 9 }, place: "lounge" });
   });
 
   const loungeH = Math.max(LOUNGE_H, 28 + Math.ceil(lounge.length / perRow) * 40 + 10);
-  rooms.push({ key: "lounge", kind: "lounge", label: "lounge", x: 0, y: LOUNGE_Y, w: W, h: loungeH });
-  return { W, H: LOUNGE_Y + loungeH, rooms, desks, seats, totals: totals(crew) };
+  rooms.push({ key: "kitchen", kind: "kitchen", label: "kitchen", x: 0, y: LOUNGE_Y, w: KITCHEN_W, h: loungeH });
+  rooms.push({ key: "lounge", kind: "lounge", label: "lounge", x: loungeX, y: LOUNGE_Y, w: W - loungeX, h: loungeH });
+  // Waffles the office dog sleeps on her bed in the lounge. She is decoration, not an agent.
+  const dog = { name: "Waffles", x: W - 24, y: LOUNGE_Y + loungeH - 20 };
+  return { W, H: LOUNGE_Y + loungeH, rooms, desks, seats, dog, totals: totals(crew) };
 }

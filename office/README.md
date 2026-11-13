@@ -1,6 +1,6 @@
 # Crew office
 
-`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own beyond which chat is open, and animates with `.frames()` and `.loop()`, never timers.
+`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own beyond which chat is open, and animates with `.frames()`, `.loop()` and `.transition()`, never timers.
 
 ## Install
 
@@ -35,8 +35,10 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 - **Agents only.** Only agent terminals are drawn. A terminal labelled `role=watch` (the `loh-watch` notifier) or one that runs another program (a shell, `loh`) is left out.
 - **Repo rooms.** One room per repo in the workspace manifest, with four desks each, even when no coder is working. The office gets the list from `loh status --repos`, run in an agent's folder, so the manifest is read in one place only. A coder whose `task` names a repo that is not in the manifest still gets a room, after the others. A fifth coder in a repo waits in the lounge. If `loh` fails, the rooms from coders' `task` labels still show.
 - **Leads room.** The coordinator and the reviewer, at their own desks.
-- **Meeting room.** The advisor and the teacher.
-- **Lounge.** Coders with no task, and anyone with a role the office does not know.
+- **Kitchen.** A coder whose status is `done` walks to the kitchen for a coffee, and back to its desk when it is working again. Four spots; when they are full, a done coder stays at its desk. A coder in the kitchen keeps its desk reserved, so the others do not move.
+- **Lounge.** Coders with no task, and anyone with a role the office does not know. Waffles the dog sleeps on her bed here (decoration, not an agent).
+- **People.** Seen from above, with hair, a face turned the way they look (desks face their screens), and both hands on the keyboard while `working`. Each person and name tag slides to the new place when an agent's state or task changes (a native transition on `left`/`top`, no timer). A change of scale or floor width (a resize, the chat opening, the repo list arriving) does not slide anyone: only a change of place does.
+- **Meeting room.** The advisor and the teacher sit at the table; the wall screen shows how many agents the crew has.
 - **No dead space.** The floor is exactly as wide as its rooms and is scaled to fit the pane (smaller than life when the pane is narrow), and centred while it fits.
 - **Top bar.** Totals of working, blocked, done and idle agents.
 - **Name tag.** Name, then `repo#ticket`, `PR <n>` and `r<round>`, then the step (or note). A "with Matt" pill shows when `with_matt=1`.

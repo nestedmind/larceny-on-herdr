@@ -195,6 +195,63 @@ console.log(crew.repoNames(JSON.stringify([{name:"api"},{name:"web"},{name:""},{
   ! grep -q 'workspace.md' "$(mod_dir)/main.js" "$(mod_dir)/crew.js"
 }
 
+@test "the bottom row is a kitchen then a lounge, and the floor width is unchanged" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api", "web"]);
+const k = L.rooms.find(r => r.kind === "kitchen"), l = L.rooms.find(r => r.kind === "lounge");
+console.log(k.x, k.w, l.x, l.x + l.w === L.W, k.y === l.y, L.W);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 100 100 true true 488" ]
+}
+
+@test "a coder with a task who is done walks to the kitchen, and back to the desk when working" {
+  run crew_js '
+const mk = (st) => crew.layoutCrew(crew.crewOf([{address:"t1",name:"sucre",state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#3"}}], "w"), ["api"]);
+const d = mk("done"), w = mk("working");
+const k = d.rooms.find(r => r.kind === "kitchen"), s = d.seats[0];
+console.log(s.place, s.x >= k.x && s.x <= k.x + k.w && s.y >= k.y && s.y <= k.y + k.h, w.seats[0].place);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "kitchen true desk" ]
+}
+
+@test "a done coder in the kitchen keeps its desk reserved, so the others do not move" {
+  run crew_js '
+const mk = (n, st) => ({address:"t"+n,name:"c"+n,state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#"+n}});
+const at = (L, n) => { const s = L.seats.find(x => x.agent.name === "c" + n); return s.x + "," + s.y; };
+const before = crew.layoutCrew(crew.crewOf([mk(1,"working"), mk(2,"working"), mk(3,"working")], "w"), ["api"]);
+const after = crew.layoutCrew(crew.crewOf([mk(1,"done"), mk(2,"working"), mk(3,"working")], "w"), ["api"]);
+console.log(at(before,2) === at(after,2), at(before,3) === at(after,3), after.seats.find(s => s.agent.name === "c1").place);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true kitchen" ]
+}
+
+@test "a done coder stays at its desk when the kitchen is full" {
+  run crew_js '
+const t = [1,2,3,4,5].map(n => ({address:"t"+n,name:"c"+n,state:"live",status:"done",labels:{crew:"w",role:"coder",task:(n < 3 ? "api#" : "web#")+n}}));
+const p = crew.layoutCrew(crew.crewOf(t, "w"), ["api","web"]).seats.map(s => s.place);
+console.log(p.filter(x => x === "kitchen").length, p.filter(x => x === "desk").length, p.filter(x => x === "lounge").length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "4 1 0" ]
+}
+
+@test "main.js animates only when the place changes, not when the scale or floor width does" {
+  grep -q 'this.sig' "$(mod_dir)/main.js"
+}
+
+@test "the dog has a bed in the lounge and a seated desk worker has a face direction" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api"]);
+const l = L.rooms.find(r => r.kind === "lounge");
+console.log(L.dog.x >= l.x && L.dog.x <= l.x + l.w && L.dog.y >= l.y && L.dog.y <= l.y + l.h, L.dog.name);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true Waffles" ]
+}
+
+@test "main.js slides people between places with a native transition, not a timer" {
+  grep -q 'transition("left"' "$(mod_dir)/main.js"
+  grep -q 'transition("top"' "$(mod_dir)/main.js"
+}
+
 @test "the unlock call mirrors the lock call: raw name, agent's folder, props loh" {
   run crew_js '
 const a = crew.crewOf([{address:"t1",name:"scofield",cwd:"/ws/lead",state:"live",status:"idle",labels:{crew:"w"}}], "w")[0];
