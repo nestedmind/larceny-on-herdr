@@ -54,7 +54,30 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 @test "UserPromptSubmit sets step to reading the prompt and clears the context label" {
   run_hook_pipe < <(fixture user-prompt-submit)
   [ "$status" -eq 0 ]
-  [ "$(hc_calls)" = "$(label_line 'step=reading the prompt'$'\t''ctx=')" ]
+  [ "$(grep '^label' "$FAKE_HC_LOG")" = "$(label_line 'step=reading the prompt'$'\t''ctx=')" ]
+}
+
+@test "UserPromptSubmit also removes a note that starts with escalation:, in the same hc call" {
+  printf '{"labels":{"note":"escalation:PR stuck after round 2","step":"idle"}}\n' >"$BATS_TEST_TMPDIR/get.json"
+  FAKE_HC_JSON="$BATS_TEST_TMPDIR/get.json" run_hook_pipe < <(fixture user-prompt-submit)
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^label' "$FAKE_HC_LOG")" -eq 1 ]
+  grep -qx $'label\tt9\tstep=reading the prompt\tctx=\tnote=' "$FAKE_HC_LOG"
+}
+
+@test "UserPromptSubmit leaves any other note alone" {
+  printf '{"labels":{"note":"waiting for CI","step":"idle"}}\n' >"$BATS_TEST_TMPDIR/get.json"
+  FAKE_HC_JSON="$BATS_TEST_TMPDIR/get.json" run_hook_pipe < <(fixture user-prompt-submit)
+  [ "$status" -eq 0 ]
+  grep -qx $'label\tt9\tstep=reading the prompt\tctx=' "$FAKE_HC_LOG"
+  run grep -c 'note=' "$FAKE_HC_LOG"
+  [ "$output" = "0" ]
+}
+
+@test "UserPromptSubmit still sets the step and clears ctx when hc get fails" {
+  FAKE_HC_SCRIPT="$BATS_TEST_TMPDIR/script" run_hook_pipe < <(fixture user-prompt-submit)
+  [ "$status" -eq 0 ]
+  grep -qx $'label\tt9\tstep=reading the prompt\tctx=' "$FAKE_HC_LOG"
 }
 
 @test "PreCompact marks the session as compacting with ctx=compact" {

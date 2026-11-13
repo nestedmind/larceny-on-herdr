@@ -182,6 +182,27 @@ console.log(P(L, "sucre").place, P(L, "sucre").paddle !== 0, P(L, "sucre").desk)
   [ "$output" = "pong true repo:api:1" ]
 }
 
+@test "after an escalation is answered (the prompt removes the note), the coder is at its desk, then waiting in the kitchen, not at ping pong at once" {
+  run crew_js "$HELPERS"'
+const c = (st, l) => [T("sucre", st, {role: "coder", task: "api#4", ...l})];
+const esc = c("done", {pr: "9", round: "2", note: "escalation:stuck"});
+const answered = c("working", {pr: "9", round: "2"});
+const pushed = c("done", {pr: "9", round: "3"});
+const a = play([[0, esc], [10, answered], [100, pushed], [102, pushed], [130, pushed]]);
+console.log(a.map((L) => P(L, "sucre").place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "pong desk kitchen kitchen pong" ]
+}
+
+@test "a coder with a ticket and no PR who escalated and was answered stays at its desk after its next turn" {
+  run crew_js "$HELPERS"'
+const c = (st, l) => [T("sucre", st, {role: "coder", task: "api#4", ...l})];
+const a = play([[0, c("done", {note: "escalation:need a decision"})], [10, c("working", {})], [100, c("done", {})], [400, c("done", {})]]);
+console.log(a.map((L) => P(L, "sucre").place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "pong desk desk desk" ]
+}
+
 @test "a coder who works again after its review comes back goes to its desk" {
   run crew_js "$HELPERS"'
 const d = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", round: "1"})], w = [T("sucre", "working", {role: "coder", task: "api#4", pr: "9", round: "2"})];

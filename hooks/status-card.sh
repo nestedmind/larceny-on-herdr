@@ -51,6 +51,23 @@ label() {
   fi
 }
 
+# current_note: this terminal's note label, or nothing (hc get fails, or no note).
+current_note() {
+  local t=""
+  if command -v timeout >/dev/null 2>&1; then
+    t=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then
+    t=gtimeout
+  fi
+  local out
+  if [[ -n "$t" ]]; then
+    out="$("$t" 3 hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  else
+    out="$(hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  fi
+  printf '%s' "$out" | jq -r '.labels.note // empty' 2>/dev/null
+}
+
 # rel_path <abs path> <cwd>: the path relative to the repo that holds the file
 # (found from the file's own folder, or the nearest one that exists), else
 # relative to the repo of cwd, else unchanged.
@@ -159,7 +176,13 @@ TEST_CWD="$cwd"
 case "$event" in
   UserPromptSubmit)
     # A new turn ends any compact or clear mark: the office reads ctx= and sends the agent back to its desk.
-    label "step=reading the prompt" "ctx="
+    # The answer to an escalation arrives as a prompt, so a note that starts with escalation: goes in the same call; any other note stays.
+    note="$(current_note)"
+    if [[ "$note" == escalation:* ]]; then
+      label "step=reading the prompt" "ctx=" "note="
+    else
+      label "step=reading the prompt" "ctx="
+    fi
     ;;
   PreCompact)
     label "ctx=compact"
