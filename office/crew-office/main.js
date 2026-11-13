@@ -613,13 +613,13 @@ export default class CrewOffice extends View {
   }
 
 
-  // Ask for another render one tick on, once.
   setLights(on, cx) {
     this.lights = !!on;
     try { setShared(LIGHTS_KEY, lightsValue(this.lights)); } catch (_) { /* the choice is only remembered, not needed */ }
     if (cx) cx.notify();
   }
 
+  // Ask for another render one tick on, once.
   keepBuilding() {
     if (this.moreBuilding) return;
     this.moreBuilding = true;
