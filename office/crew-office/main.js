@@ -372,8 +372,8 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
-      else if (w.settling) this.settle(w);
+      if (snap) { this.stopWalk(w); w.pending = null; w.settling = false; w.restUntil = 0; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      else if (w.settling) this.settle(w, now);
       else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
@@ -393,8 +393,12 @@ export default class CrewOffice extends View {
   // more render a moment on: a walk is never handed over in the render that ends the one before it. The movers
   // of the walk that ended still hold its offsets, and a new walk's offsets with their delays would be drawn
   // from there, a whole walk away, each leg sliding the wrong way in a leg's time.
-  settle(w) {
+  // The rest lasts until a time, not until the next render: a render that comes sooner (a floor-build tick,
+  // another walker's timer, live data) still finds the rest on, so no walk is handed over from offsets that
+  // the renderer may not have drawn at zero yet. holdOrGo refuses to start a walk before `restUntil`.
+  settle(w, now) {
     w.settling = false;
+    w.restUntil = now + SETTLE_MS;
     w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
       try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
     }));
@@ -405,6 +409,15 @@ export default class CrewOffice extends View {
   // renderer is never redirected, so nobody is routed from a point in mid-air and no running mover is
   // retargeted. When the walk ends, the next render sees the new place and walks there from where they stand.
   holdOrGo(w, p, L, goal, now) {
+    if (w.restUntil && now < w.restUntil) {
+      if (!w.wake) {
+        w.wake = this.acx.timer.after(w.restUntil - now + 5, (c) => {
+          w.wake = null;
+          try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+        });
+      }
+      return;
+    }
     const d = nextGoal(w.pending, w.goal, goal, now, w.legs.length > 0);
     w.pending = d.pending;
     if (d.wakeIn !== null && !w.wake) {

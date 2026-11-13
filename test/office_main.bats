@@ -399,6 +399,26 @@ console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y ==
   [ "$output" = "true true true true" ]
 }
 
+@test "a render between the rest render and the end of the rest hands over no walk, and one after it does" {
+  run office_js '
+const walk = () => office.walks.get("sheba");
+render();
+terms()[1].status = "done";
+render(); later(3000); render();
+terms()[1].status = "working";
+render(); later(4000); render();
+later(60000);
+timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
+render();
+const rest = walk().legs.length;
+later(10); render();
+const early = walk().legs.length;
+later(60); render();
+console.log(rest, early, walk().legs.length > 0);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0 true" ]
+}
+
 @test "a whole walk, from the hold to the last timer, runs with every render and timer callback on a cx of its own" {
   run office_js '
 render();
