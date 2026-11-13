@@ -36,7 +36,7 @@ export const PathBuilder = { fill: mk, stroke: mk };
 EOF
   cat > "$d/node_modules/gpui-base/index.js" <<'EOF'
 import { div } from "gpui-kit";
-export const v_flex = div, h_flex = div;
+export const v_flex = div, h_flex = div, h_resizable = (id) => div().id(id), resizable_panel = div;
 export const InputState = { new: () => ({ set_value() {}, value: () => "", on() {}, focus() {} }) };
 export const Input = { new: () => div() };
 export const ScrollHandle = { new: () => ({}) };
@@ -46,12 +46,16 @@ const mk = (n, status) => ({ address: "t" + n, name: n, state: "live", agent: "c
 globalThis.TERMS = [mk("scofield", "working"), mk("sheba", "working"), mk("sucre", "idle")];
 globalThis.SELECTED = [];
 export const terminals = () => globalThis.TERMS;
-export const panes = () => [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }];
-export const run = () => {}; export const exec = () => new Promise(() => {}); export const notify = () => {};
-export const props = () => ({ crew: "sandbox" });
+export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
+export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
+export const exec = (c, a) => (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const notify = () => {};
+export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: !!globalThis.DARK });
-export const layout = () => ({}); export const shared = () => null; export const setShared = () => {};
+const SH = globalThis.SHARED = {};
+export const layout = () => ({}); export const shared = (k) => (k in SH ? SH[k] : null); export const setShared = (k, v) => { SH[k] = v; };
+export const openOverlay = (s) => { (globalThis.OVERLAYS ||= []).push(s); return "o1"; }; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
 EOF
   echo '{"type":"module"}' > "$d/package.json"
@@ -412,4 +416,145 @@ for (let i = 0; i < 4; i++) wait.push(all(find(render(), "stage")).some((n) => n
 console.log(wait.join(","));'
   [ "$status" -eq 0 ]
   [ "$output" = "false,false,false,false" ]
+}
+
+@test "with the panel open the stage and panel sit in a resizable group, and a drag's end sets the width, within the limits" {
+  run office_js '
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+let root = render();
+const g = find(root, "panel");
+const split = all(root.node).find((n) => n.props.on_resize);
+console.log(!!g, !!split, office.panelW);
+split.props.on_resize[0]([1600, 500], cx);
+console.log(office.panelW);
+split.props.on_resize[0]([1600, 5000], cx);
+console.log(office.panelW);
+split.props.on_resize[0]([1600, 40], cx);
+console.log(office.panelW);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true true 360" ]
+  [ "${lines[1]}" = "500" ]
+  [ "${lines[2]}" = "3300" ]
+  [ "${lines[3]}" = "260" ]
+}
+
+@test "the panel's Full terminal button opens the agent's own terminal in an overlay window and locks it" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+const btn = find(render(), "panel-full-terminal");
+btn.props.on_click[0]({}, cx);
+const o = globalThis.OVERLAYS[0];
+console.log(!!btn, o.kind, o.layout.children[1].content.terminal === a.address);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true window true" ]
+}
+
+@test "Full terminal gives the terminal the keyboard, holds the lock once, and a second click opens no second window" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+office.fullTerminal(a, cx);
+const focus = (globalThis.RUNS || []).filter(([c, x]) => c === "pane.focus" && x.terminal === a.address).length;
+console.log(globalThis.OVERLAYS.length, focus >= 1, /^term-/.test(globalThis.OVERLAYS[0].layout.children[0].content.props.termId), office.panel.host.busy());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true true true" ]
+}
+
+@test "Esc does nothing in the office while a full-terminal window is open" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+const root = render();
+let closed = false;
+office.panel.close = () => { closed = true; };
+root.node.props.on_key_down[0]({ key: "escape" }, { stop_propagation() {}, notify() {} });
+console.log(closed);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "the full-terminal bar stops a press anywhere on it, so the window cannot be dragged" {
+  run office_js '
+globalThis.PROPS = { terminalBar: true, agent: { name: "sheba" } };
+const bar = new Office({}, cx); bar.init({}, cx);
+const root = bar.render(cx);
+console.log(id(root.node), !!root.node.props.on_mouse_down, typeof find(root, "term-back").props.on_mouse_down[1]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "term-bar true function" ]
+}
+
+@test "each office pane has its own divider, the width is kept per picked crew, and the log can shrink so the message box stays" {
+  run office_js '
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+const root = render();
+const grp = all(root.node).find((n) => n.props.on_resize);
+const log = find(root, "panel-log");
+console.log(id(grp), office.panelKey, log.props.min_h[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "office-split-p1 crew-office.panel-width.sandbox 0" ]
+}
+
+@test "the divider's limit comes from the group's own width and stays put while the stage resizes" {
+  run office_js '
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+const max = () => all(render().node).find((n) => n.props.size_range && n.props.size_range.length === 2).props.size_range[1];
+const wrap = (r) => all(r.node).find((n) => id(n) === "split-box");
+const r = render();
+wrap(r).props.on_size_change[0]({ width: 1200, height: 800 }, cx);
+const before = max();
+office.size = { width: 650, height: 800 };
+console.log(before, max());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "600 600" ]
+}
+
+@test "after a restart a stale lock-holders value is ignored and cleared, and Full terminal works" {
+  run office_js '
+globalThis.SHARED["crew-office.lock-holders"] = { t2: ["term-old"], t3: "garbage" };
+const { default: Restarted } = await import("./main.mjs?restart");
+const o = new Restarted({}, cx); o.init({}, cx); office = o; o.size = { width: 1990, height: 1000 }; o.measured = true;
+const a = o.crewNow.length ? o.crewNow[0] : null;
+o.render(cx);
+const b = o.crewNow.find((c) => c.name === "sheba");
+o.panel.select(b, cx);
+o.fullTerminal(b, cx);
+console.log(o.termOpen, globalThis.SHARED["crew-office.lock-holders"] === null, globalThis.OVERLAYS.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 1" ]
+}
+
+@test "malformed shared data never throws in render, and counts as no window open" {
+  run office_js '
+globalThis.SHARED["crew-office.lock-holders"] = "nonsense";
+render();
+globalThis.SHARED["crew-office.lock-holders"] = { t2: 5, t3: null };
+render();
+console.log(office.termOpen);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "two office panes docking the same agent: the agent is unlocked only when both chats are closed" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.open(a, cx);
+const first = office.chat;
+const p1 = globalThis.PANES;
+globalThis.PANES = [{ pane: "p2", tab: "u", mod: "crew-office", focused: true }];
+const two = new Office({}, cx); two.init({}, cx); two.crewNow = office.crewNow;
+two.open(a, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+await tick();
+two.closeChat(cx);
+await tick();
+const mid = globalThis.EXECS.join(",");
+globalThis.PANES = p1;
+office.closeChat(cx);
+await tick();
+console.log(!!two.chat, !!first, mid, globalThis.EXECS.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false true lock lock,unlock" ]
 }
