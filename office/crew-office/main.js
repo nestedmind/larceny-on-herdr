@@ -52,6 +52,8 @@ export default class CrewOffice extends View {
     // Whether the chat panel was showing when the stage was last measured, and when it was last drawn:
     // herdr reports the stage's size a frame late, so a render that opens the panel must know the size is too wide.
     this.sizeWithPanel = false;
+    // Whether herdr has reported the stage's real size yet; until it has, the default size would draw a floor at the wrong scale.
+    this.measured = false;
     this.drawnWithPanel = false;
     // A click on someone who is not running: { person, plan }. Nothing starts until the person confirms.
     this.offer = null;
@@ -430,6 +432,16 @@ export default class CrewOffice extends View {
   }
 
 
+  // Ask for another render one tick on, once.
+  keepBuilding() {
+    if (this.moreBuilding) return;
+    this.moreBuilding = true;
+    this.acx.timer.after(1, (c) => {
+      this.moreBuilding = false;
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    });
+  }
+
   render(cx) {
     const t = theme();
     const dark = !!settings().dark;
@@ -460,6 +472,11 @@ export default class CrewOffice extends View {
     const L = layoutCrew(crew, this.repos, aspectOf(size));
     const { k, fits } = fitScale(size, L);
     const stageColour = stageBg(dark);
+    const F = { chip: PAL.chip, chipInk: PAL.chipInk };
+    // Cold start: until the stage's real size is known nothing is sized from the floor, and then not until the first floor plan
+    // is complete, so the floor, the people and the tags appear together.
+    const waiting = () => div().text_size(12).text_color(t.muted).child("Setting up the office…");
+    if (!this.measured) return this.frame(t, L, view, stageColour, true, waiting(), showPanel, F, cx);
     // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
     // the transition and everything jumps with the rooms and desks.
@@ -499,6 +516,7 @@ export default class CrewOffice extends View {
       if (layer.done) { this.shown = this.floor; this.pinned = [key, ...this.pinned.filter((x) => x !== key)].slice(0, 2); }
     }
     if (!floorEl && this.shown) floorEl = this.shown.layer.at(k).el(undefined, { w: u(L.W), h: u(L.H) });
+    if (!this.shown) { this.keepBuilding(); return this.frame(t, L, view, stageColour, true, waiting(), showPanel, F, cx); }
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
@@ -536,7 +554,6 @@ export default class CrewOffice extends View {
     // Name tags. Someone at rest has a tag where it clears the others (stacked, and kept on the floor);
     // someone walking has theirs just below them, carried by the same chain as the figure, so it stays
     // with them and never trails or jumps.
-    const F = { chip: PAL.chip, chipInk: PAL.chipInk };
     const sized = L.people.map((p) => {
       const a = p.agent;
       const where = a ? [a.repo, a.pr, a.round].some(Boolean) : false;
@@ -574,13 +591,7 @@ export default class CrewOffice extends View {
       nightEls = use.map((layer) => layer.at(k).el(ready || use === this.nightLast ? undefined : 0)).concat(lit.flatMap(([d, s]) => glow(d, s, k)));
     }
     // A layer still being built carries on in the next render, one tick on.
-    if (building && !this.moreBuilding) {
-      this.moreBuilding = true;
-      this.acx.timer.after(1, (c) => {
-        this.moreBuilding = false;
-        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
-      });
-    }
+    if (building) this.keepBuilding();
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .when(!!floorEl, (el) => el.child(floorEl)).children(glows).child(plaque.el())
@@ -588,15 +599,22 @@ export default class CrewOffice extends View {
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
 
-    // The floor is scaled to the stage: the area left under the bar and the offer row, measured
-    // there, so nothing is subtracted by guess. Anything that still spills (for one frame, while a
-    // size is on its way) is cut at the stage, so it is never drawn under the panel.
+    return this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
+  }
+
+  // The bar, the stage and the panel. The stage is where the floor is scaled to: the area left under
+  // the bar and the offer row, measured there, so nothing is subtracted by guess. Anything that still
+  // spills (for one frame, while a size is on its way) is cut at the stage, so it is never drawn under
+  // the panel. It reports its size even while it only shows the waiting line.
+  frame(t, L, view, stageColour, fits, child, showPanel, F, cx) {
     const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(PAD).bg(stageColour).overflow_hidden().when(fits, (el) => el.justify_center().items_center())
-      .on_size_change((measured, cx) => {
+      .on_size_change((measured, c) => {
         this.sizeWithPanel = this.drawnWithPanel;
-        if (measured.width !== this.size.width || measured.height !== this.size.height) { this.size = measured; cx.notify(); }
+        const first = !this.measured;
+        this.measured = true;
+        if (first || measured.width !== this.size.width || measured.height !== this.size.height) { this.size = measured; c.notify(); }
       })
-      .child(floor);
+      .child(child);
 
     return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)
       .on_key_down((e, cx) => {

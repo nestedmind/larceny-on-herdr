@@ -60,10 +60,13 @@ EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
 const cx = { focus_handle: () => ({ focus() {}, is_focused: () => true }), timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
-const office = new Office({}, cx);
-office.init({}, cx);
-office.size = { width: 1990, height: 1000 };
+let office;
+// A started office whose stage has been measured. Most tests start from one that has finished its first floor.
+const fresh = () => { office = new Office({}, cx); office.init({}, cx); office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
 const render = () => office.render(cx);
+fresh();
+for (let i = 0; i < 40 && !office.shown; i++) render();
+timers.length = 0;
 const all = (node, out = []) => { out.push(node); for (const k of node.kids) if (k && k.node) all(k.node, out); return out; };
 const id = (n) => (n.props.id ? n.props.id[0] : undefined);
 const find = (root, name) => all(root.node).find((n) => id(n) === name);
@@ -263,6 +266,7 @@ console.log(first.done, office.floor.layer === first, office.floor.layer.done);'
 
 @test "the first render of a new plan draws no floor, so a start after a reload stays short; the second makes the drawing list" {
   run office_js '
+fresh();
 render();
 const a = office.floor.layer;
 render();
@@ -274,6 +278,7 @@ console.log(a === null, b !== null && !b.done);'
 
 @test "a floor still being built asks for another render, and stops asking once it is done" {
   run office_js '
+fresh();
 render();
 const first = timers.filter((t) => !t.cancelled).length;
 let renders = 1;
@@ -357,4 +362,54 @@ render();
 console.log(a, office.floor.layer === open && open.done);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true" ]
+}
+
+# a cold start: nothing sized from the floor is drawn until the stage's real size is known and the first floor is complete
+
+@test "before herdr has measured the stage, only the bar and a waiting line are drawn" {
+  run office_js '
+fresh();
+office.measured = false;
+const root = render();
+const stage = find(root, "stage");
+const drawn = all(stage).filter((n) => n.fill || /^(person|tag|m|hm|tm)-/.test(id(n) || ""));
+console.log(drawn.length, all(stage).some((n) => n.kids.includes("Setting up the office…")), find(root, "totals") !== undefined, office.floor === null || office.floor.layer === null);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 true true true" ]
+}
+
+@test "the stage reports its size even while it shows only the waiting line, and that ends the wait" {
+  run office_js '
+fresh();
+office.measured = false;
+const stage = find(render(), "stage");
+stage.props.on_size_change[0]({ width: 1500, height: 900 }, cx);
+console.log(office.measured, office.size.width, office.size.height);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 1500 900" ]
+}
+
+@test "once measured, nothing but the waiting line is drawn until the first floor is complete, then floor, people and tags arrive together" {
+  run office_js '
+fresh();
+const stage = (root) => all(find(root, "stage"));
+const state = (root) => ({ shapes: stage(root).filter((n) => n.fill && n.fill.length === 7).length, people: stage(root).filter((n) => /^person-/.test(id(n) || "")).length, tags: stage(root).filter((n) => /^tag-/.test(id(n) || "")).length, wait: stage(root).some((n) => n.kids.includes("Setting up the office…")) });
+const seen = [];
+for (let i = 0; i < 30; i++) seen.push(state(render()));
+const firstFull = seen.findIndex((x) => x.shapes > 100);
+const before = seen.slice(0, firstFull);
+console.log(firstFull > 1, before.every((x) => x.shapes === 0 && x.people === 0 && x.tags === 0 && x.wait), seen[firstFull].people > 5, seen[firstFull].tags > 5, !seen[firstFull].wait);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true true" ]
+}
+
+@test "a new plan after the first does not bring the waiting line back" {
+  run office_js '
+for (let i = 0; i < 20; i++) render();
+office.size = { width: 1630, height: 1000 };
+const wait = [];
+for (let i = 0; i < 4; i++) wait.push(all(find(render(), "stage")).some((n) => n.kids.includes("Setting up the office…")));
+console.log(wait.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false,false,false,false" ]
 }
