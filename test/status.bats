@@ -115,3 +115,18 @@ setup() {
   run "$LOH" status --repos --json
   [ "$status" -eq 2 ]
 }
+
+@test "status --settings prints the idle time, 3 minutes when the manifest does not set it" {
+  printf 'name: sandbox\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' >"$WS/.loh/workspace.md"
+  run "$LOH" status --settings
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"idle_minutes":3}' ]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "status --settings prints idle_minutes from the manifest" {
+  printf 'name: sandbox\nidle_minutes: 10\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' >"$WS/.loh/workspace.md"
+  run "$LOH" status --settings
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"idle_minutes":10}' ]
+}

@@ -3,6 +3,8 @@
 # loh status --repos: the manifest's repos as a JSON array (name, path, branch,
 # github), in manifest order. The office mod reads the repo rooms from this, so
 # the manifest is still parsed in one place (manifest_load).
+# loh status --settings: the manifest's office settings as a JSON object
+# ({"idle_minutes": 3}); the office reads the idle time from here.
 #
 # Lists this workspace's terminals with `hc ls --label crew=<name>`, then reads
 # each one with `hc get` for its labels (role, task, step, pr, round,
@@ -11,14 +13,19 @@ set -euo pipefail
 # shellcheck source=lib/loh/lock.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lock.sh"
 
-usage() { echo "Usage: loh status [--json | --repos]" >&2; }
+usage() { echo "Usage: loh status [--json | --repos | --settings]" >&2; }
 
 json=""
 repos=""
+settings=""
 case "${1:-}" in
   "") ;;
   --repos)
     repos=1
+    shift
+    ;;
+  --settings)
+    settings=1
     shift
     ;;
   --json)
@@ -36,6 +43,12 @@ if [[ $# -gt 0 ]]; then
 fi
 
 need jq
+
+if [[ -n "$settings" ]]; then
+  manifest_load
+  jq -cn --argjson idle "$WS_IDLE_MINUTES" '{idle_minutes: $idle}'
+  exit 0
+fi
 
 if [[ -n "$repos" ]]; then
   manifest_load

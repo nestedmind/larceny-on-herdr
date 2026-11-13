@@ -144,6 +144,48 @@ MD
   [[ "$stderr" == *"pane_mod"* ]]
 }
 
+@test "manifest_load defaults idle_minutes to 3 and reads it when set" {
+  write_manifest <<'MD'
+name: demo
+repos:
+  - name: api
+    path: ./api
+    branch: main
+    github: acme/api
+MD
+  manifest_load
+  [ "$WS_IDLE_MINUTES" = "3" ]
+  write_manifest <<'MD'
+name: demo
+idle_minutes: "12"
+repos:
+  - name: api
+    path: ./api
+    branch: main
+    github: acme/api
+MD
+  manifest_load
+  [ "$WS_IDLE_MINUTES" = "12" ]
+}
+
+@test "manifest_load dies on an idle_minutes that is not a whole number above zero" {
+  local bad
+  for bad in 0 -1 2.5 soon; do
+    write_manifest <<MD
+name: demo
+idle_minutes: $bad
+repos:
+  - name: api
+    path: ./api
+    branch: main
+    github: acme/api
+MD
+    run --separate-stderr manifest_load
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"idle_minutes"* ]]
+  done
+}
+
 @test "manifest_load accepts the board key" {
   write_manifest <<'MD'
 board: github-project acme/1

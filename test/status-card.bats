@@ -51,10 +51,42 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
   [ ! -s "$FAKE_HC_LOG" ]
 }
 
-@test "UserPromptSubmit sets step to reading the prompt" {
+@test "UserPromptSubmit sets step to reading the prompt and clears the context label" {
   run_hook_pipe < <(fixture user-prompt-submit)
   [ "$status" -eq 0 ]
-  [ "$(hc_calls)" = "$(label_line 'step=reading the prompt')" ]
+  [ "$(hc_calls)" = "$(label_line 'step=reading the prompt'$'\t''ctx=')" ]
+}
+
+@test "PreCompact marks the session as compacting with ctx=compact" {
+  run_hook_pipe < <(fixture stop '.hook_event_name = "PreCompact" | .trigger = "auto"')
+  [ "$status" -eq 0 ]
+  [ "$(hc_calls)" = "$(label_line 'ctx=compact')" ]
+}
+
+@test "SessionStart after a compaction removes the ctx label, so the office sends the agent back to its desk" {
+  run_hook_pipe < <(fixture stop '.hook_event_name = "SessionStart" | .source = "compact"')
+  [ "$status" -eq 0 ]
+  [ "$(hc_calls)" = "$(label_line 'ctx=')" ]
+}
+
+@test "SessionStart after a clear sets ctx=clear" {
+  run_hook_pipe < <(fixture stop '.hook_event_name = "SessionStart" | .source = "clear"')
+  [ "$status" -eq 0 ]
+  [ "$(hc_calls)" = "$(label_line 'ctx=clear')" ]
+}
+
+@test "SessionStart at startup or on resume writes no label" {
+  run_hook_pipe < <(fixture stop '.hook_event_name = "SessionStart" | .source = "startup"')
+  [ "$status" -eq 0 ]
+  run_hook_pipe < <(fixture stop '.hook_event_name = "SessionStart" | .source = "resume"')
+  [ "$status" -eq 0 ]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "the context events from a subagent write no label" {
+  run_hook_pipe < <(fixture stop '.hook_event_name = "PreCompact" | .agent_id = "sub1"')
+  [ "$status" -eq 0 ]
+  [ ! -s "$FAKE_HC_LOG" ]
 }
 
 @test "PreToolUse Edit sets step to editing the repo-relative file" {
@@ -199,7 +231,10 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 
 @test "hooks.json wires the events to the script with short timeouts" {
   local f="$REPO_ROOT/hooks/hooks.json"
-  jq -e '.hooks | has("UserPromptSubmit") and has("PreToolUse") and has("PostToolUse") and has("Stop") and has("StopFailure")' "$f"
+  jq -e '.hooks | has("UserPromptSubmit") and has("PreToolUse") and has("PostToolUse") and has("Stop") and has("StopFailure") and has("PreCompact") and has("SessionStart")' "$f"
+  # SessionStart runs only for the two sources the office reads: a compaction and a clear.
+  run jq -r '.hooks.SessionStart[0].matcher' "$f"
+  [ "$output" = "compact|clear" ]
   run jq -r '[.hooks[][].hooks[] | select(.type == "command") | .command] | unique | .[]' "$f"
   [ "$status" -eq 0 ]
   [ "$output" = '${CLAUDE_PLUGIN_ROOT}/hooks/status-card.sh' ]

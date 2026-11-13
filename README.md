@@ -67,8 +67,9 @@ repos:
 ```
 
 - `name` is required. Every crew terminal gets the label `crew=<name>`.
-- Only `name`, `pane_mode`, `repos` and `board` are allowed at the top level. `board` is accepted and ignored. Any other key is an error, so a typo such as `pane_mod:` cannot quietly fall back to the default.
+- Only `name`, `pane_mode`, `idle_minutes`, `repos` and `board` are allowed at the top level. `board` is accepted and ignored. Any other key is an error, so a typo such as `pane_mod:` cannot quietly fall back to the default.
 - `pane_mode` is the Claude permission mode for crew terminals: `default`, `acceptEdits`, `auto`, `plan` or `dontAsk`. The default is `auto`. `bypassPermissions` is refused on purpose.
+- `idle_minutes` (optional, a whole number above zero, default 3) is how long a person sits at their desk in the office after a turn ends before going to the lounge. `loh status --settings` prints it as JSON.
 - Each repo needs `name`, `path` (relative to the workspace folder), `branch` (the default branch) and `github` (`owner/repo`).
 
 ## Commands
@@ -87,7 +88,7 @@ repos:
 | `loh card k=v...` | Sets the agent's own status card: `step`, `pr`, `round` or `note`. |
 | `loh lock <name>`, `loh unlock <name>` | Set or remove the "with Matt" label. `loh say` refuses an agent that has it. |
 | `loh open <name>`, `loh close <name>` | `open` locks the agent and shows it in herdr-app. `close` unlocks it. |
-| `loh status [--json]` | One line per crew agent: role, task, state, step, PR, round, and whether it is with Matt. `loh status --repos` prints the manifest's repos as JSON. |
+| `loh status [--json]` | One line per crew agent: role, task, state, step, PR, round, and whether it is with Matt. `loh status --repos` prints the manifest's repos as JSON, and `loh status --settings` its office settings (`{"idle_minutes":3}`). |
 | `loh watch [crew]` | Sends a desktop notification when an agent blocks (`<Name> needs you`) or escalates through `loh card note=escalation:<text>`. `crew` defaults to the manifest `name`. It uses `notify-send` or `osascript`, and prints to stdout when neither is there. If `hc events` ends, it restarts after a growing delay. |
 
 Environment variables: `LOH_WORKSPACE` (the workspace folder), `LOH_START_TIMEOUT` (seconds to wait for a new agent to be idle, default 60), `LOH_SAY_TRIES` and `LOH_SAY_DELAY` (the retry count and the seconds between tries for `loh say`), and `LARCENY_CONFIG_DIR` (where the persona token files are, default `~/.config/larceny`).

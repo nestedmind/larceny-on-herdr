@@ -38,7 +38,7 @@ for arg in "$@"; do
   value="${arg#*=}"
   case "$key" in
     step | pr | round | note) ;;
-    with_matt | crew | role | task)
+    with_matt | crew | role | task | ctx)
       echo "loh: card: $key is set by loh and cannot be changed here" >&2
       exit 2
       ;;

@@ -30,10 +30,11 @@ setup() {
 
 @test "card refuses the protected keys and calls hc not at all" {
   local key
-  for key in with_matt crew role task; do
+  for key in with_matt crew role task ctx; do
     run --separate-stderr "$LOH" card "$key=x"
     [ "$status" -eq 2 ]
     [[ "$stderr" == *"$key"* ]]
+    [[ "$stderr" == *"set by loh"* ]]
   done
   [ ! -s "$FAKE_HC_LOG" ]
 }
