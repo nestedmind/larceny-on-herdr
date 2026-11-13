@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, tellCall, tellError, transcriptCall, withPending } from "./chat.js";
+import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, speaker, tellCall, tellError, tellOutcome, transcriptCall, withPending } from "./chat.js";
 
 export const PANEL_W = 360;
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -107,20 +107,29 @@ export class Panel {
     this.pending.push(entry);
     st.set_value("");
     const c = tellCall(a, this.host.loh(), text);
+    // Only a "failed" call (loh refused, nothing was sent) puts the text back. A call that was cut
+    // off may still deliver: keep the message in the log as unconfirmed and say so, so a second Send
+    // does not send it twice.
+    const unknown = () => {
+      entry.unsure = true;
+      this.error = `Not sure ${a.name} got it: the send did not report back and may still go out. Check the log before sending again.`;
+    };
     exec(c.cmd, c.args, c.options).then((r) => {
       this.sending = false;
-      if (r.code !== 0) {
+      const outcome = tellOutcome(r);
+      if (outcome === "failed") {
         this.pending = this.pending.filter((p) => p !== entry);
         this.error = tellError(r, a.name);
         st.set_value(text);
+      } else if (outcome === "unknown") {
+        unknown();
       }
       this.fetchedKey = null;
       cx.notify();
-    }).catch((e) => {
+    }).catch(() => {
       this.sending = false;
-      this.pending = this.pending.filter((p) => p !== entry);
-      this.error = String((e && e.message) || e || "could not send").slice(0, 200);
-      st.set_value(text);
+      unknown();
+      this.fetchedKey = null;
       cx.notify();
     });
   }
@@ -163,18 +172,20 @@ export class Panel {
     const { shown } = withPending(this.turns, this.pending);
     const log = shown.map((m) => v_flex().gap(1).p(6).rounded(6)
       .bg(m.role === "user" ? t.accent + "33" : t.chrome).opacity(m.pending ? 0.6 : 1)
-      .child(div().text_size(10).text_color(t.muted).child(`${m.role === "user" ? "Matt" : a.name}${m.pending ? " · sending" : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
+      .child(div().text_size(10).text_color(t.muted).child(`${speaker(m, a.name)}${m.pending ? (m.unsure ? " · not confirmed" : " · sending…") : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
       .child(div().text_size(12).text_color(t.foreground).whitespace_normal().child(m.text.length > 1200 ? m.text.slice(0, 1200) + "…" : m.text)));
     if (shown.length !== this.lastCount && shown.length > 0) {
       this.lastCount = shown.length;
       this.scroll.scroll_to_item(shown.length - 1);
     }
-    const chat = div().id("panel-log").flex_1().min_h(80).overflow_y_scroll().track_scroll(this.scroll)
-      .child(v_flex().gap(6).children(log.length ? log : [div().text_size(11).text_color(t.muted).child(`No messages from ${a.name} yet.`)]));
+    // The turns are direct children of the scroll area: scroll_to_item reveals a direct child
+    // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest turn out of reach.
+    const chat = v_flex().id("panel-log").flex_1().min_h(80).gap(6).overflow_y_scroll().track_scroll(this.scroll)
+      .children(log.length ? log : [div().text_size(11).text_color(t.muted).child(`No messages from ${a.name} yet.`)]);
 
     const form = h_flex().gap(6).items_center()
       .child(div().flex_1().h(28).child(Input.new(this.inputs.get(a.address))))
-      .child(this.button("panel-send", this.sending ? "Sending" : "Send", (_e, c) => this.send(c), t).opacity(why ? 0.5 : 1));
+      .child(this.button("panel-send", this.sending ? "Sending…" : "Send", (_e, c) => this.send(c), t).opacity(why || this.sending ? 0.5 : 1));
 
     return v_flex().id("panel").w(PANEL_W).h_full().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
       .child(head).child(card).child(actions).when(!!notice, (el) => el.child(notice))

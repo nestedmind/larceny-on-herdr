@@ -22,7 +22,7 @@ console.log(JSON.stringify(chat.transcriptCall(a, "/bin/loh", 30)));
 console.log(JSON.stringify(chat.tellCall(a, undefined, "--force; rm -rf x")));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = '{"cmd":"/bin/loh","args":["transcript","scofield","--last","30"],"options":{"cwd":"/ws/x","timeout":8000}}' ]
-  [ "${lines[1]}" = '{"cmd":"loh","args":["tell","scofield","--force; rm -rf x"],"options":{"cwd":"/ws/x","timeout":15000}}' ]
+  [ "${lines[1]}" = '{"cmd":"loh","args":["tell","scofield","--force; rm -rf x"],"options":{"cwd":"/ws/x","timeout":75000}}' ]
 }
 
 @test "panel: parseTranscript reads what loh transcript prints for the fixture session" {
@@ -40,7 +40,7 @@ const t = chat.parseTranscript(fs.readFileSync("'"$BATS_TEST_TMPDIR"'/t.json", "
 console.log(t.map((m) => m.role[0] + ":" + m.text.split("\n")[0]).join("|"));
 console.log(chat.parseTranscript("not json").length, chat.parseTranscript("{}").length, chat.parseTranscript(JSON.stringify([{role:"tool",text:"x"},{role:"user",text:""},{role:"user",text:"ok"}])).length);'
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "u:Hello coordinator, what is open?|a:Two tickets are open: api#2 and web#1.|u:Please merge api#2|a:Merged." ]
+  [ "${lines[0]}" = "u:Hello coordinator, what is open?|a:Two tickets are open: api#2 and web#1.|u:Please merge api#2|a:web PR #5 squash-merged.|a:Merged." ]
   [ "${lines[1]}" = "0 0 1" ]
 }
 
@@ -119,4 +119,53 @@ console.log(JSON.stringify(chat.cardRows({ role: "coder", status: "blocked", kin
 @test "panel: the mod files use no timer" {
   run grep -nE 'setTimeout|setInterval|timer\.' "$(mod_dir)/panel.js" "$(mod_dir)/chat.js"
   [ "$status" -ne 0 ]
+}
+
+@test "panel: tell outlasts hc send's 60 s draft wait" {
+  run chat_js 'console.log(chat.tellCall({ rawName: "a", cwd: "/x" }, "loh", "t").options.timeout > 60000)'
+  [ "$output" = "true" ]
+}
+
+@test "panel: a cut-off send is unknown, a refusal from loh is failed" {
+  run chat_js '
+console.log(chat.tellOutcome({ code: 0, stderr: "" }));
+console.log(chat.tellOutcome({ code: 9, stderr: "loh: amy is blocked\n" }));
+console.log(chat.tellOutcome({ code: 1, stderr: "loh: hc send amy failed" }));
+console.log(chat.tellOutcome({ code: 124, stderr: "" }), chat.tellOutcome({ code: 137, stderr: "" }), chat.tellOutcome({ code: null }), chat.tellOutcome(undefined));
+console.log(chat.tellOutcome({ code: 10, stderr: "" }));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "sent" ]
+  [ "${lines[1]}" = "failed" ]
+  [ "${lines[2]}" = "failed" ]
+  [ "${lines[3]}" = "unknown unknown unknown unknown" ]
+  [ "${lines[4]}" = "unknown" ]
+}
+
+@test "panel: another agent's message is labelled with its sender, not Matt" {
+  run chat_js '
+const t = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: "hi", ts: "" },
+  { role: "agent", text: "PR merged", from: "whip", ts: "" },
+  { role: "agent", text: "no sender", ts: "" },
+  { role: "assistant", text: "ok", ts: "" }]));
+console.log(t.map((m) => chat.speaker(m, "Scofield")).join("|"));
+const r = chat.withPending(t, [{ text: "later", unsure: true }]);
+console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Scofield"));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "Matt|whip|another agent|Scofield" ]
+  [ "${lines[1]}" = "true true Matt" ]
+}
+
+@test "panel: the log's turns are direct children of the scroll area" {
+  # scroll_to_item reveals a direct child, so no wrapper may sit between the scroll div and the turns
+  run grep -n 'overflow_y_scroll().track_scroll' "$(mod_dir)/panel.js"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'v_flex().id("panel-log")'* ]]
+  run grep -c 'track_scroll(this.scroll)$' "$(mod_dir)/panel.js"
+  [ "$output" = "1" ]
+  grep -A1 'track_scroll(this.scroll)' "$(mod_dir)/panel.js" | grep -q '^      \.children(log'
+}
+
+@test "panel: clicking a person selects the panel even when a terminal is docked" {
+  grep -q 'this.panel.select(a, cx); if (this.chat) this.open(a, cx);' "$(mod_dir)/main.js"
 }

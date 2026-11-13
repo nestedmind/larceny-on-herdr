@@ -10,12 +10,13 @@
 # The agent's cwd and argv come from `hc get`. Several agents can share a
 # folder, so a session whose first lines name the agent's `--agent` value
 # (`agentSetting`) is preferred; among the candidates the newest file wins.
-# With no match, or no --agent, the newest file in the folder is used. No file
-# at all prints [].
+# Without an --agent the newest file in the folder is used. With one and no
+# match (the agent has not written a session yet), or no file at all, it prints [].
 #
-# Kept: user turns (typed text) and assistant text. Left out: thinking, tool
-# calls and results, meta and sub-agent turns, <system-reminder> blocks and
-# command echoes. Turns are cut to 4000 characters. A half-written last line is
+# Kept: user turns (typed text), assistant text, and messages other agents sent
+# in (<hc from="tN name">...</hc>), unwrapped, as {"role":"agent","from":"name"}.
+# Left out: thinking, tool calls and results, meta and sub-agent turns,
+# <system-reminder> blocks, command echoes and bare <hc>...</hc> notes. Turns are cut to 4000 characters. A half-written last line is
 # skipped.
 set -euo pipefail
 # shellcheck source=common.sh
@@ -66,7 +67,11 @@ if [[ -d "$dir" ]]; then
       fi
     done <<<"$files"
   fi
-  [[ -n "$file" ]] || file="$(printf '%s\n' "$files" | head -n 1)"
+  # No --agent to tell sessions apart: the newest file. With one and no match the
+  # agent has no session yet, and another agent's file must not stand in for it.
+  if [[ -z "$file" && -z "$agent" ]]; then
+    file="$(printf '%s\n' "$files" | head -n 1)"
+  fi
 fi
 if [[ -z "$file" ]]; then
   echo "[]"
@@ -83,7 +88,12 @@ filter='
              elif ($c | type) == "array" then ([$c[] | select(.type == "text") | .text] | join("\n"))
              else "" end) }
   | .text |= (gsub("(?s)<system-reminder>.*?</system-reminder>"; "") | gsub("^\\s+|\\s+$"; ""))
-  | select(.text != "" and (.text | test("^<(local-)?command-") | not))
+  | select(.text != "" and (.text | test("^<(local-)?command-|^<hc>") | not))
+  | if (.text | test("^<hc from=\"")) then
+      .role = "agent"
+      | .from = (.text | capture("^<hc from=\"(?:\\S+ )?(?<n>[^\"]+)\"").n)
+      | .text |= (sub("^<hc from=\"[^\"]*\">\\s*"; "") | sub("\\s*</hc>\\s*$"; ""))
+    else . end
   | .text |= (if length > 4000 then .[0:4000] + "…" else . end)'
 
 jq -cR "$filter" "$file" | tail -n "$last" | jq -s .

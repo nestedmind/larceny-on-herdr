@@ -3,6 +3,9 @@
 // bookkeeping and the activity feed's diff of agent states. panel.js draws it.
 
 const FEED_MAX = 100;
+// `hc send` waits up to its draft_wait (60 s by default) for a half-typed draft in the target's
+// terminal. The call must outlast that, or a send that is still going to happen looks like a failure.
+export const TELL_TIMEOUT = 75000;
 
 /** Strip control characters and cut to n characters. */
 function clip(value, n) {
@@ -17,7 +20,7 @@ export function transcriptCall(agent, loh, last = 40) {
 
 /** `loh tell <name> <text>`: the text is one argument, so nothing in it is read as an option or a shell word. */
 export function tellCall(agent, loh, text) {
-  return { cmd: loh || "loh", args: ["tell", agent.rawName, text], options: { cwd: agent.cwd || undefined, timeout: 15000 } };
+  return { cmd: loh || "loh", args: ["tell", agent.rawName, text], options: { cwd: agent.cwd || undefined, timeout: TELL_TIMEOUT } };
 }
 
 /** The turns in `loh transcript` output: [{ role, text, ts }]. Anything else gives []. */
@@ -27,8 +30,9 @@ export function parseTranscript(text) {
   if (!Array.isArray(list)) return [];
   const out = [];
   for (const m of list) {
-    if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.text !== "string" || m.text === "") continue;
-    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", pending: false });
+    if (!m || (m.role !== "user" && m.role !== "assistant" && m.role !== "agent") || typeof m.text !== "string" || m.text === "") continue;
+    // role "agent" is another agent's message into this session; `from` is its sender.
+    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false });
   }
   return out;
 }
@@ -41,7 +45,18 @@ export function parseTranscript(text) {
 export function withPending(turns, pending) {
   const seen = turns.filter((m) => m.role === "user").map((m) => m.text.trim());
   const rest = pending.filter((p) => !seen.includes(p.text.trim()));
-  return { shown: [...turns, ...rest.map((p) => ({ role: "user", text: p.text, ts: "", pending: true }))], pending: rest };
+  return { shown: [...turns, ...rest.map((p) => ({ role: "user", text: p.text, ts: "", from: "", pending: true, unsure: !!p.unsure }))], pending: rest };
+}
+
+/**
+ * What happened to a `loh tell` call that returned: "sent", "failed" (loh said no, and said why: nothing
+ * was sent) or "unknown" (killed or cut off with no word from loh: the message may still go out).
+ */
+export function tellOutcome(result) {
+  if (!result || typeof result.code !== "number") return "unknown";
+  if (result.code === 0) return "sent";
+  const said = String(result.stderr || "").trim() !== "";
+  return [1, 2, 9, 10, 11].includes(result.code) && said ? "failed" : "unknown";
 }
 
 /** What to tell Matt when `loh tell` failed: loh's own line, without its "loh: " prefix. */
@@ -58,6 +73,13 @@ export function sendBlock(agent) {
   if (agent.status !== "blocked") return "";
   const what = agent.kind === "permission" ? "a permission dialog" : agent.kind === "question" ? "a question" : "a dialog";
   return `${agent.name} is waiting on ${what}. Answer it in the terminal; a typed message would answer it for you.`;
+}
+
+/** Who a log turn is from: Matt for typed turns, the sender's name for another agent's message. */
+export function speaker(m, agentName) {
+  if (m.role === "user") return "Matt";
+  if (m.role === "agent") return m.from || "another agent";
+  return agentName;
 }
 
 /** Card rows for an agent: [label, value], only the ones known. */

@@ -186,7 +186,7 @@ export default class CrewOffice extends View {
       .when(this.anim, (el) => el.transition("left", WALK).transition("top", WALK))
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
-      .on_click((_e, cx) => (this.chat ? this.open(a, cx) : this.panel.select(a, cx)))
+      .on_click((_e, cx) => { this.panel.select(a, cx); if (this.chat) this.open(a, cx); })
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))

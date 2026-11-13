@@ -32,7 +32,22 @@ fixture() { cp "$REPO_ROOT/test/fixtures/transcripts/$1.jsonl" "$PROJ/$2.jsonl";
   run --separate-stderr "$LOH" transcript scofield
   [ "$status" -eq 0 ]
   [ "$(jq -r '[.[] | .role + ": " + .text] | join("|")' <<<"$output")" = \
-    $'user: Hello coordinator, what is open?|assistant: Two tickets are open: api#2 and web#1.|user: Please merge api#2|assistant: Merged.\n\nDone.' ]
+    $'user: Hello coordinator, what is open?|assistant: Two tickets are open: api#2 and web#1.|user: Please merge api#2|agent: web PR #5 squash-merged.|assistant: Merged.\n\nDone.' ]
+}
+
+@test "transcript drops bare <hc> notes and unwraps <hc from> messages with the sender's name" {
+  fixture coordinator c1
+  run "$LOH" transcript scofield
+  ! grep -q 'exited (exit 129)' <<<"$output"
+  [ "$(jq -r '[.[] | select(.role == "agent") | .from + "=" + .text] | join("|")' <<<"$output")" = "whip=web PR #5 squash-merged." ]
+  [ "$(jq -r '[.[] | select(.role == "user") | has("from")] | any' <<<"$output")" = "false" ]
+}
+
+@test "transcript prints [] when the agent has an --agent but no session names it" {
+  fixture reviewer r1
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
 }
 
 @test "transcript carries the timestamp of each turn" {
@@ -45,7 +60,7 @@ fixture() { cp "$REPO_ROOT/test/fixtures/transcripts/$1.jsonl" "$PROJ/$2.jsonl";
   fixture coordinator c1
   run "$LOH" transcript scofield --last 2
   [ "$status" -eq 0 ]
-  [ "$(jq -r '[.[].text] | join("|")' <<<"$output")" = $'Please merge api#2|Merged.\n\nDone.' ]
+  [ "$(jq -r '[.[].text] | join("|")' <<<"$output")" = $'web PR #5 squash-merged.|Merged.\n\nDone.' ]
 }
 
 @test "transcript picks the session of the agent's own --agent among several in one folder" {
