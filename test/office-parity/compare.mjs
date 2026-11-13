@@ -160,11 +160,11 @@ export const CHECKS = {
   },
 
   /**
-   * Name tags, as the prototype places them (its syncTags): every figure has one; it is centred on its person (kept 2 px
-   * inside the floor's edge), 9 units below them, or above them when they are seated at a desk of side "n" (the
+   * Name tags, as the prototype places them (its syncTags): every figure has one; it is centred on its person (kept 2 units
+   * inside the floor's edge, and inside its bottom edge), 9 units below them, or above them when they are seated at a desk of side "n" (the
    * prototype's topRowSeated, taken from the prototype's own desk data, not from the office's layout). Tags are placed
    * in order of their person's y, then x; one that would cover a tag already placed moves to just clear of it (below
-   * it, or above it for a tag above; 0.6 units of gap), up to four times. This replays that, so a crowd is exact.
+   * it, or above it for a tag above; 0.6 units of gap), up to four times. This replays that, so a crowd is exact. The office's known differences are KNOWN in cases.mjs.
    *
    * KEEP IN STEP WITH main.js: the sizes below (a tag's height from its lines, a chip's width from its text) are
    * main.js's own sizing rules in `sized` (render) and its tag() lines, copied here because the node stub has no layout.
@@ -193,30 +193,25 @@ export const CHECKS = {
       const where = a ? [a.repo, a.pr, a.round].some(Boolean) : false;
       const w = a ? t.w : (p.name.length + (p.running || p.id === "matt" || p.id === "dog" ? 0 : 9)) * 6.4 + 26;
       const h = a ? 4 + 13 + 11 + (where ? 11 : 0) + (a.withMatt ? 13 : 0) : 17;
-      items.push({ p, t, d, w, h, up: sideOf(p) === "n", x: Math.min(Math.max(2, d.x - w / 2), Math.max(2, fw - w - 2)) });
+      items.push({ p, t, d, w, h, up: sideOf(p) === "n" });
     }
-    // The gap left when a tag moves clear is 0.6 units in the prototype and 1 px in the office (crew.js stackTags):
-    // the replay is made with each, and a tag may be anywhere between the two results.
-    const replay = (gap) => {
-      const placed = [], ys = new Map();
-      for (const a of [...items].sort((s, u) => s.d.y - u.d.y || s.d.x - u.d.x)) {
-        let y = a.up ? a.d.y - 10 * k - a.h : a.d.y + 9 * k;
-        for (let i = 0; i < 4; i++) {
-          const hit = placed.find((q) => a.x < q.x + q.w && q.x < a.x + a.w && y < q.y + q.h && q.y < y + a.h);
-          if (!hit) break;
-          y = a.up ? hit.y - a.h - gap : hit.y + hit.h + gap;
-        }
-        y = Math.max(2, y);
-        placed.push({ x: a.x, y, w: a.w, h: a.h });
-        ys.set(a.p.id, y);
+    // The prototype's own rules, in its units (u = px a unit here): a 0.6 unit gap, the tag kept 2 units inside the
+    // floor's edges, and pulled back inside the bottom edge. Nothing here is taken from the office. Where the office
+    // differs, the difference is listed in KNOWN (cases.mjs) with its ticket and is not counted as a failure.
+    const placed = [];
+    for (const a of [...items].sort((s, u) => s.d.y - u.d.y || s.d.x - u.d.x)) {
+      const x0 = a.d.x - a.w / 2; // the prototype tests overlap on the unclamped box
+      let y = a.up ? a.d.y - 10 * k - a.h : a.d.y + 9 * k;
+      for (let i = 0; i < 4; i++) {
+        const hit = placed.find((q) => x0 < q.x + q.w && q.x < x0 + a.w && y < q.y + q.h && q.y < y + a.h);
+        if (!hit) break;
+        y = a.up ? hit.y - a.h - 0.6 * k : hit.y + hit.h + 0.6 * k;
       }
-      return ys;
-    };
-    const theirs = replay(0.6 * k), ours = replay(1);
-    for (const a of items) {
-      f.px("tags", a.p.id, "x", a.t.x, a.x);
-      const lo = Math.min(theirs.get(a.p.id), ours.get(a.p.id)), hi = Math.max(theirs.get(a.p.id), ours.get(a.p.id));
-      f.axis("tags", a.p.id, "y", a.t.y / k, [lo / k, hi / k]);
+      y = Math.max(2 * k, y);
+      placed.push({ x: x0, y, w: a.w, h: a.h });
+      const left = Math.min(Math.max(a.d.x, a.w / 2 + 2 * k), fw - a.w / 2 - 2 * k) - a.w / 2;
+      f.px("tags", a.p.id, "x", a.t.x, left);
+      f.px("tags", a.p.id, "y", a.t.y, Math.min(y, r.floorBox.h - a.h - 2 * k));
     }
   },
 

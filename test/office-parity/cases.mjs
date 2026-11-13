@@ -34,3 +34,18 @@ export const CASES = [
 
 // The walk checked on cases with `route`: from a kitchen spot to the leads room's desk seat.
 export const ROUTE = { id: "mahone", from: { room: "kitchen", spot: 0 }, to: { desk: "scofield" }, samples: 24 };
+
+// Where the office differs from the prototype and a ticket is open for it. Each entry names the case, the check, the
+// person (or tag), the field and by how many px the office is off (to 0.1 px); a difference that matches all of them is
+// printed as "known (<ticket>)" and does not fail the run. Anything else fails, so a known difference that gets worse
+// fails too. An entry that matches nothing (the office was fixed, or its number moved) fails the run until it is
+// removed or updated. Empty this list as the ticket lands.
+// #29: name tags are stacked and clamped as the prototype does (a gap of 0.6 units, kept 2 units inside the floor's
+// edges, pulled back inside its bottom edge).
+const known = (kase, list) => list.map(([id, field, off]) => ({ case: kase, check: "tags", id, field, off, ticket: "#29" }));
+export const KNOWN = [
+  ...known("two-repos-native", [["sara", "x", 2], ["x:t15", "x", 2], ["x:t17", "x", 2], ["x:t10", "y", 17.03], ["x:t11", "y", 57.03], ["x:t17", "y", 29.01], ["x:t13", "y", 97.03], ["dog", "y", 3]]),
+  ...known("two-repos-16x9", [["x:t13", "y", 1.29]]),
+  ...known("two-repos-narrow", [["x:t10", "y", 1.11], ["x:t11", "y", 1.48], ["x:t17", "y", 1.11], ["x:t13", "y", 35.21]]),
+  ...known("six-repos", [["sara", "x", 1.12], ["x:t11", "y", 13.87], ["x:t13", "y", 53.87]]),
+];

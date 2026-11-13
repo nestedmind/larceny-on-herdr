@@ -11,7 +11,8 @@ setup() {
   [ -x "${PARITY_CHROME:-/usr/bin/google-chrome}" ] || skip "headless Chrome not installed"
   local main
   main="$(dirname "$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)")"
-  [ -f "${PARITY_PROTO:-$main/.larceny/office/crew-office.html}" ] || skip "the prototype page is not available (PARITY_PROTO)"
+  PROTO="${PARITY_PROTO:-$main/.larceny/office/crew-office.html}"
+  [ -f "$PROTO" ] || skip "the prototype page is not available (PARITY_PROTO)"
   TOOL="$REPO_ROOT/test/office-parity"
 }
 
@@ -217,4 +218,42 @@ use_fakes() {
   run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
   [ "$status" -eq 1 ]
   [[ "$output" == *" y: office"* ]]
+}
+
+@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases" {
+  run node "$TOOL/run.mjs"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"two-repos-native"*"8 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
+  [[ "$output" == *"two-repos-narrow"*"4 known"* && "$output" == *"six-repos"*"3 known"* ]]
+  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 16 ]
+}
+
+# The tool in a temp dir, so a test can change its list of known differences.
+copy_tool() {
+  TOOLCOPY="$BATS_TEST_TMPDIR/tool"
+  cp -r "$TOOL" "$TOOLCOPY"
+}
+
+@test "a difference that is not on the known list fails the run: take one off and it fails" {
+  copy_tool
+  sed -i 's/, \["dog", "y", 3\]//' "$TOOLCOPY/cases.mjs"
+  run node "$TOOLCOPY/run.mjs" --mod "$REPO_ROOT/office/crew-office" --proto "$PROTO" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"dog y: office"* && "$output" == *"FAIL"* ]]
+}
+
+@test "a known difference that has gone fails the run until it is removed: an entry the office does not match is stale" {
+  copy_tool
+  sed -i 's/\["dog", "y", 3\]/["dog", "y", 3], ["whip", "x", 5]/' "$TOOLCOPY/cases.mjs"
+  run node "$TOOLCOPY/run.mjs" --mod "$REPO_ROOT/office/crew-office" --proto "$PROTO" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STALE known entry (#29): tags whip x"* ]]
+}
+
+@test "a known difference that gets worse is not covered by its entry" {
+  copy_tool
+  sed -i 's/\["dog", "y", 3\]/["dog", "y", 4]/' "$TOOLCOPY/cases.mjs"
+  run node "$TOOLCOPY/run.mjs" --mod "$REPO_ROOT/office/crew-office" --proto "$PROTO" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"dog y: office"* && "$output" == *"STALE known entry"* ]]
 }

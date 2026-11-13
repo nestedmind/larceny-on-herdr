@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CASES, ROUTE } from "./cases.mjs";
+import { CASES, KNOWN, ROUTE } from "./cases.mjs";
 import { compareCase, comparePalette, LIMIT } from "./compare.mjs";
 import { loadOffice, drawOffice } from "./office.mjs";
 import { DEFAULT_PROTO, openPrototype, paletteOf } from "./proto.mjs";
@@ -24,15 +24,30 @@ const mod = resolve(opt("mod", join(here, "..", "..", "office", "crew-office")))
 const only = opt("case");
 const shown = flag("all") ? Infinity : 8;
 
-function print(name, k, res) {
-  console.log(`\n== ${name}  (scale ${k.toFixed(3)}; ${res.counted} values checked; ${res.findings.length} differ by more than ${LIMIT} px)`);
+// Splits a case's findings into those a KNOWN entry covers (same case, check, id, field and size) and the rest, and finds the
+// entries that matched nothing: those fail too, so the list empties as the office is fixed.
+function sortKnown(name, findings) {
+  const mine = KNOWN.filter((e) => e.case === name);
+  const hit = new Set();
+  const known = [], fresh = [];
+  for (const f of findings) {
+    const e = mine.find((x) => x.check === f.group && x.id === f.id && x.field === f.field && Math.abs(x.off - f.off) <= 0.1);
+    if (e) { hit.add(e); known.push({ ...f, ticket: e.ticket }); } else fresh.push(f);
+  }
+  return { known, fresh, stale: mine.filter((e) => !hit.has(e)) };
+}
+
+function print(name, k, res, sorted) {
+  console.log(`\n== ${name}  (scale ${k.toFixed(3)}; ${res.counted} values checked; ${sorted.fresh.length} differ by more than ${LIMIT} px, ${sorted.known.length} known)`);
   const groups = new Map();
-  for (const f of res.findings) (groups.get(f.group) || groups.set(f.group, []).get(f.group)).push(f);
+  for (const f of sorted.fresh) (groups.get(f.group) || groups.set(f.group, []).get(f.group)).push(f);
   for (const [g, list] of groups) {
     console.log(`  ${g}: ${list.length}`);
     for (const f of list.slice(0, shown)) console.log(`    ${f.id} ${f.field}: office ${JSON.stringify(f.got)}, prototype ${JSON.stringify(f.want)}, off by ${f.off} px`);
     if (list.length > shown) console.log(`    ... ${list.length - shown} more (--all lists them)`);
   }
+  for (const f of sorted.known) console.log(`  known (${f.ticket}): ${f.group} ${f.id} ${f.field}: office ${JSON.stringify(f.got)}, prototype ${JSON.stringify(f.want)}, off by ${f.off} px`);
+  for (const e of sorted.stale) console.log(`  STALE known entry (${e.ticket}): ${e.check} ${e.id} ${e.field} no longer differs by ${e.off} px: remove it or update it in KNOWN (cases.mjs)`);
 }
 
 try {
@@ -50,18 +65,19 @@ try {
     for (const c of chosen) {
       const r = await drawOffice(office, { agents: c.crew, repos: c.repos, stage: c.stage });
       const res = await compareCase({ P: proto.data, r, c, crew: office.crew, proto, route: c.route ? ROUTE : null });
-      print(c.name, r.k, res);
-      report.cases.push({ name: c.name, k: r.k, counted: res.counted, findings: res.findings });
+      const sorted = sortKnown(c.name, res.findings);
+      print(c.name, r.k, res, sorted);
+      report.cases.push({ name: c.name, k: r.k, counted: res.counted, findings: sorted.fresh, known: sorted.known, stale: sorted.stale });
       if (outDir) {
         const places = Object.fromEntries(r.L.people.filter((p) => !p.id.startsWith("x:")).map((p) => [p.id, { x: p.x, y: p.y }]));
         await makeImages(outDir, c.name, r, await proto.canvas(places), office.crew.look);
       }
     }
   } finally { proto.close(); }
-  const bad = report.palette.length + report.cases.reduce((n, c) => n + c.findings.length, 0);
+  const bad = report.palette.length + report.cases.reduce((n, c) => n + c.findings.length + c.stale.length, 0);
   if (flag("json")) console.log(JSON.stringify(report));
   if (outDir) console.log(`\nimages (overlay: the prototype at 50% over the office; diff: where they differ): ${outDir}`);
-  console.log(bad ? `\nFAIL: ${bad} differences` : "\nPASS: the office matches the prototype within 1 px, with identical colours");
+  console.log(bad ? `\nFAIL: ${bad} differences` : `\nPASS: the office matches the prototype within 1 px, with identical colours${report.cases.some((c) => c.known.length) ? " (except the known differences listed above)" : ""}`);
   process.exit(bad ? 1 : 0);
 } catch (e) {
   console.error("office-parity could not run: " + e.message);
