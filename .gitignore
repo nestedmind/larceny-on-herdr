@@ -1,1 +1,4 @@
 .larceny/
+# written into a mod folder by `herdr-app check`
+office/*/gpui-kit.d.ts
+office/*/jsconfig.json
