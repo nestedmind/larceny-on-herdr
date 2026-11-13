@@ -2,38 +2,16 @@
 // Reads terminals() labels (crew, role, task, step, pr, round, note, with_matt)
 // and each terminal's status. Keeps no state of its own beyond the pane size and the open chat
 // (which agent, in which pane). Clicking an agent docks its live terminal in a split beside the office.
-// Animation uses .frames() and .loop(), never timers.
+// The drawing is in draw.js and the placement in crew.js. Gaits, typing and the ball animate natively
+// (.loop(), .transition()); no repeating timer. A walk is one step per render: a one-shot timer ends each leg.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { chatGone, crewOf, fitScale, layoutCrew, lockCall, officePane, pickWorkspace, repoNames, reposCall, unlockCall, ROOM_H, DESK_H } from "./crew.js";
+import { anchorCwd, chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED } from "./crew.js";
+import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 
-const BLOCKED = { permission: ["#e7a43a", "allow?"], question: ["#4f8ff0", "?"], other: ["#d0509f", "!"] };
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
-
-// Person colours, from the Crew Office mock; anyone else gets one by name.
-const PEOPLE = {
-  scofield: ["#2a211c", "#e8b98f", "#3f5f93"], sucre: ["#16130f", "#b97a50", "#c4533a"],
-  mahone: ["#8c6c4c", "#efc9a3", "#6d7d40"], sheba: ["#4a2618", "#8d5a3b", "#8e4fa8"],
-  whip: ["#d8b04a", "#f0c8a0", "#2f8f8a"], amy: ["#b8432f", "#f1cfb0", "#39404f"],
-  yoda: ["#e4e1d6", "#93b36c", "#8a6e4b"], sara: ["#2b1d14", "#c68a62", "#3f7fbf"],
-};
-const WALK = { duration: 900, easing: "ease-in-out" };
-const SHIRTS =["#c4533a", "#6d7d40", "#8e4fa8", "#2f8f8a", "#d2a03a", "#e46b8f"];
-
-const FLOOR_LIGHT = { wall: "#2b2f3a", repo: "#d8a874", leads: "#d8a874", meet: "#5a7a9a", lounge: "#8a7aa8", kitchen: "#e8dfc9", corr: "#c99a68", desk: "#f6f1e8", monitor: "#262a35", chip: "#2b2f3a", chipInk: "#f6f3ec",
-  screen: "#1f2a36", screenInk: "#8fd3a5", counter: "#b9b2a3", fridge: "#dfe6ea", table: "#8aa27a", sofa: "#6a5a8c", rug: "#d98b4a", bed: "#c0504a", bedIn: "#f0e0c8", dog: "#d9a066" };
-const FLOOR_DARK = { wall: "#14161c", repo: "#6b5238", leads: "#6b5238", meet: "#34495f", lounge: "#4f4668", kitchen: "#6a6252", corr: "#5e4a35", desk: "#c9c2b4", monitor: "#262a35", chip: "#0e1015", chipInk: "#eceae4",
-  screen: "#10161d", screenInk: "#6fb98a", counter: "#7a7568", fridge: "#9aa3a8", table: "#5c7050", sofa: "#463c60", rug: "#8f5a30", bed: "#8a3a36", bedIn: "#b8a890", dog: "#a87a4c" };
-
-function people(name) {
-  const k = String(name).toLowerCase();
-  if (PEOPLE[k]) return PEOPLE[k];
-  let h = 0;
-  for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ["#2a211c", "#d9a27a", SHIRTS[h % SHIRTS.length]];
-}
 
 export default class CrewOffice extends View {
   init(_props, cx) {
@@ -46,17 +24,24 @@ export default class CrewOffice extends View {
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
+    // Where each person is drawn: { cur, goal, legs, i, tasks }. See motion().
+    this.acx = cx;
+    this.walks = new Map();
+    this.floor = null;
+    // A click on someone who is not running: { person, plan }. Nothing starts until the person confirms.
+    this.offer = null;
+    this.crewNow = [];
   }
 
-  // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in an
-  // agent's folder, which is inside the workspace. A failure keeps the last list.
+  // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in a
+  // folder inside the workspace: an agent's, else the `dir` prop. A failure keeps the last list.
   loadRepos(crew, workspace, cx) {
-    const from = crew.find((a) => a.role === "coordinator" && a.cwd) || crew.find((a) => a.cwd);
-    if (!from) return;
-    const key = `${workspace}|${from.cwd}|${crew.length}`;
+    const dir = anchorCwd(crew, props());
+    if (!dir) return;
+    const key = `${workspace}|${dir}|${crew.length}`;
     if (key === this.reposKey) return;
     this.reposKey = key;
-    const c = reposCall(from, (props() || {}).loh);
+    const c = reposCall({ cwd: dir }, (props() || {}).loh);
     exec(c.cmd, c.args, c.options).then((r) => {
       if (r.code !== 0) return;
       const next = repoNames(r.stdout);
@@ -135,42 +120,90 @@ export default class CrewOffice extends View {
     this.handle.focus();
   }
 
-  // One person, seen from above: shoulders, hair and a face that turns to `face` (n, s, e, w).
-  // A working person at a desk has both hands on the keyboard, on the side the desk is on.
-  // The wrapper has a stable id and slides (transition left/top) when the agent's place changes,
-  // so a state change shows as a walk to the new room. No timer: the slide runs natively.
-  person(a, x, y, face, place, k, F) {
-    const [hair, skin, shirt] = people(a.name);
-    const sz = Math.max(12, 16 * k);
-    const state = a.status;
-    const color = state === "blocked" ? BLOCKED[a.kind][0] : state === "working" ? "#3fae69" : state === "done" ? "#3fae69" : "#aab2bf";
-    const side = face === "e" ? 1 : face === "w" ? -1 : 0;
-    const dot = (cx, cy, d, bg) => div().absolute().left(sz * (cx - d / 2)).top(sz * (cy - d / 2)).w(sz * d).h(sz * d).rounded_full().bg(bg);
-    const bodyW = side ? 0.5 : 0.78;
-    const body = div().absolute().left(sz * (0.5 - bodyW / 2)).top(sz * (side ? 0.3 : 0.4)).w(sz * bodyW).h(sz * (side ? 0.62 : 0.5)).rounded_full().bg(shirt);
-    // Hair is the whole head; the face is a smaller disc shifted toward where the person looks.
-    const hx = 0.5 + side * 0.07;
-    const head = dot(0.5, 0.3, 0.62, hair);
-    const faceDisc = face === "n" ? null : dot(hx, face === "s" ? 0.36 : 0.32, 0.5, skin);
-    const eye = (dx) => dot(0.5 + dx, 0.38, 0.09, "#1b1b1f");
-    const eyes = face === "s" ? [eye(-0.1), eye(0.1)] : side ? [dot(0.5 + side * 0.17, 0.32, 0.09, "#1b1b1f")] : [];
-    const fig = div().relative().w(sz).h(sz).child(body).child(head).when(!!faceDisc, (el) => el.child(faceDisc)).children(eyes)
-      .when(a.withMatt, (el) => el.child(div().absolute().left(-2).top(-2).w(sz + 4).h(sz + 4).rounded_full().border(2).border_color(color)));
-    // Hands: on the keyboard (in front of the body, toward the desk) while working at a desk.
-    const reach = face === "s" ? 0.98 : face === "n" ? -0.1 : 0.5;
-    const keys = state === "working" && place === "desk"
-      ? [dot(0.36, reach, 0.2, skin).loop("opacity", { from: 0.7, to: 1, period: 260 }), dot(0.64, reach, 0.2, skin).loop("opacity", { from: 1, to: 0.7, period: 260 })]
-      : [];
-    const hand = div().absolute().left(sz * 0.85).top(-sz * 0.35).w(sz * 0.28).h(sz * 0.28).rounded_full().bg(skin)
-      .loop("opacity", { from: 0.35, to: 1, period: 800 });
-    const bubble = (text, bg) => div().absolute().left(sz * 0.9).top(-sz * 1.1).px(4).rounded(6).bg(bg).text_size(10).font_semibold().text_color("#ffffff").child(text);
-    const typing = div().absolute().left(sz * 0.9).top(-sz * 0.2).text_size(11).text_color(color).child("·").frames(["·  ", "·· ", "···"], 300);
-    return div().id(`person-${a.address}`).absolute().left(x * k - sz / 2).top(y * k - sz / 2).w(sz).h(sz)
-      .when(this.anim, (el) => el.transition("left", WALK).transition("top", WALK))
-      .child(fig).children(keys)
-      .when(state === "working", (el) => el.child(typing))
-      .when(state === "blocked", (el) => el.child(hand).child(bubble(BLOCKED[a.kind][1], BLOCKED[a.kind][0])))
-      .when(state === "done", (el) => el.child(bubble("✓", "#3fae69")));
+  // Where each person is drawn this render. A person whose place changed walks there door to door:
+  // crew.js gives the legs, and each render draws the person at the end of the current leg with a
+  // linear slide of the leg's length (a native transition). A one-shot timer ends each leg and
+  // redraws, so the next leg starts and the gait stops when the last one ends. A render that changes
+  // nothing for a person leaves its walk alone. `snap` (a new scale or floor) puts everyone in place.
+  motion(L, snap) {
+    const out = new Map();
+    const here = new Set();
+    for (const p of L.people) {
+      here.add(p.id);
+      const goal = { x: p.x, y: p.y };
+      let w = this.walks.get(p.id);
+      if (!w) { w = { cur: goal, goal, legs: [], i: 0, tasks: [] }; this.walks.set(p.id, w); }
+      if (snap) { this.stopWalk(w); w.cur = goal; w.goal = goal; w.legs = []; w.i = 0; }
+      else if (w.goal.x !== goal.x || w.goal.y !== goal.y) this.planWalk(w, p, L, goal);
+      const leg = w.legs[w.i];
+      out.set(p.id, leg ? { x: leg.x, y: leg.y, face: leg.face, ms: leg.ms, walking: true } : { x: goal.x, y: goal.y, face: p.face, ms: 1, walking: false });
+    }
+    for (const id of [...this.walks.keys()]) if (!here.has(id)) { this.stopWalk(this.walks.get(id)); this.walks.delete(id); }
+    return out;
+  }
+
+  stopWalk(w) {
+    for (const t of w.tasks) { try { t.cancel(); } catch (_) { /* already done */ } }
+    w.tasks = [];
+  }
+
+  planWalk(w, p, L, goal) {
+    this.stopWalk(w);
+    const legs = legsOf(w.cur, pathTo(L, p.id, w.cur, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
+    w.goal = goal; w.legs = legs; w.i = 0;
+    if (!legs.length) { w.cur = goal; return; }
+    let at = 0;
+    legs.forEach((leg, i) => {
+      at += leg.ms;
+      w.tasks.push(this.acx.timer.after(at, (c) => {
+        if (w.legs !== legs) return;
+        w.cur = leg; w.i = i + 1;
+        if (w.i >= legs.length) { w.legs = []; w.i = 0; w.cur = goal; }
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      }));
+    });
+  }
+
+  // A click on someone who is not running: say what would start them, and ask first.
+  offerStart(p, cx) {
+    this.offer = { person: p, plan: startPlan(p) };
+    cx.notify();
+  }
+
+  confirmStart(cx) {
+    const o = this.offer;
+    this.offer = null;
+    if (o && o.plan.kind === "up") {
+      const dir = anchorCwd(this.crewNow, props());
+      if (!dir) notify({ title: "Could not start the crew", body: "No agent is running to find the workspace from. Set the dir prop to a folder in the workspace.", level: "warning" });
+      else this.runLoh(startCall(o.plan, dir, (props() || {}).loh), { name: "the crew" }, "start");
+    }
+    cx.notify();
+  }
+
+  offerRow(t) {
+    const o = this.offer;
+    if (!o) return null;
+    const button = (id, label, bg, fg, onClick) => h_flex().id(id).px(8).py(2).rounded(5).bg(bg).text_size(12).text_color(fg).cursor_pointer().hover((e) => e.opacity(0.85)).on_click(onClick).child(label);
+    const asks = o.plan.kind === "up";
+    const text = asks ? o.plan.ask : o.plan.kind === "spawn" ? `${o.person.name} is not running. Start with: ${o.plan.hint}` : `${o.plan.hint}.`;
+    return h_flex().id("offer").px(12).py(6).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(div().flex_1().text_size(12).text_color(t.foreground).child(text))
+      .when(asks, (el) => el.child(button("offer-yes", "Start", t.solid, t.solid_foreground, (_e, cx) => this.confirmStart(cx))))
+      .child(button("offer-no", asks ? "Cancel" : "Dismiss", t.raised, t.foreground, (_e, cx) => { this.offer = null; cx.notify(); }));
+  }
+
+  // A person with no terminal, and Matt and Waffles: one line, a dot and the name. Someone who can be
+  // started is a button.
+  chip(p, left, top, motion) {
+    const startable = !p.running && p.id !== "matt" && p.id !== "dog";
+    const dot = p.id === "dog" ? PAL.dog : p.id === "matt" ? PAL.accent : PAL.idle;
+    const el = h_flex().id(`tag-${p.id}`).absolute().left(left).top(top).h(17).px(6).gap(4).items_center().rounded_full().bg(PAL.chip)
+      .when(this.anim, (e) => e.transition("left", motion).transition("top", motion))
+      .child(div().w(7).h(7).rounded_full().bg(dot))
+      .child(div().text_size(10.5).font_semibold().text_color(PAL.chipInk).whitespace_nowrap().child(p.name))
+      .when(startable, (e) => e.child(div().text_size(10).text_color(PAL.chipInk).opacity(0.7).whitespace_nowrap().child("· no pane")));
+    return startable ? el.cursor_pointer().hover((e) => e.opacity(0.85)).on_click((_e, cx) => this.offerStart(p, cx)) : el;
   }
 
   tag(a, s, k, F, t) {
@@ -180,7 +213,7 @@ export default class CrewOffice extends View {
     const step = a.step || a.note || WORDS[a.status];
     const w = Math.min(100, Math.max(64, 100 * k));
     return v_flex().id(`tag-${a.address}`).absolute().left(s.tag.x * k - w / 2).top(s.tag.y * k).w(w)
-      .when(this.anim, (el) => el.transition("left", WALK).transition("top", WALK))
+      .when(this.anim, (el) => el.transition("left", s.motion).transition("top", s.motion))
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
       .on_click((_e, cx) => this.open(a, cx))
@@ -207,12 +240,14 @@ export default class CrewOffice extends View {
       .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
 
+
   render(cx) {
     const t = theme();
-    const F = settings().dark ? FLOOR_DARK : FLOOR_LIGHT;
+    const dark = !!settings().dark;
     const list = terminals();
     const workspace = pickWorkspace(list, (props() || {}).crew);
     const crew = crewOf(list, workspace);
+    this.crewNow = crew;
     this.loadRepos(crew, workspace, cx);
     const L = layoutCrew(crew, this.repos);
     const allPanes = panes();
@@ -229,52 +264,70 @@ export default class CrewOffice extends View {
     // Fit the floor to the pane in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.
     const { k, fits } = fitScale(this.size, L);
-    // Slide only when someone's place changed. A new scale (resize, the chat opening) or floor
+    // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
     // the transition and everything jumps with the rooms and desks.
     const sig = `${k}|${L.W}`;
     this.anim = sig === this.sig;
     this.sig = sig;
     const u = (n) => n * k;
+    const mo = this.motion(L, !this.anim);
 
-    const rooms = L.rooms.map((r) => div().absolute().left(u(r.x) + 1).top(u(r.y) + 1).w(u(r.w) - 2).h(u(r.h) - 2).rounded(4)
-      .bg(F[r.kind] ?? F.repo).child(div().absolute().left(6).top(2).text_size(10).font_semibold().text_color("#ffffffcc").child(r.label)));
-    const desks = L.desks.map((d) => div().absolute().left(u(d.x)).top(u(d.y)).w(u(d.w)).h(u(DESK_H)).rounded(2).bg(F.desk)
-      .child(div().absolute().left(u(d.w / 2 - 6)).top(u(d.side === "n" ? 9 : 2)).w(u(12)).h(u(4)).rounded(1).bg(F.monitor)));
-    const box = (x, y, w, h, bg, r = 2) => div().absolute().left(u(x)).top(u(y)).w(u(w)).h(u(h)).rounded(r).bg(bg);
-    const meet = L.rooms.find((r) => r.kind === "meet");
-    const lounge = L.rooms.find((r) => r.kind === "lounge");
-    const kitchen = L.rooms.find((r) => r.kind === "kitchen");
-    const decor = [];
-    if (meet) {
-      // Meeting table with its screen on the back wall; the screen says how many agents are live.
-      decor.push(box(meet.x + 28, 40, 40, 36, F.desk, 6).opacity(0.7));
-      decor.push(box(meet.x + 26, 6, 44, 12, F.screen, 2).child(div().absolute().left(4).top(1).text_size(Math.max(7, 6 * k)).text_color(F.screenInk).child(`${crew.length} on the crew`)));
-    }
-    if (kitchen) {
-      decor.push(box(kitchen.x + 4, kitchen.y + 8, 40, 11, F.counter), box(kitchen.x + 56, kitchen.y + 8, 40, 11, F.counter));
-      decor.push(box(kitchen.x + 80, kitchen.y + kitchen.h - 26, 16, 22, F.fridge, 2));
-      decor.push(box(kitchen.x + 36, kitchen.y + 38, 28, 28, F.table, 14));
-    }
-    if (lounge) {
-      decor.push(box(lounge.x + 8, lounge.y + 14, 56, 12, F.sofa, 4));
-      decor.push(box(lounge.x + 18, lounge.y + 38, 56, 34, F.rug, 16));
-      // Waffles, asleep on her bed, with a slow "zz".
-      const dg = L.dog;
-      decor.push(box(dg.x - 12, dg.y - 8, 24, 16, F.bed, 8), box(dg.x - 8, dg.y - 5, 16, 10, F.bedIn, 5));
-      decor.push(box(dg.x - 7, dg.y - 4, 14, 8, F.dog, 4));
-      decor.push(div().absolute().left(u(dg.x + 5)).top(u(dg.y - 14)).text_size(Math.max(8, 7 * k)).text_color(F.chipInk).child("zz").loop("opacity", { from: 0.2, to: 1, period: 1600 }));
-    }
-    const table = decor;
-    const figures = L.seats.map((s) => this.person(s.agent, s.x, s.y, s.face, s.place, k, F));
-    const tags = L.seats.map((s) => this.tag(s.agent, s, k, F, t));
-    const empty = crew.length === 0
-      ? [div().absolute().left(12).top(u(ROOM_H) / 2).text_size(13).text_color(F.chipInk).child("No crew terminals found. Start one with loh up.")]
-      : [];
+    // The floor does not change with the crew, only with the plan and the scale.
+    const floorKey = `${k}|${L.W}|${L.pods.map((p) => p.repo).join(",")}`;
+    if (!this.floor || this.floor.key !== floorKey) this.floor = { key: floorKey, layer: floorLayer(L, k) };
 
-    const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(F.wall)
-      .child(div().absolute().left(0).top(u(ROOM_H)).w(u(L.W)).h(u(20)).bg(F.corr))
-      .children(rooms).children(desks).children(table).children(figures).children(tags).children(empty);
+    // Screens: a lit strip on each desk, and Matt's two monitors.
+    const lit = [];
+    const screens = [];
+    for (const d of L.desks) {
+      const s = L.screens[d.key];
+      if (s) { screens.push([d, s]); if (s !== "dim") lit.push([d, s]); }
+    }
+    for (const dx of [-9, 9]) {
+      const d = { cx: L.mattDesk.cx + dx, y: L.mattDesk.y, h: L.mattDesk.h, side: "s" };
+      screens.push([d, "work"]); lit.push([d, "work"]);
+    }
+    const glows = screens.flatMap(([d, s]) => glow(d, s, k));
+    // The desk of someone Matt is talking to gets an accent strip.
+    const plaque = new Layer(k, 0, 0, L.W, L.H);
+    for (const p of L.people) {
+      const d = p.agent && p.agent.withMatt && p.desk ? L.desks.find((q) => q.key === p.desk) : null;
+      if (d) plaque.rr(d.x + 2, d.side === "n" ? d.y + 1 : d.y + d.h - 3, d.w - 4, 2, 1, PAL.accent);
+    }
+
+    // People, back to front. A wrapper carries each across the floor; the drawing inside is draw.js's.
+    const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
+      const m = mo.get(p.id);
+      const motion = this.anim ? { duration: m.ms, easing: "linear" } : null;
+      const kids = p.id === "dog" ? dogEls(p, k, m.walking) : personEls(p, k, m.walking ? m.face : p.face, m.walking, L);
+      return wrapper(p.id, m.x, m.y, k, motion).children(kids);
+    });
+
+    // Name tags, stacked so none covers another.
+    const F = { chip: PAL.chip, chipInk: PAL.chipInk };
+    const sized = L.people.map((p) => {
+      const a = p.agent;
+      const where = a ? [a.repo, a.pr, a.round].some(Boolean) : false;
+      const w = a ? Math.min(100, Math.max(64, 100 * k)) : (p.name.length + (p.running || p.id === "matt" || p.id === "dog" ? 0 : 9)) * 6.4 + 26;
+      const h = a ? 4 + 13 + 11 + (where ? 11 : 0) + (a.withMatt ? 13 : 0) : 17;
+      const m = mo.get(p.id);
+      const left = Math.min(Math.max(2, u(m.x) - w / 2), Math.max(2, u(L.W) - w - 2));
+      const up = p.tag.up && !m.walking;
+      return { id: p.id, p, a, w, h, m, up, x: left, y: up ? u(m.y - 10) - h : u(m.y + 9) };
+    });
+    const tops = stackTags(sized);
+    const tags = sized.map((s) => {
+      const top = Math.max(2, tops.get(s.id));
+      const motion = { duration: s.m.ms, easing: "linear" };
+      if (s.a) return this.tag(s.a, { tag: { x: (s.x + s.w / 2) / k, y: top / k }, motion }, k, F, t);
+      return this.chip(s.p, s.x, top, motion);
+    });
+    const nightEls = dark ? night(L, k, lit).concat(lit.flatMap(([d, s]) => glow(d, s, k))) : [];
+
+    const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
+      .child(this.floor.layer.el()).children(labels(L, k, crew.length)).children(glows).child(plaque.el())
+      .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(tags);
 
     return v_flex().id("root").size_full().bg(t.canvas).track_focus(this.handle)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
@@ -282,6 +335,7 @@ export default class CrewOffice extends View {
         if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
       })
       .child(this.bar(t, L.totals, view))
+      .when(!!this.offer, (el) => el.child(this.offerRow(t)))
       .child(h_flex().p(8).when(fits, (el) => el.justify_center()).child(floor));
   }
 }
