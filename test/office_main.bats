@@ -511,30 +511,26 @@ console.log(before, max());'
   [ "$output" = "600 600" ]
 }
 
-@test "after a restart a stale lock-holders value is ignored and cleared, and Full terminal works" {
+@test "a reloaded full-terminal bar holds the agent again: a chat closing meanwhile does not unlock it, and Back does" {
   run office_js '
-globalThis.SHARED["crew-office.lock-holders"] = { t2: ["term-old"], t3: "garbage" };
-const { default: Restarted } = await import("./main.mjs?restart");
-const o = new Restarted({}, cx); o.init({}, cx); office = o; o.size = { width: 1990, height: 1000 }; o.measured = true;
-const a = o.crewNow.length ? o.crewNow[0] : null;
-o.render(cx);
-const b = o.crewNow.find((c) => c.name === "sheba");
-o.panel.select(b, cx);
-o.fullTerminal(b, cx);
-console.log(o.termOpen, globalThis.SHARED["crew-office.lock-holders"] === null, globalThis.OVERLAYS.length);'
+const { default: Reloaded } = await import("./main.mjs?reload");
+const a = office.crewNow.find((c) => c.name === "sheba");
+const barProps = { terminalBar: true, termId: "term-x", loh: "loh", agent: { address: a.address, name: a.name } };
+globalThis.PROPS = barProps;
+const bar = new Reloaded({}, cx); bar.init({}, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+await tick();
+const afterInit = (globalThis.EXECS || []).join(",");
+globalThis.PROPS = { crew: "sandbox" };
+const o = new Reloaded({}, cx); o.init({}, cx);
+o.open(a, cx); await tick();
+o.closeChat(cx); await tick();
+const afterChat = (globalThis.EXECS || []).join(",");
+globalThis.PROPS = barProps;
+await bar.close(cx); await tick();
+console.log(afterInit, "|", afterChat, "|", (globalThis.EXECS || []).join(","));'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true 1" ]
-}
-
-@test "malformed shared data never throws in render, and counts as no window open" {
-  run office_js '
-globalThis.SHARED["crew-office.lock-holders"] = "nonsense";
-render();
-globalThis.SHARED["crew-office.lock-holders"] = { t2: 5, t3: null };
-render();
-console.log(office.termOpen);'
-  [ "$status" -eq 0 ]
-  [ "$output" = "false" ]
+  [ "$output" = "lock | lock | lock,unlock" ]
 }
 
 @test "two office panes docking the same agent: the agent is unlocked only when both chats are closed" {
