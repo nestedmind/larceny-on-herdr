@@ -35,7 +35,11 @@ case "$1" in
     [[ ${#pos[@]} -eq 2 ]] || { echo "error: need <TERMINAL> <TEXT>" >&2; exit 2; }
     code=$(cat "$HC_DIR/send.exit")
     if [[ "$code" != 0 ]]; then
-      printf '{"error":{"kind":"status_mismatch"}}\n' >&2
+      if [[ "$code" == 3 ]]; then
+        printf '{"error":{"kind":"not_found","message":"no terminal"}}\n' >&2
+      else
+        printf '{"error":{"kind":"status_mismatch"}}\n' >&2
+      fi
     else
       printf '%s\t%s\n' "${pos[0]}" "${pos[1]}" >>"$HC_DIR/delivered"
     fi
@@ -163,11 +167,19 @@ set_get() {
 }
 
 @test "tell exits 12 on any other hc send error, because the message may still have gone out" {
-  printf '3\n' >"$HC_DIR/send.exit"
+  printf '5\n' >"$HC_DIR/send.exit"
   run --separate-stderr "$LOH" tell amy hi
   [ "$status" -eq 12 ]
   [[ "$stderr" == *"hc send amy failed"* ]]
   [[ "$stderr" == *"may still have gone out"* ]]
+}
+
+@test "tell exits 11 when hc send reports not_found, because nothing was sent" {
+  printf '3\n' >"$HC_DIR/send.exit"
+  run --separate-stderr "$LOH" tell amy hi
+  [ "$status" -eq 11 ]
+  [[ "$stderr" == *"amy has finished"* ]]
+  [ ! -e "$HC_DIR/delivered" ]
 }
 
 @test "say still refuses an agent that is with Matt" {

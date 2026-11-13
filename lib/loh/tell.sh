@@ -10,6 +10,7 @@
 #   blocked  refused, exit 9: the agent is waiting on a permission prompt or a
 #            question, and a typed line would answer it
 #   other    refused, exit 10
+# Exit 11 also covers an hc send error of kind not_found (the terminal ended after the look).
 # Exit 12: hc send failed in some other way, so the message may or may not have gone out.
 # It never uses --force and never waits or retries. A target labelled
 # with_matt=1 is allowed (that is the point); `loh say`, which agents use among
@@ -89,6 +90,12 @@ case "$rc" in
     exit 11
     ;;
   *)
+    # hc's error is JSON; not_found means the terminal ended before the send, so nothing went out.
+    kind="$(jq -r '.error.kind // ""' <<<"$out" 2>/dev/null || true)"
+    if [[ "$kind" == "not_found" ]]; then
+      echo "loh: $to has finished" >&2
+      exit 11
+    fi
     # hc may have typed the message before it failed: say so with its own exit code, which the
     # office panel treats as "not sure" (the text stays out of the box; check the log).
     echo "loh: hc send $to failed (exit $rc): $out; the message may still have gone out" >&2
