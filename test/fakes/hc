@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Fake hc for tests. Records argv, one invocation per line with arguments
+# separated by tabs, to $FAKE_HC_LOG, then replays canned output.
+#   FAKE_HC_LOG   file to append the argv line to (required)
+#   FAKE_HC_JSON  file whose contents are printed on stdout (default: {})
+#   FAKE_HC_EXIT  exit status (default: 0)
+set -euo pipefail
+: "${FAKE_HC_LOG:?FAKE_HC_LOG must be set}"
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$FAKE_HC_LOG"
+)
+if [[ -n "${FAKE_HC_JSON:-}" ]]; then
+  cat "$FAKE_HC_JSON"
+else
+  printf '{}\n'
+fi
+exit "${FAKE_HC_EXIT:-0}"

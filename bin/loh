@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# loh: the larceny-on-herdr CLI.
+# `loh <cmd> [args...]` runs lib/loh/<cmd>.sh.
+set -euo pipefail
+
+# Resolve this script's real location (it may be reached through a symlink).
+src="${BASH_SOURCE[0]}"
+while [[ -L "$src" ]]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" == /* ]] || src="$dir/$src"
+done
+LOH_ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
+export LOH_ROOT
+LOH_LIB="$LOH_ROOT/lib/loh"
+
+version() {
+  sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$LOH_ROOT/.claude-plugin/plugin.json" | head -n 1
+}
+
+commands() {
+  local f name
+  for f in "$LOH_LIB"/*.sh; do
+    [[ -e "$f" ]] || continue
+    name="$(basename "$f" .sh)"
+    [[ "$name" == "common" ]] && continue
+    printf '%s\n' "$name"
+  done
+}
+
+usage() {
+  cat <<'EOF'
+Usage: loh <command> [args...]
+       loh help
+       loh --version
+
+Commands:
+EOF
+  local name any=""
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    printf '  %s\n' "$name"
+    any=1
+  done < <(commands)
+  [[ -n "$any" ]] || echo "  (none yet)"
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+cmd="$1"
+shift
+case "$cmd" in
+  help | --help | -h)
+    usage
+    exit 0
+    ;;
+  --version | -V)
+    version
+    exit 0
+    ;;
+esac
+
+# Only plain lowercase names reach the filesystem, and common.sh is a library.
+if [[ ! "$cmd" =~ ^[a-z][a-z0-9-]*$ || "$cmd" == "common" || ! -f "$LOH_LIB/$cmd.sh" ]]; then
+  echo "loh: unknown command: $cmd" >&2
+  usage >&2
+  exit 2
+fi
+
+exec bash "$LOH_LIB/$cmd.sh" "$@"

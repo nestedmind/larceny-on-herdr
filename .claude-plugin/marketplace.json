@@ -1,0 +1,16 @@
+{
+  "name": "larceny-on-herdr",
+  "description": "Runs the larceny AI dev crew in herdr terminals.",
+  "owner": {
+    "name": "Nestedmind Studio",
+    "url": "https://github.com/nestedmind"
+  },
+  "allowCrossMarketplaceDependenciesOn": ["larceny"],
+  "plugins": [
+    {
+      "name": "larceny-on-herdr",
+      "description": "Runs the larceny AI dev crew as separate Claude Code sessions in herdr terminals, driven by the loh CLI.",
+      "source": "./"
+    }
+  ]
+}
