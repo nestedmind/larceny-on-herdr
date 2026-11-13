@@ -672,16 +672,44 @@ export function idleMinutesOf(text) {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-// Matt is at his desk this long after his last key in the office's message box (the prototype's away time is 20 s).
+// Matt's hands are on the keys this long after his last sign of activity (the prototype's away time is 20 s), and he stays
+// seated at his desk, not typing, until MATT_SEAT_HOLD after it, before he goes to the lounge.
 export const TYPING_HOLD = 20000;
+export const MATT_SEAT_HOLD = 180000;
 
 /**
- * Whether Matt is typing in herdr: `until` is when his last sign of activity stops counting (TYPING_HOLD after it). A mod
- * sees keys only in its own views, so a sign is a key in the office's message box, a click on a person, or herdr's focus
- * moving onto the terminal of an agent he opened from the office (see main.js). Never a key typed in a terminal.
+ * Whether Matt is typing in herdr: `last` is when his last sign of activity was (0 for none). A mod sees keys only in its
+ * own views, so a sign is a key in the office's message box, a click on a person, or herdr's focus moving onto the
+ * terminal of an agent he opened from the office (see main.js). Never a key typed in a terminal.
  */
-export function mattTypingAt(now, until) {
-  return typeof until === "number" && now < until;
+export function mattTypingAt(now, last) {
+  return typeof last === "number" && last > 0 && now - last < TYPING_HOLD;
+}
+
+/** Whether Matt is still at his desk: within MATT_SEAT_HOLD of his last sign, typing or not. */
+export function mattSeatedAt(now, last) {
+  return typeof last === "number" && last > 0 && now - last < MATT_SEAT_HOLD;
+}
+
+/** Whether someone is at rest on their goal: standing exactly on it and not walking. Where the layout puts someone is
+ * where they are going; only this says they are there. */
+export function restAt(at, goal, walking) {
+  return !walking && !!at && !!goal && at.x === goal.x && at.y === goal.y;
+}
+
+/**
+ * The screens as they are seen: a desk's screen is lit as `work` only while its owner is at rest on their seat (`rest` is
+ * a set of person ids to true), dim otherwise. Matt's monitors (`screens.matt`) follow the same rule. Other states
+ * (a blocked agent's perm, question or esc screen) stay as the layout gives them.
+ */
+export function screensSeen(L, rest) {
+  const out = { ...L.screens };
+  for (const p of L.people) {
+    if (!p.desk || !(p.desk in out) || out[p.desk] !== "work") continue;
+    if (!rest[p.id]) out[p.desk] = "dim";
+  }
+  if (out.matt === "work" && !rest.matt) out.matt = "dim";
+  return out;
 }
 
 /** Whether herdr's focus has just moved onto one of `open` (addresses of terminals opened from the office): the last focus was elsewhere. */
@@ -842,7 +870,11 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
 
   // Matt: at his desk only while he is typing, else away in the lounge.
   const matt = by("matt");
-  matt.state = opts.mattTyping ? "matt" : "away";
+  // Seated at his desk while a sign is recent (3 minutes); his hands type only for the first part of it (`mattTyping`). With only
+  // `mattTyping` given, he is seated for as long as he types.
+  const seated = opts.mattSeated !== undefined ? !!opts.mattSeated : !!opts.mattTyping;
+  matt.state = seated ? "matt" : "away";
+  matt.typing = seated && !!opts.mattTyping;
 
   // Who is at ping pong now, for the waiting coder who goes there sooner when someone plays alone.
   const atPong = new Set(people.filter((p) => p.mode === "esc").map((p) => p.id));
@@ -854,7 +886,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   for (const p of people) {
     if (p.id === "dog") continue;
     if (p.id === "matt") {
-      if (opts.mattTyping) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
+      if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
     if (!p.running) { need(p, AWAY); continue; }
@@ -943,7 +975,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     if (p.place !== "desk") { screens[p.desk] = "dim"; continue; }
     screens[p.desk] = p.state === "working" ? "work" : p.state === "blocked" ? (p.kind === "permission" ? "perm" : p.kind === "question" ? "q" : "esc") : "dim";
   }
-  screens.matt = "work";
+  screens.matt = seated ? "work" : "dim";
+  for (const p of people) if (p.id !== "matt") p.typing = p.state === "working" && p.place === "desk";
 
   const rally = people.filter((p) => p.spot === "pong:0" || p.spot === "pong:1").length === 2;
   const next = wakes.filter((w) => w > 0);

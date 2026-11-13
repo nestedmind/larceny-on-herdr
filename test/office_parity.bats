@@ -111,7 +111,7 @@ copy_mod() {
 
 @test "seating: Matt at his desk when he is not typing is reported" {
   copy_mod
-  sed -i 's/mattTyping: mattTypingAt(now, this.mattUntil),/mattTyping: true,/' "$MOD/main.js"
+  sed -i 's/mattSeated: mattSeatedAt(now, this.mattLast),/mattSeated: true,/' "$MOD/main.js"
   run node "$TOOL/run.mjs" --mod "$MOD" --case rest-room-and-away
   [ "$status" -eq 1 ]
   [[ "$output" == *"matt place"* ]]

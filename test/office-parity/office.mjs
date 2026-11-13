@@ -99,7 +99,7 @@ export async function drawOffice({ Office, crew, draw }, { agents, repos, stage,
     office.repos = repos;
     let root;
     // Matt types for as long as the case runs.
-    if (typing) office.mattUntil = clock + 1e9;
+    if (typing) office.mattLast = clock + 1e9;
     for (let i = 0; i < 60; i++) { root = office.render(cx); if (office.shown) break; }
     // Time passes with the crew as it is: what it changes is seen, held for the office's hold time, and walked to.
     if (advance) { clock += advance; root = office.render(cx); }

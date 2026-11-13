@@ -336,13 +336,42 @@ console.log(at(a[0], "sucre"), at(a[0], "whip"), at(a[1], "sucre"), at(a[1], "wh
   [ "$output" = "300000 120000 600000 600000 180000 180000" ]
 }
 
-@test "Matt is typing until 20 s after his last sign, and focus counts only when it arrives on a terminal opened from the office" {
+@test "Matt types for 20 s after his last sign and stays seated for 3 minutes; focus counts only when it arrives on a terminal opened from the office" {
   run crew_js "$HELPERS"'
-const t = crew.TYPING_HOLD;
-console.log(t, crew.mattTypingAt(1000, 1000 + t), crew.mattTypingAt(1000 + t, 1000 + t), crew.mattTypingAt(1000, 0),
+const t = crew.TYPING_HOLD, s = crew.MATT_SEAT_HOLD;
+console.log(t, s, crew.mattTypingAt(1000 + t - 1, 1000), crew.mattTypingAt(1000 + t, 1000), crew.mattTypingAt(1000, 0),
+  crew.mattSeatedAt(1000 + s - 1, 1000), crew.mattSeatedAt(1000 + s, 1000), crew.mattSeatedAt(1000, 0),
   crew.focusArrived("t5", null, ["t5"]), crew.focusArrived("t5", "t5", ["t5"]), crew.focusArrived("t6", "t5", ["t5"]), crew.focusArrived(null, "t5", ["t5"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "20000 true false false true false false false" ]
+  [ "$output" = "20000 180000 true false false true false false true false false false" ]
+}
+
+@test "Matt seated but not typing is at his desk with no typing hands; his monitors are lit only once he is at rest on his seat" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api"], 0, {mattSeated: true, mattTyping: false});
+const m = P(L, "matt"), away = P(crew.layoutCrew([], ["api"], 0, {}), "matt");
+const seat = {x: m.x, y: m.y};
+console.log(m.place, !!m.typing, away.place, !!away.typing,
+  crew.screensSeen(L, {matt: true}).matt, crew.screensSeen(L, {}).matt, crew.screensSeen(crew.layoutCrew([], ["api"], 0, {}), {matt: true}).matt);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "matt false lounge false work dim dim" ]
+}
+
+@test "an agent's desk screen is lit as work only while the agent is at rest on its seat" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew(crew.crewOf([T("sheba", "working", {task: "api#1"})], "w"), ["api"], 0, {now: 1000});
+const s = P(L, "sheba");
+console.log(s.place, !!s.typing, L.screens[s.desk], crew.screensSeen(L, {})[s.desk], crew.screensSeen(L, {sheba: true})[s.desk]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk true work dim work" ]
+}
+
+@test "restAt: only someone standing exactly on the goal and not walking is at rest" {
+  run crew_js "$HELPERS"'
+const g = {x: 5, y: 6};
+console.log(crew.restAt({x: 5, y: 6}, g, false), crew.restAt({x: 1, y: 6}, g, false), crew.restAt({x: 5, y: 6}, g, true));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false false" ]
 }
 
 @test "layout reports how long until the next change that time alone causes" {
