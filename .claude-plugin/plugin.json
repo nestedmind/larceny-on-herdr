@@ -1,0 +1,15 @@
+{
+  "name": "larceny-on-herdr",
+  "version": "0.1.0",
+  "description": "Runs the larceny AI dev crew as separate Claude Code sessions in herdr terminals, driven by the loh CLI.",
+  "author": {
+    "name": "Nestedmind Studio",
+    "url": "https://github.com/nestedmind"
+  },
+  "homepage": "https://github.com/nestedmind/larceny-on-herdr",
+  "repository": "https://github.com/nestedmind/larceny-on-herdr",
+  "license": "MIT",
+  "dependencies": [
+    { "name": "larceny", "marketplace": "larceny" }
+  ]
+}
