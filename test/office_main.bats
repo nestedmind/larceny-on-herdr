@@ -793,7 +793,7 @@ console.log(withProp, settingHolds, place());'
   [ "$output" = "away desk away" ]
 }
 
-@test "Matt is away until he types in the message box, at his desk for 20 s after, and away again, brought back by a timer" {
+@test "Matt is away until he types in the message box, at his desk for 3 minutes after, with a timer for each hold's end, and away again" {
   run office_js '
 const matt = () => office.layoutNow.people.find((p) => p.id === "matt");
 render();
@@ -804,12 +804,14 @@ const typing = matt().place;
 const wake = timers.filter((t) => !t.cancelled).map((t) => t.ms);
 later(19000); render();
 const still = matt().place;
-later(2000); render();
+later(2000);
+office.wake.task.fn({ notify() {} }); render();
 const idle = matt().place;
+const seatWake = timers.filter((t) => !t.cancelled).map((t) => t.ms).some((m) => m > 158000 && m <= 160100);
 later(160000); render();
-console.log(away, typing, still, idle, matt().place, wake.some((m) => m > 19000 && m <= 20100), wake.some((m) => m > 179000 && m <= 180100));'
+console.log(away, typing, still, idle, matt().place, wake.some((m) => m > 19000 && m <= 20100), seatWake);'
   [ "$status" -eq 0 ]
-  [ "$output" = "lounge matt matt matt lounge true false" ]
+  [ "$output" = "lounge matt matt matt lounge true true" ]
 }
 
 @test "Matt is at his desk for 3 minutes after focus arrives on a terminal opened from the office, and goes away though it stays focused" {
