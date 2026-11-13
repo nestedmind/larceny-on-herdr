@@ -243,7 +243,7 @@ export default class CrewOffice extends View {
     try { saved = shared(FS_KEY); } catch (_) { /* none */ }
     const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
     if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
-    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "Another office is in full screen. Leave it there first.", level: "warning" }); return; }
+    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "An office is in full screen. Click this office to take it back, or close the other office pane.", level: "warning" }); return; }
     if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
     const me = all.find((p) => p.pane === view.mine);
     const plan = fullscreenPlan(layout(), {

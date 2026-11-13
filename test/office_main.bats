@@ -49,7 +49,7 @@ export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
 export const exec = (c, a) => (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
-export const notify = () => {};
+export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: !!globalThis.DARK });
@@ -553,4 +553,32 @@ await tick();
 console.log(!!two.chat, !!first, mid, globalThis.EXECS.join(","));'
   [ "$status" -eq 0 ]
   [ "$output" = "false true lock lock,unlock" ]
+}
+
+@test "an office run as a layout block adopts a saved plan that has no pane, and Full screen never writes over it" {
+  run office_js '
+const plan = { zoom: false, hide: ["sidebar"], window: false };
+const saved = { plan, pane: null };
+globalThis.PROPS = { crew: "sandbox" };
+globalThis.PANES = [];
+globalThis.SHARED["crew-office.fullscreen"] = saved;
+const o = new Office({}, cx); o.init({}, cx);
+const adopted = o.fs === saved;
+o.fs = null;
+o.enterFullscreen({ mine: null, zoomed: false }, cx);
+console.log(adopted, o.fs === saved, globalThis.SHARED["crew-office.fullscreen"] === saved, (globalThis.RUNS || []).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true 0" ]
+}
+
+@test "the blocked Full screen toast says an office is in full screen and how to take it back" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }, { pane: "p2", tab: "t", mod: "crew-office", focused: false }];
+globalThis.PROPS = { crew: "sandbox", pane: "p1" };
+globalThis.SHARED["crew-office.fullscreen"] = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p2" };
+const o = new Office({}, cx); o.init({}, cx);
+o.enterFullscreen({ mine: "p1", zoomed: false }, cx);
+console.log(globalThis.NOTES.map((n) => n.body).join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "An office is in full screen. Click this office to take it back, or close the other office pane." ]
 }

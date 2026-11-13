@@ -223,6 +223,15 @@ console.log([r(saved, ["p1", "p2"], "p1"), r(saved, ["p1", "p2"], "p2"), r(saved
   [ "$output" = "adopt leave undo undo none none" ]
 }
 
+@test "a saved plan with no pane is live: adopted by recovery and by the Full screen button, never entered over" {
+  run crew_js '
+const plan = { zoom: false, hide: ["sidebar"], window: false };
+const s = { plan, pane: null };
+console.log([crew.recoveryFor(s, ["p1"], "p1"), crew.recoveryFor(s, [], null), crew.recoveryFor({ plan }, ["p1", "p2"], "p2", ["p1", "p2"]), crew.entryFor(s, ["p1"], "p1", ["p1"]), crew.entryFor(s, [], null, [])].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "adopt adopt adopt adopt adopt" ]
+}
+
 @test "startup recovery with an unknown own pane: adopt when the saved pane is the only office pane, else leave" {
   run crew_js '
 const saved = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
