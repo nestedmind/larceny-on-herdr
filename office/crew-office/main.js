@@ -838,8 +838,11 @@ export default class CrewOffice extends View {
     // A layer still being built carries on in the next render, one tick on.
     if (building) this.keepBuilding();
 
-    const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
-      .child(this.floorView).children(glows).child(plaque.el())
+    // One box for the whole floor: the floor view, the people, the click targets and the tags are all placed in it at k.
+    // The view sits in a box of that same size (not in one that takes its size from its content or the stage).
+    const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H)).child(this.floorView);
+    const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
+      .child(floorBox).children(glows).child(plaque.el())
       .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
