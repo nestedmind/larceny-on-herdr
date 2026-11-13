@@ -567,22 +567,21 @@ export const SLOTS = 6;
  * each one inside it is shifted by one link of the chain from crew.js's walkChain. When someone
  * walks, every link carries its own native `left`/`top` transition with its own start delay, so the
  * renderer's clock takes the person around every corner and no JavaScript timer has to arrive in
- * time. At rest the links are all zero and carry no transition, so a change is a plain jump.
- * `leaf` is what moves with them. The same chain drawn twice (the figure, then its name tag) moves
- * in step, because both are told the same times.
+ * time. Every mover always carries transitions, because herdr animates a change only for an element
+ * that already had one: at rest they last 1 ms, so a change is a jump, and a walk gives them their
+ * real times. `leaf` is what moves with them. The same chain drawn twice (the figure, then its name
+ * tag) moves in step, because both are told the same times.
  */
 export function mover(prefix, at, chain, k, walking, leaf) {
+  const instant = { duration: 1 };
+  const slide = (el, policy) => el.transition("left", policy).transition("top", policy);
   let inner = leaf;
   for (let i = chain.links.length - 1; i >= 0; i--) {
     const l = chain.links[i];
-    let el = div().id(`${prefix}-${i}`).absolute().left(l.dx * k).top(l.dy * k).w(0).h(0).child(inner);
-    if (walking) {
-      const policy = { duration: l.ms, delay: l.delay, easing: "linear" };
-      el = el.transition("left", policy).transition("top", policy);
-    }
-    inner = el;
+    const el = div().id(`${prefix}-${i}`).absolute().left(l.dx * k).top(l.dy * k).w(0).h(0).child(inner);
+    inner = slide(el, walking ? { duration: l.ms, delay: l.delay, easing: "linear" } : instant);
   }
-  return div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner);
+  return slide(div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner), instant);
 }
 
 /** A person's drawing box, centred on the mover that carries it, with a small click target over the body. */

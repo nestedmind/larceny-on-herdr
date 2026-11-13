@@ -167,13 +167,13 @@ console.log(sig(a, "m-sheba") === sig(a, "tm-sheba"), sig(a, "m-sheba").length >
   [ "$output" = "true true" ]
 }
 
-@test "someone who is not walking has no transitions on their movers, so a change is a plain jump" {
+@test "someone who is not walking has a one millisecond transition on every mover, so a change is a jump and the next walk still animates" {
   run office_js '
 const root = render();
-const n = all(find(root, "m-sheba")).filter((x) => x.props.transitions).length;
-console.log(n);'
+const t = all(find(root, "m-sheba")).filter((x) => x.props.transitions && /^m-/.test(id(x)));
+console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1 && !a[1].delay)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "0" ]
+  [ "$output" = "7 true" ]
 }
 
 @test "a walk's timers only turn the walker or end the gait, and a walk ends after its last leg" {
@@ -189,7 +189,7 @@ console.log(walk.legs.length > 1, Math.max(...ms) > total, Math.max(...ms) <= to
   [ "$output" = "true true true true" ]
 }
 
-@test "when the walk is over, the person is drawn at the goal with no transitions" {
+@test "when the walk is over, the person is drawn at the goal on one millisecond transitions" {
   run office_js '
 render();
 terms()[1].status = "done";
@@ -199,9 +199,10 @@ timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.
 const root = render();
 const w = office.walks.get("sheba");
 const m = find(root, "m-sheba");
-console.log(w.legs.length, w.at.x === goal.x && w.at.y === goal.y, all(m).filter((x) => x.props.transitions).length);'
+const t = all(m).filter((x) => x.props.transitions && /^m-/.test(id(x)));
+console.log(w.legs.length, w.at.x === goal.x && w.at.y === goal.y, t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "0 true 0" ]
+  [ "$output" = "0 true 7 true" ]
 }
 
 @test "with the panel open and the stage not yet re-measured, the floor is fitted to the room beside it" {
