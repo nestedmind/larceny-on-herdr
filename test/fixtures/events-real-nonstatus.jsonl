@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","method":"event","params":{"data":{"address":"t16","argv":["sleep","2"],"cols":200,"created_ms":1794532804135,"cwd":"/work","die_with_parent":false,"exit_code":null,"finished_ms":null,"identity":"ghostty","keep":false,"labels":{},"name":"whip-evprobe","notify":false,"parent":null,"pid":396218,"reason":null,"reported":false,"rm":true,"rows":120,"screen":"exact","signal":null,"state":"live","status":null,"status_ms":null,"template":null,"title":"","turn":0},"seq":246,"terminal":"t16","type":"created"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"labels":{"probe":"1"}},"seq":247,"terminal":"t16","type":"labels"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"argv":["sleep","2"],"cwd":"/work","name":"sleep","pid":396218},"seq":248,"terminal":"t16","type":"foreground"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"exit_code":0,"finished_ms":1794532806139,"reason":"exited","signal":null},"seq":249,"terminal":"t16","type":"finished"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{},"seq":250,"terminal":"t16","type":"removed"}}
