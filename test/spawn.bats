@@ -105,6 +105,10 @@ setup() {
   [[ "$log" == *"git branch -D sucre/12-fix-the-login-bug-retries"* ]]
   [[ "$log" == *"Then end your turn; Amy's reply arrives as a new turn"* ]]
   [[ "$log" == *"Merge only after Amy's reply"* ]]
+  [[ "$log" == *'loh card note="escalation:<one line>"'* ]]
+  [[ "$log" == *"git ls-remote --heads origin sucre/12-fix-the-login-bug-retries"* ]]
+  [[ "$log" == *"api -X DELETE repos/"*"/git/refs/heads/sucre/12-fix-the-login-bug-retries"* ]]
+  [[ "$log" == *"passing on her verdict"* ]]
   [[ "$log" == *"origin/main"* ]]
 }
 

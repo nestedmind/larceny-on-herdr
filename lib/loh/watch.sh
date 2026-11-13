@@ -154,6 +154,7 @@ handle() {
         check "$addr" "$snap_mode"
         SNAPSHOT_SEEN=1
         ;;
+      seen) SNAPSHOT_SEEN=1 ;; # a terminals array, even an empty one, is a snapshot
       chk) check "$addr" event ;;
       gone) forget "$addr" ;;
     esac
@@ -168,7 +169,9 @@ handle() {
         then "chk\t\($p.terminal)"
         else empty end
     else
-      ([.. | .terminals? | arrays | .[] | .address? | strings] | .[] | "snap\t\(.)")
+      [.. | .terminals? | arrays] as $lists
+      | (if ($lists | length) > 0 then "seen\t-" else empty end),
+        ($lists[] | .[] | .address? | strings | "snap\t\(.)")
     end' <<<"$line" 2>/dev/null || true)
 }
 

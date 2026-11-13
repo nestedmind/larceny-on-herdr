@@ -386,6 +386,16 @@ snapshot_line() {
   grep -q $'Scofield escalates\tneed Matt' "$D/notify.log"
 }
 
+@test "an empty first snapshot still counts as seen, so a later snapshot announces escalations" {
+  jq -nc '{channel:null,seq:1,terminals:[]}' >"$D/events.1.jsonl"
+  snapshot_line >"$D/events.2.jsonl"
+  note_get 1 "escalation:need Matt"
+  LOH_WATCH_RESTARTS=1 run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 1 ]
+  grep -q $'Scofield escalates\tneed Matt' "$D/notify.log"
+}
+
 @test "only the very first snapshot suppresses an escalation already present" {
   snapshot_line >"$D/events.1.jsonl"
   snapshot_line >"$D/events.2.jsonl"

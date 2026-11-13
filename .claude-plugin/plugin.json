@@ -10,6 +10,6 @@
   "repository": "https://github.com/nestedmind/larceny-on-herdr",
   "license": "MIT",
   "dependencies": [
-    { "name": "larceny", "marketplace": "larceny" }
+    { "name": "larceny", "marketplace": "larceny", "version": "=0.1.4" }
   ]
 }

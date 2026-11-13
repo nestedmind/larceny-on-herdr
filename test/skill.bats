@@ -5,12 +5,9 @@ load test_helper
 
 skill_file() { printf '%s\n' "$REPO_ROOT/skills/herdr-runtime/SKILL.md"; }
 
-# loh commands the skill names that have not landed yet.
-# Remove a name from this list when its lib/loh/<name>.sh exists.
-PENDING="up spawn down say gh git"
-
-# Phase 2 commands: the skill must not document them yet.
-PHASE2="card lock status"
+# loh commands the skill names that have no lib/loh/<name>.sh yet.
+# Every command exists now; add a name here only while a command is still to land.
+PENDING=""
 
 # Print the frontmatter block (between the first two --- lines).
 frontmatter() {
@@ -71,14 +68,6 @@ named_commands() {
   done
 }
 
-@test "skill does not document phase 2 commands" {
-  for c in $PHASE2; do
-    if grep -qE "loh $c( |\`|\$)" "$(skill_file)"; then
-      echo "loh $c must not be documented yet"; return 1
-    fi
-  done
-}
-
 @test "every hc wait command in the skill carries --timeout" {
   while IFS= read -r line; do
     [[ "$line" == *"--timeout"* ]] || { echo "no --timeout: $line"; return 1; }
@@ -96,7 +85,7 @@ named_commands() {
 }
 
 @test "the coder merge goes through loh gh" {
-  grep -qF 'loh gh <me> pr merge <n> --squash' "$(skill_file)"
+  grep -qF 'loh gh <me> pr merge <n> --squash --delete-branch' "$(skill_file)"
 }
 
 @test "the loh say row names the done, busy, with_matt and finished behaviour" {
@@ -182,6 +171,27 @@ named_commands() {
 @test "the approval check names the reviewer login and how to get it" {
   grep -qF 'loh gh amy api user --jq .login' "$(skill_file)"
   grep -qF "\`author.login\` is the reviewer's login" "$(skill_file)"
+}
+
+@test "the escalating coder sets a card note and the coordinator clears it" {
+  grep -qF 'loh card note="escalation:<one line>"' "$(skill_file)"
+  # The clearing belongs to the coordinator: it must sit between "## Coordinator" and "## Coder".
+  section=$(awk '/^## Coordinator/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'hc label <coder> note='* ]]
+  coder=$(awk '/^## Coder/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$coder" != *'hc label <coder> note='* ]]
+}
+
+@test "the coordinator passes Amy's verdict to the coder after waiting on her" {
+  grep -qF 'read her verdict with `hc read amy`' "$(skill_file)"
+  grep -qF 'pass it to the coder with `loh say <coder>`' "$(skill_file)"
+}
+
+@test "the login check runs no other loh gh amy command and escalates on a bad token" {
+  grep -qF 'Run no other `loh gh amy` command' "$(skill_file)"
+  grep -qF 'do not merge: escalate' "$(skill_file)"
+  run grep -F 'stays correct if the reviewer is renamed' "$(skill_file)"
+  [ "$status" -ne 0 ]
 }
 
 @test "skill never recommends hc send --force" {
