@@ -8,7 +8,7 @@
 // moves a person. What the API cannot do is listed in office/README.md.
 
 import { div, PathBuilder } from "gpui-kit";
-import { look, hash } from "./crew.js";
+import { look, hash, shiftOf, anchorOf } from "./crew.js";
 
 // The prototype's floor palette (its --fl-* and --st-* tokens). The same in light and dark: dark
 // mode darkens the floor with the night shading instead.
@@ -43,9 +43,18 @@ function buildPath(cmds, stroke) {
 export class Layer {
   constructor(k, x, y, w, h, alpha = "") {
     this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.groups = null;
+    this.dx = 0; this.dy = 0;
   }
-  X(x) { return (x - this.x) * this.k; }
-  Y(y) { return (y - this.y) * this.k; }
+  X(x) { return (x + this.dx - this.x) * this.k; }
+  Y(y) { return (y + this.dy - this.y) * this.k; }
+  /** Draw `fn` with everything moved by (dx, dy): a room's furniture, drawn in the prototype's coordinates. */
+  shifted(dx, dy, fn) {
+    const [ox, oy] = [this.dx, this.dy];
+    this.dx += dx; this.dy += dy;
+    fn(this);
+    this.dx = ox; this.dy = oy;
+    return this;
+  }
   add(cmds, fill, stroke = 0) {
     const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
     this.ops.push({ cmds: [...cmds], fill: c, stroke });
@@ -143,36 +152,40 @@ function deskArt(g, d, mat) {
 
 /** The rooms, walls, furniture and floors: everything that does not move. Built once per scale and plan. */
 export function floorLayer(world, k) {
-  const { W, H } = world;
+  const { W, H, corr } = world;
   const g = new Layer(k, 0, 0, W, H);
   const R = (kind) => world.rooms.find((r) => r.kind === kind);
   const repos = world.rooms.filter((r) => r.kind === "repo");
   const leads = R("leads"), meet = R("meet"), matt = R("matt"), kitchen = R("kitchen"), lounge = R("lounge"), pong = R("pong"), rest = R("rest");
-  const e = pong.x - 300;
-  const topW = meet.x + meet.w;
+  const topH = corr.y, botY = corr.y + corr.h;
+  // Furniture in a room is drawn in the prototype's coordinates and moved with the room: as a group
+  // from the middle (`mid`), or, for a plant, shelf or counter, to the edge it stands against (`edge`).
+  const mid = (r, fn) => { const s = shiftOf(r); g.shifted(s.dx, s.dy, fn); };
+  const edge = (r, x, y, fn) => { const a = anchorOf(r, x, y); const s = shiftOf(r, a.ax, a.ay); g.shifted(s.dx, s.dy, fn); };
+  const at = (r, ax, ay, fn) => { const s = shiftOf(r, ax, ay); g.shifted(s.dx, s.dy, fn); };
   g.rect(0, 0, W, H, PAL.wall);
   [...repos, leads].forEach((r) => planks(g, r, PAL.oak, PAL.oakLine, 6));
   planks(g, matt, PAL.oak, PAL.oakLine, 6);
   grid(g, meet, PAL.slate, PAL.slateLine, 10);
   g.rect(kitchen.x, kitchen.y, kitchen.w, kitchen.h, PAL.cream);
-  for (let y = kitchen.y; y < kitchen.y + kitchen.h; y += 8) {
-    for (let x = kitchen.x; x < kitchen.x + kitchen.w; x += 8) {
-      if (((x - kitchen.x) / 8 + (y - kitchen.y) / 8) % 2 === 0) g.rect(x, y, 8, 8, PAL.cream2);
+  for (let y = kitchen.y, j = 0; y < kitchen.y + kitchen.h; y += 8, j++) {
+    for (let x = kitchen.x, i = 0; x < kitchen.x + kitchen.w; x += 8, i++) {
+      if ((i + j) % 2 === 0) g.rect(x, y, Math.min(8, kitchen.x + kitchen.w - x), Math.min(8, kitchen.y + kitchen.h - y), PAL.cream2);
     }
   }
   grid(g, pong, PAL.green, PAL.greenLine, 12);
   planks(g, lounge, PAL.purple, PAL.purpleLine, 8);
   grid(g, rest, PAL.teal, PAL.tealLine, 12);
   // corridor with its runner
-  planks(g, { x: 0, y: 120, w: W, h: 40 }, PAL.corr, PAL.corrLine, 5);
-  g.rr(6, 132, W - 12, 16, 3, PAL.runnerEdge);
-  g.rr(7.5, 133.5, W - 15, 13, 2, PAL.runner);
+  planks(g, { x: 0, y: corr.y, w: W, h: corr.h }, PAL.corr, PAL.corrLine, 5);
+  const runY = corr.y + (corr.h - 16) / 2;
+  g.rr(6, runY, W - 12, 16, 3, PAL.runnerEdge);
+  g.rr(7.5, runY + 1.5, W - 15, 13, 2, PAL.runner);
   // walls
   const T = 4, t = 2.4;
   g.rect(0, 0, W, T, PAL.wall); g.rect(0, H - T, W, T, PAL.wall); g.rect(W - T, 0, T, H, PAL.wall);
-  g.rect(0, 0, T, 126, PAL.wall); g.rect(0, 154, T, H - 154, PAL.wall);
-  if (topW < W) g.rect(topW, 0, W - topW, 120, PAL.wall);
-  [[[...repos, leads, meet], 118.8], [[matt, kitchen, lounge, pong, rest], 159.2 - t + 1]].forEach(([row, wy]) => {
+  g.rect(0, 0, T, world.entrance.gap.y0, PAL.wall); g.rect(0, world.entrance.gap.y1, T, H - world.entrance.gap.y1, PAL.wall);
+  [[[...repos, leads, meet], topH - 1.2], [[matt, kitchen, lounge, pong, rest], botY - 2.2]].forEach(([row, wy]) => {
     row.forEach((r) => {
       g.rect(r.x, wy, r.door - 9 - r.x, t, PAL.wall);
       g.rect(r.door + 9, wy, r.x + r.w - r.door - 9, t, PAL.wall);
@@ -182,58 +195,67 @@ export function floorLayer(world, k) {
   // windows on the outer walls
   [...repos, leads, meet].forEach((r) => g.rect(r.x + 14, 1.2, r.w - 28, 1.6, PAL.window));
   [matt, kitchen, lounge, pong, rest].forEach((r) => g.rect(r.x + 14, H - 2.8, r.w - 28, 1.6, PAL.window));
-  g.rect(W - 2.8, 14, 1.6, 90, PAL.window); g.rect(W - 2.8, 176, 1.6, 96, PAL.window);
-  g.rect(1.2, 14, 1.6, 90, PAL.window); g.rect(1.2, 176, 1.6, 96, PAL.window);
-  g.rr(0, 128, 10, 24, 2, PAL.runnerEdge); // entrance
+  g.rect(W - 2.8, 14, 1.6, topH - 30, PAL.window); g.rect(W - 2.8, botY + 16, 1.6, H - botY - 32, PAL.window);
+  g.rect(1.2, 14, 1.6, topH - 30, PAL.window); g.rect(1.2, botY + 16, 1.6, H - botY - 32, PAL.window);
+  g.rr(0, world.entrance.y, 10, world.entrance.h, 2, PAL.runnerEdge); // entrance
   // repo rooms: a pod mat under four desks, plants and shelves
   repos.forEach((r, i) => {
-    const px = r.x + 75;
-    g.rr(px - 44, 18, 88, 80, 10, PAL.mats[i % PAL.mats.length]);
+    mid(r, () => g.rr(r.x0 + 75 - 44, 18, 88, 80, 10, PAL.mats[i % PAL.mats.length]));
     world.desks.filter((d) => d.room === r.key).forEach((d) => { chairDot(g, d.seat.x, d.seat.y); deskArt(g, d, true); });
-    plant(g, r.x + 12, 108, 5); plant(g, r.x + 138, 12, 5);
-    if (i % 2 === 0) shelf(g, r.x + 12, 6, 22, 7); else shelf(g, r.x + 112, 106, 26, 7);
+    edge(r, r.x0 + 12, 108, () => plant(g, r.x0 + 12, 108, 5)); edge(r, r.x0 + 138, 12, () => plant(g, r.x0 + 138, 12, 5));
+    if (i % 2 === 0) edge(r, r.x0 + 12, 6, () => shelf(g, r.x0 + 12, 6, 22, 7)); else edge(r, r.x0 + 112, 106, () => shelf(g, r.x0 + 112, 106, 26, 7));
   });
   // leads
   world.desks.filter((d) => d.room === "leads").forEach((d) => { chairDot(g, d.seat.x, d.seat.y); deskArt(g, d, false); });
-  shelf(g, leads.x + 6, 6, 30, 7); plant(g, leads.x + 80, 108, 5); plant(g, leads.x + 8, 108, 4);
+  edge(leads, leads.x0 + 6, 6, () => shelf(g, leads.x0 + 6, 6, 30, 7));
+  edge(leads, leads.x0 + 80, 108, () => plant(g, leads.x0 + 80, 108, 5)); edge(leads, leads.x0 + 8, 108, () => plant(g, leads.x0 + 8, 108, 4));
   // meeting room
-  g.rr(meet.x + 12, 26, 66, 72, 6, PAL.rugRed); g.rr(meet.x + 15, 29, 60, 66, 4, PAL.rugIn);
-  [[20, 50], [20, 66], [70, 50], [70, 66], [34, 32], [56, 32], [34, 86], [56, 86]].forEach(([x, y]) => chairDot(g, meet.x + x, y));
-  g.rr(meet.x + 25, 40, 40, 36, 6, PAL.woodDark);
-  g.rr(meet.x + 26, 6, 38, 11, 2, PAL.screen);
-  plant(g, meet.x + 82, 108, 4.5);
+  mid(meet, () => {
+    g.rr(meet.x0 + 12, 26, 66, 72, 6, PAL.rugRed); g.rr(meet.x0 + 15, 29, 60, 66, 4, PAL.rugIn);
+    [[20, 50], [20, 66], [70, 50], [70, 66], [34, 32], [56, 32], [34, 86], [56, 86]].forEach(([x, y]) => chairDot(g, meet.x0 + x, y));
+    g.rr(meet.x0 + 25, 40, 40, 36, 6, PAL.woodDark);
+  });
+  at(meet, 0.5, 0, () => g.rr(meet.x0 + 26, 6, 38, 11, 2, PAL.screen));
+  edge(meet, meet.x0 + 82, 108, () => plant(g, meet.x0 + 82, 108, 4.5));
   // Matt's desk near the entrance
   const md = world.mattDesk;
-  g.rr(8, 240, 50, 36, 6, PAL.sage); g.rr(13, 245, 40, 26, 4, PAL.cream);
+  mid(matt, () => { g.rr(8, 240, 50, 36, 6, PAL.sage); g.rr(13, 245, 40, 26, 4, PAL.cream); });
   chairDot(g, md.seat.x, md.seat.y);
   g.rr(md.x, md.y, md.w, md.h, 2, PAL.desk);
   g.rr(md.cx - 16, md.y + 2, 14, 3, 1, PAL.monitor); g.rr(md.cx + 2, md.y + 2, 14, 3, 1, PAL.monitor);
   g.rr(md.cx - 6, md.y + 10, 12, 2.4, 0.8, PAL.counterTop);
   g.circ(md.x + 4, md.y + 11, 1.7, PAL.books[1]);
-  plant(g, 88, 278, 5); plant(g, 10, 170, 4);
-  // kitchen
-  [[99, 163, 39], [154, 163, 40]].forEach(([x, y, w]) => { g.rr(x, y, w, 11, 1.5, PAL.counter); g.rr(x + 1, y + 1, w - 2, 9, 1, PAL.counterTop); });
-  g.circ(108, 168.5, 3, PAL.counter); g.circ(108, 168.5, 2, PAL.fridge);
-  g.rr(118, 165, 9, 7, 1.2, PAL.appliance); g.circ(122.5, 168.5, 1.2, PAL.accent);
-  g.circ(164, 168.5, 2.2, PAL.appliance); g.circ(172, 168.5, 2.2, PAL.appliance); g.rr(180, 165, 9, 7, 1.2, PAL.appliance);
-  g.rr(175, 262, 18, 22, 2, PAL.fridge); g.rect(176, 270, 16, 0.6, PAL.counter); g.rect(189, 264, 0.8, 4, PAL.counter);
-  g.circ(146, 231, 24, PAL.sage); g.circ(146, 231, 11, PAL.table); g.circ(146, 231, 2, PAL.fridge);
-  plant(g, 102, 280, 4.5);
+  edge(matt, 88, 278, () => plant(g, 88, 278, 5)); edge(matt, 10, 170, () => plant(g, 10, 170, 4));
+  // kitchen: counters along the top wall, the fridge in the bottom corner, the table in the middle
+  at(kitchen, 0.5, 0, () => {
+    [[99, 163, 39], [154, 163, 40]].forEach(([x, y, w]) => { g.rr(x, y, w, 11, 1.5, PAL.counter); g.rr(x + 1, y + 1, w - 2, 9, 1, PAL.counterTop); });
+    g.circ(108, 168.5, 3, PAL.counter); g.circ(108, 168.5, 2, PAL.fridge);
+    g.rr(118, 165, 9, 7, 1.2, PAL.appliance); g.circ(122.5, 168.5, 1.2, PAL.accent);
+    g.circ(164, 168.5, 2.2, PAL.appliance); g.circ(172, 168.5, 2.2, PAL.appliance); g.rr(180, 165, 9, 7, 1.2, PAL.appliance);
+  });
+  at(kitchen, 1, 1, () => { g.rr(175, 262, 18, 22, 2, PAL.fridge); g.rect(176, 270, 16, 0.6, PAL.counter); g.rect(189, 264, 0.8, 4, PAL.counter); });
+  mid(kitchen, () => { g.circ(146, 231, 24, PAL.sage); g.circ(146, 231, 11, PAL.table); g.circ(146, 231, 2, PAL.fridge); });
+  edge(kitchen, 102, 280, () => plant(g, 102, 280, 4.5));
   // lounge
-  g.rr(202, 168, 62, 14, 4, PAL.sofaDark); g.rr(204, 174, 58, 10, 3, PAL.sofa);
-  g.ell(241, 228, 30, 19, PAL.orange); g.rr(228, 220, 26, 15, 4, PAL.table);
-  g.circ(236, 226, 1.6, PAL.fridge); g.rr(242, 225, 7, 5, 0.8, PAL.books[2]);
-  [[210, 228, PAL.pouf1], [272, 228, PAL.pouf2], [226, 258, PAL.pouf3], [254, 258, PAL.pouf1], [284, 200, PAL.pouf2]].forEach(([x, y, c]) => g.circ(x, y, 5.6, c));
+  mid(lounge, () => {
+    g.rr(202, 168, 62, 14, 4, PAL.sofaDark); g.rr(204, 174, 58, 10, 3, PAL.sofa);
+    g.ell(241, 228, 30, 19, PAL.orange); g.rr(228, 220, 26, 15, 4, PAL.table);
+    g.circ(236, 226, 1.6, PAL.fridge); g.rr(242, 225, 7, 5, 0.8, PAL.books[2]);
+    [[210, 228, PAL.pouf1], [272, 228, PAL.pouf2], [226, 258, PAL.pouf3], [254, 258, PAL.pouf1], [284, 200, PAL.pouf2]].forEach(([x, y, c]) => g.circ(x, y, 5.6, c));
+  });
   g.ell(world.bed.x, world.bed.y, 11, 8, PAL.dogbed); g.ell(world.bed.x, world.bed.y, 8, 5.6, PAL.dogbedIn);
-  plant(g, 205, 278, 5); shelf(g, 222, 279, 30, 6);
+  edge(lounge, 205, 278, () => plant(g, 205, 278, 5)); edge(lounge, 222, 279, () => shelf(g, 222, 279, 30, 6));
   // ping pong
-  g.rr(327 + e, 213, 42, 24, 2, PAL.pong);
-  [[327, 213, 42, 0.7], [327, 236.3, 42, 0.7], [327, 213, 0.7, 24], [368.3, 213, 0.7, 24], [327, 224.7, 42, 0.5], [347.5, 210, 1.2, 30]].forEach(([x, y, w, h]) => g.rect(x + e, y, w, h, PAL.white));
-  shelf(g, 306 + e, 276, 46, 7); shelf(g, 356 + e, 276, 34, 7);
-  plant(g, 388 + e, 170, 4.5);
+  mid(pong, () => {
+    g.rr(327, 213, 42, 24, 2, PAL.pong);
+    [[327, 213, 42, 0.7], [327, 236.3, 42, 0.7], [327, 213, 0.7, 24], [368.3, 213, 0.7, 24], [327, 224.7, 42, 0.5], [347.5, 210, 1.2, 30]].forEach(([x, y, w, h]) => g.rect(x, y, w, h, PAL.white));
+  });
+  edge(pong, 306, 276, () => shelf(g, 306, 276, 46, 7)); edge(pong, 356, 276, () => shelf(g, 356, 276, 34, 7));
+  edge(pong, 388, 170, () => plant(g, 388, 170, 4.5));
   // rest room
   world.spots.rest.forEach((p) => { g.rr(p.x - 12, p.y - 9, 24, 15, 4, PAL.bean); g.rr(p.x - 11, p.y - 8, 7, 13, 3, PAL.fridge); });
-  plant(g, 470 + e, 278, 5); g.circ(438 + e, 226, 4, PAL.books[1]); g.circ(438 + e, 226, 2.4, PAL.fridge);
+  edge(rest, 470, 278, () => plant(g, 470, 278, 5));
+  mid(rest, () => { g.circ(438, 226, 4, PAL.books[1]); g.circ(438, 226, 2.4, PAL.fridge); });
   return g;
 }
 
@@ -250,16 +272,25 @@ export function labels(world, k, crewCount) {
   const size = Math.max(8, Math.min(11, 5 * k));
   const at = { meet: [6, 20], kitchen: [6, 178], lounge: [8, 161.5], leads: [6, 16], matt: [18, 172], pong: [6, 166], rest: [6, 166] };
   for (const r of world.rooms) {
-    if (r.kind === "repo") { // the repo's chip sits under its pod
-      out.push(pill(r.label, r.x + 75, 100, k, PAL.chip, PAL.chipInk, size, true));
+    if (r.kind === "repo") { // the repo's chip sits under its pod, which is centred in the room
+      out.push(pill(r.label, r.x + r.w / 2, 100 + shiftOf(r).dy, k, PAL.chip, PAL.chipInk, size, true));
       continue;
     }
+    // Room names stay at the room's top left corner.
     const [dx, dy] = at[r.kind] || [6, 6];
-    out.push(pill(r.label.toUpperCase(), r.x + dx, dy, k, PAL.label, PAL.labelInk, Math.max(7, size - 1)));
+    const s = shiftOf(r, 0, 0);
+    out.push(pill(r.label.toUpperCase(), r.x0 + dx + s.dx, dy + s.dy, k, PAL.label, PAL.labelInk, Math.max(7, size - 1)));
   }
-  const meet = world.rooms.find((r) => r.kind === "meet");
-  out.push(div().absolute().left((meet.x + 30) * k).top(7.5 * k).text_size(Math.max(6, 5 * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(`${crewCount} on the crew`));
+  const p = wallScreen(world);
+  out.push(div().absolute().left((p.x + 4) * k).top((p.y + 1.5) * k).text_size(Math.max(6, 5 * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(`${crewCount} on the crew`));
   return out;
+}
+
+/** The meeting room's wall screen, where the floor draws it. */
+export function wallScreen(world) {
+  const meet = world.rooms.find((r) => r.kind === "meet");
+  const s = shiftOf(meet, 0.5, 0);
+  return { x: meet.x0 + 26 + s.dx, y: 6 + s.dy, w: 38, h: 11 };
 }
 
 // ---------- the moving parts ----------
@@ -283,12 +314,12 @@ export function glow(d, s, k) {
 
 /** The ping-pong ball: a rally across the table while two people play, else resting in the middle. */
 export function ball(world, k, rally) {
-  const e = world.rooms.find((r) => r.kind === "pong").x - 300;
-  if (!rally) return [new Layer(k, 346.7 + e, 228.7, 2.6, 2.6).circ(348 + e, 230, 1.3, PAL.ball).el()];
+  const { dx, dy } = shiftOf(world.rooms.find((r) => r.kind === "pong"));
+  if (!rally) return [new Layer(k, 346.7 + dx, 228.7 + dy, 2.6, 2.6).circ(348 + dx, 230 + dy, 1.3, PAL.ball).el()];
   const b = new Layer(k, 0, 0, 2.6, 2.6).circ(1.3, 1.3, 1.3, PAL.ball);
-  return [b.el().left((325 + e) * k).top(222.7 * k)
-    .loop("left", { from: (325 + e) * k, to: (369 + e) * k, period: 1300, easing: "linear" })
-    .loop("top", { from: 223.7 * k, to: 219.7 * k, period: 650 })];
+  return [b.el().left((325 + dx) * k).top((222.7 + dy) * k)
+    .loop("left", { from: (325 + dx) * k, to: (369 + dx) * k, period: 1300, easing: "linear" })
+    .loop("top", { from: (223.7 + dy) * k, to: (219.7 + dy) * k, period: 650 })];
 }
 
 function bubble(g, x, y, label, fill, ink, k) {
@@ -439,10 +470,10 @@ export function night(world, k, lit) {
     const y = d.side === "n" ? d.y + d.h - 6 : d.y + 6;
     [[22, "10"], [16, "18"], [11, "24"], [6, "34"]].forEach(([r, al]) => pools.circ(d.cx, y, r, col + al));
   }
-  const meet = world.rooms.find((r) => r.kind === "meet");
-  [[18, "0c"], [12, "18"], [7, "28"]].forEach(([r, al]) => pools.circ(meet.x + 45, 11, r, PAL.screenInk + al));
+  const ws = wallScreen(world);
+  [[18, "0c"], [12, "18"], [7, "28"]].forEach(([r, al]) => pools.circ(ws.x + 19, ws.y + 5, r, PAL.screenInk + al));
   out.push(pools.el());
-  const keep = new Layer(k, 0, 0, world.W, world.H).rr(meet.x + 26, 6, 38, 11, 2, PAL.screen).rr(1, 136, 7, 8, 1, PAL.work);
+  const keep = new Layer(k, 0, 0, world.W, world.H).rr(ws.x, ws.y, ws.w, ws.h, 2, PAL.screen).rr(1, world.entrance.light.y, 7, world.entrance.light.h, 1, PAL.work);
   out.push(keep.el());
   return out;
 }

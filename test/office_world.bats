@@ -29,13 +29,13 @@ console.log(L.W, L.H, L.rooms.map((r) => r.kind + ":" + r.x + "," + r.y + "," + 
   [ "$output" = "480 288 repo:0,0,150,120 repo:150,0,150,120 leads:300,0,90,120 meet:390,0,90,120 matt:0,160,96,128 kitchen:96,160,100,128 lounge:196,160,104,128 pong:300,160,96,128 rest:396,160,84,128" ]
 }
 
-@test "a third repo widens the floor, the lounge takes the width and pong and rest move over" {
+@test "a third repo widens the floor, and the extra width is shared by the rooms of the bottom row" {
   run crew_js "$HELPERS"'
 const L = crew.layoutCrew([], ["api", "web", "docs"]);
 const at = (k) => room(L, k);
 console.log(L.W, at("leads").x, at("meet").x, at("kitchen").x, at("lounge").w, at("pong").x, at("rest").x + at("rest").w);'
   [ "$status" -eq 0 ]
-  [ "$output" = "630 450 540 96 254 450 630" ]
+  [ "$output" = "630 450 540 126 134 390 630" ]
 }
 
 @test "each repo room has the prototype's pod of four desks" {

@@ -7,10 +7,13 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
+import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, window as appWindow } from "herdr";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
+
+// Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
+const FS_KEY = "crew-office.fullscreen";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 
@@ -33,6 +36,18 @@ export default class CrewOffice extends View {
     this.offer = null;
     this.crewNow = [];
     // The chat panel beside the office; its Terminal button docks the real terminal (open below).
+    // Full-screen mode that is on: { plan, pane } (what it did, so Esc undoes exactly that) or null.
+    this.fs = null;
+    // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
+    // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
+    try {
+      const left = shared(FS_KEY);
+      const now = panes();
+      const offices = now.filter((p) => p.mod === "crew-office").map((p) => p.pane);
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()), offices);
+      if (what === "adopt") this.fs = left;
+      else if (what === "undo") this.recover(left);
+    } catch (_) { /* nothing to recover */ }
     this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx) });
   }
 
@@ -117,10 +132,90 @@ export default class CrewOffice extends View {
     if (cx) cx.notify();
   }
 
-  // Full screen: pane.zoom on the office pane hides the chat split; Esc zooms back out.
-  zoom(mine) {
-    run("pane.zoom", { pane: mine });
+  // Full-screen mode: zoom the office pane (hiding the chat split), hide herdr's chrome that is
+  // showing, and take the window full screen unless it is. The plan records what was done, so Esc
+  // (or the same button) undoes exactly that: a bar that was hidden before stays hidden.
+  enterFullscreen(view, cx) {
+    if (this.fs) return;
+    const all = panes();
+    // A plan is already saved: never write over it, it is the only record of what was hidden.
+    let saved = null;
+    try { saved = shared(FS_KEY); } catch (_) { /* none */ }
+    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
+    if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
+    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "Another office is in full screen. Leave it there first.", level: "warning" }); return; }
+    if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
+    const me = all.find((p) => p.pane === view.mine);
+    const plan = fullscreenPlan(layout(), {
+      fullscreen: !!(appWindow() || {}).fullscreen,
+      zoomed: view.zoomed,
+      siblings: !!me && all.some((p) => p.tab === me.tab && p.pane !== me.pane),
+    });
+    this.fs = { plan, pane: view.mine };
+    try { setShared(FS_KEY, this.fs); } catch (_) { /* the reload recovery is best effort */ }
+    const step = (fn) => { try { fn(); } catch (_) { /* carry on: the rest should still apply */ } };
+    if (plan.zoom && view.mine) step(() => run("pane.zoom", { pane: view.mine }));
+    for (const id of plan.hide) step(() => run("layout.hide", { id }));
+    if (plan.window) step(() => window.toggle_fullscreen());
     this.handle.focus();
+    if (cx) cx.notify();
+  }
+
+  // Undo a plan, last step first. Each step first checks that it still has something to undo, so
+  // one the person already took back by hand (F11, Ctrl+Shift+B) is left alone: a node is shown
+  // only if it is still hidden, the window leaves full screen only if the plan turned it on.
+  undo(plan, pane) {
+    const step = (fn) => { try { fn(); } catch (_) { /* carry on */ } };
+    for (const s of restoreSteps(plan)) {
+      if (s.window) step(() => { if ((appWindow() || {}).fullscreen) window.toggle_fullscreen(); });
+      else if (s.show) step(() => { const n = findNodeById(layout(), s.show); if (n && n.hidden) run("layout.show", { id: s.show }); });
+      else if (s.zoom && pane) step(() => { if ((panes().find((p) => p.pane === pane) || {}).zoomed) run("pane.zoom", { pane }); });
+    }
+  }
+
+  // The same undo, through `herdr-app do` with exec: on app quit only exec goes out, other commands
+  // may be dropped. Resolves true only when every step that was needed succeeded. The window's full
+  // screen has no command, so it is a best-effort toggle that does not count.
+  async undoByExec(plan, pane) {
+    let ok = true;
+    for (const s of restoreSteps(plan)) {
+      try {
+        if (s.window) { if ((appWindow() || {}).fullscreen) window.toggle_fullscreen(); continue; }
+        if (s.show) { const n = findNodeById(layout(), s.show); if (!(n && n.hidden)) continue; }
+        if (s.zoom) { if (!((panes().find((p) => p.pane === pane) || {}).zoomed)) continue; }
+        const args = doArgs(s, pane);
+        if (!args) continue;
+        const r = await exec("herdr-app", args, { timeout: 5000 });
+        if (r.code !== 0) ok = false;
+      } catch (_) { ok = false; }
+    }
+    return ok;
+  }
+
+  // Put back what a plan left undone, and forget the plan only once that worked: otherwise it stays
+  // saved and the next start tries again.
+  recover(saved) {
+    this.undoByExec(saved.plan, saved.pane).then((ok) => { if (ok) setShared(FS_KEY, null); }).catch(() => {});
+  }
+
+  leaveFullscreen(cx) {
+    const f = this.fs;
+    if (!f) return;
+    this.fs = null;
+    this.undo(f.plan, f.pane);
+    try { setShared(FS_KEY, null); } catch (_) { /* nothing to clear */ }
+    this.handle.focus();
+    if (cx) cx.notify();
+  }
+
+  // herdr calls this when the office is closed or reloaded, and on app quit (where only exec is
+  // sure to go out). The chrome is put back with exec; the saved plan is cleared only when that
+  // worked, so a quit that dropped it is finished by the next office to start.
+  async close(_cx) {
+    const f = this.fs;
+    if (!f) return;
+    this.fs = null;
+    if (await this.undoByExec(f.plan, f.pane)) { try { setShared(FS_KEY, null); } catch (_) { /* nothing to clear */ } }
   }
 
   // Where each person is drawn this render. A person whose place changed walks there door to door:
@@ -175,8 +270,8 @@ export default class CrewOffice extends View {
     cx.notify();
   }
 
-  // The folder loh runs in to find the workspace: a running agent's, else a pane in this tab or
-  // any pane (a terminal in the same workspace), else the `dir` prop.
+  // The folder loh runs in to find the workspace: the `dir` prop, else the coordinator's folder or
+  // any running agent's, else a pane in the office's own tab. Empty when none has one.
   workspaceDir(crew) {
     return workspaceDir(crew, props(), panes(), officePane(panes(), props()));
   }
@@ -276,7 +371,7 @@ export default class CrewOffice extends View {
       .child(cell("done", "done")).child(cell("idle", "idle"))
       .child(div().flex_1())
       .when(!!this.chat && !view.zoomed, (el) => el.child(div().text_size(12).text_color(t.muted).child(`Chat: ${this.chat.name}`)))
-      .when(!!this.chat && view.mine !== null, (el) => el.child(button("fullscreen", view.zoomed ? "Show chat (Esc)" : "Full screen", () => this.zoom(view.mine))))
+      .child(button("fullscreen", this.fs ? "Exit full screen (Esc)" : "Full screen", (_e, cx) => (this.fs ? this.leaveFullscreen(cx) : this.enterFullscreen(view, cx))))
       .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
 
@@ -289,7 +384,7 @@ export default class CrewOffice extends View {
     const crew = crewOf(list, workspace);
     this.crewNow = crew;
     this.loadRepos(crew, workspace, cx);
-    const L = layoutCrew(crew, this.repos);
+    const L = layoutCrew(crew, this.repos, aspectOf(this.size));
     this.panel.sync(crew, cx);
     const allPanes = panes();
     // The person closed the chat's split by hand: release the lock the click set.
@@ -307,18 +402,19 @@ export default class CrewOffice extends View {
     // The stage is measured beside the panel column, so the panel's width is already out of it.
     const showPanel = this.panel.open && !this.chat;
     const { k, fits } = fitScale(this.size, L);
+    const stageColour = stageBg(dark);
     // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
     // the transition and everything jumps with the rooms and desks.
-    const sig = `${k}|${L.W}`;
+    const sig = `${k}|${L.W}|${L.H}`;
     this.anim = sig === this.sig;
     this.sig = sig;
     const u = (n) => n * k;
     const mo = this.motion(L, !this.anim);
 
     // The floor does not change with the crew, only with the plan and the scale.
-    const floorKey = `${k}|${L.W}|${L.pods.map((p) => p.repo).join(",")}`;
-    if (!this.floor || this.floor.key !== floorKey) this.floor = { key: floorKey, layer: floorLayer(L, k) };
+    const key = floorKey(L, k);
+    if (!this.floor || this.floor.key !== key) this.floor = { key, layer: floorLayer(L, k) };
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
@@ -376,14 +472,15 @@ export default class CrewOffice extends View {
 
     // The floor is scaled to the stage: the area left under the bar and the offer row, measured
     // there, so nothing is subtracted by guess.
-    const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(8).when(fits, (el) => el.justify_center())
+    const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(PAD).bg(stageColour).when(fits, (el) => el.justify_center().items_center())
       .on_size_change((size, cx) => { if (size.width !== this.size.width || size.height !== this.size.height) { this.size = size; cx.notify(); } })
       .child(floor);
 
-    return v_flex().id("root").size_full().bg(t.canvas).track_focus(this.handle)
+    return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
-        if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
+        if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
+        else if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
         else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && this.panel.open) { this.panel.close(cx); cx.stop_propagation(); }
       })
