@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -101,7 +101,7 @@ export default class CrewOffice extends View {
     this.idleMinutes = undefined;
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
     this.mem = newMemory();
-    this.mattUntil = 0;
+    this.mattLast = 0;
     this.lastFocus = null;
     // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
     this.wake = null;
@@ -215,12 +215,12 @@ export default class CrewOffice extends View {
     });
   }
 
-  // Matt typed in the office's message box: he is at his desk for TYPING_HOLD from now. The render that finds him still
-  // there after that sends him away (see wakeIn).
+  // Matt typed in the office's message box: his hands type for TYPING_HOLD from now, and he stays at his desk for
+  // MATT_SEAT_HOLD. The render that finds him still there after that sends him away (see wakeIn).
   typed(cx) {
-    const was = Date.now() < this.mattUntil;
-    this.mattUntil = Date.now() + TYPING_HOLD;
-    // A key while he already counts as typing changes nothing on screen: render only when he sits down.
+    const was = mattTypingAt(Date.now(), this.mattLast);
+    this.mattLast = Date.now();
+    // A key while his hands already type changes nothing on screen: render only when they start.
     if (cx && !was) cx.notify();
   }
 
@@ -426,7 +426,7 @@ export default class CrewOffice extends View {
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
-      out.set(p.id, { walking, from: walking ? w.from : w.at, chain: walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), x: pos.x, y: pos.y, face });
+      out.set(p.id, { rest: restAt(w.at, goal, walking), walking, from: walking ? w.from : w.at, chain: walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), x: pos.x, y: pos.y, face });
     }
     for (const id of [...this.walks.keys()]) if (!here.has(id)) { this.stopWalk(this.walks.get(id)); this.walks.delete(id); }
     return out;
@@ -671,16 +671,18 @@ export default class CrewOffice extends View {
     // Focus arriving on a terminal he opened from the office counts as Matt at work for TYPING_HOLD, like a key in the message
     // box; focus that stays there does not renew it (herdr shows no keys typed in a terminal).
     const here = focus && focus.terminal ? focus.terminal : null;
-    if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattUntil = now + TYPING_HOLD;
+    if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattLast = now;
     this.lastFocus = here;
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
       mem: this.mem, now,
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
-      mattTyping: mattTypingAt(now, this.mattUntil),
+      mattSeated: mattSeatedAt(now, this.mattLast),
+      mattTyping: mattTypingAt(now, this.mattLast),
     });
     this.layoutNow = L;
-    // Time alone ends some things: ask for a render then. Matt's typing hold is one of them.
-    const waits = [L.wakeIn, this.mattUntil > now ? this.mattUntil - now : null].filter((x) => x !== null);
+    // Time alone ends some things: ask for a render then. Matt's typing hold and his seat hold are two of them.
+    const mattEnds = [TYPING_HOLD, MATT_SEAT_HOLD].map((h) => this.mattLast + h - now).filter((ms) => this.mattLast > 0 && ms > 0);
+    const waits = [L.wakeIn, ...(mattEnds.length ? [Math.min(...mattEnds)] : [])].filter((x) => x !== null);
     if (waits.length) this.wakeIn(Math.min(...waits));
     const { k, fits } = fitScale(size, L);
     const stageColour = stageBg(dark);
@@ -742,13 +744,17 @@ export default class CrewOffice extends View {
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
     const screens = [];
+    const rest = {};
+    for (const [id, m] of mo) rest[id] = m.rest;
+    const seen = screensSeen(L, rest);
+    this.screensNow = seen;
     for (const d of L.desks) {
-      const s = L.screens[d.key];
+      const s = seen[d.key];
       if (s) { screens.push([d, s]); if (s !== "dim") lit.push([d, s]); }
     }
     for (const dx of [-9, 9]) {
       const d = { cx: L.mattDesk.cx + dx, y: L.mattDesk.y, h: L.mattDesk.h, side: "s" };
-      screens.push([d, "work"]); lit.push([d, "work"]);
+      screens.push([d, seen.matt]); if (seen.matt !== "dim") lit.push([d, seen.matt]);
     }
     const glows = screens.flatMap(([d, s]) => glow(d, s, k));
     // The desk of someone Matt is talking to gets an accent strip.
@@ -762,7 +768,7 @@ export default class CrewOffice extends View {
     // drawing inside is draw.js's, and a click on the figure does what a click on its tag does.
     const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
       const m = mo.get(p.id);
-      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.face, m.walking, L);
+      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.face, m.walking, L, m.rest);
       const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
       return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids));
     });

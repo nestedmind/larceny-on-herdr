@@ -805,12 +805,14 @@ const wake = timers.filter((t) => !t.cancelled).map((t) => t.ms);
 later(19000); render();
 const still = matt().place;
 later(2000); render();
-console.log(away, typing, still, matt().place, wake.some((m) => m > 19000 && m <= 20100));'
+const idle = matt().place;
+later(160000); render();
+console.log(away, typing, still, idle, matt().place, wake.some((m) => m > 19000 && m <= 20100), wake.some((m) => m > 179000 && m <= 180100));'
   [ "$status" -eq 0 ]
-  [ "$output" = "lounge matt matt lounge true" ]
+  [ "$output" = "lounge matt matt matt lounge true false" ]
 }
 
-@test "Matt is at his desk for 20 s after focus arrives on a terminal opened from the office, and goes away though it stays focused" {
+@test "Matt is at his desk for 3 minutes after focus arrives on a terminal opened from the office, and goes away though it stays focused" {
   run office_js '
 const matt = () => office.layoutNow.people.find((p) => p.id === "matt").place;
 office.chat = { pane: "p1", office: "p1", address: "tsheba", name: "sheba", agent: {} };
@@ -820,12 +822,62 @@ const focused = matt();
 later(19000); render();
 const still = matt();
 later(2000); render();
+const mid = matt();
+later(160000); render();
 const stays = matt();
 globalThis.FOCUS = { terminal: "tscofield" }; render();
 globalThis.FOCUS = { terminal: "tsheba" }; render();
-console.log(focused, still, stays, matt());'
+console.log(focused, still, mid, stays, matt());'
   [ "$status" -eq 0 ]
-  [ "$output" = "matt matt lounge matt" ]
+  [ "$output" = "matt matt matt lounge matt" ]
+}
+
+# Hands tapping on a person's figure: the loops of period 260 inside their mover.
+HANDS='
+const hands = (name) => all(find(render(), "m-" + name)).filter((n) => n.props.loop && n.props.loop[1] && n.props.loop[1].period === 260).length;
+const settle = () => { for (let i = 0; i < 6; i++) { timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => { t.cancelled = true; t.fn({ notify() {} }); }); render(); } };
+'
+
+@test "an agent summoned from the lounge has no hands on the keys during the hold or the walk, and types once seated" {
+  run office_js "$HANDS"'
+office.idleMinutes = 1;
+terms()[0].status = "idle";
+render(); later(120000); render(); later(3000); render(); settle();
+const lounge = office.walks.get("scofield").at;
+terms()[0].status = "working";
+render();
+const hold = hands("scofield");
+later(3000); render();
+const walking = hands("scofield") + ":" + office.walks.get("scofield").legs.length;
+const desk = { x: office.layoutNow.people.find((p) => p.id === "scofield").x, y: office.layoutNow.people.find((p) => p.id === "scofield").y };
+settle();
+const w = office.walks.get("scofield");
+console.log(hold, walking.split(":")[0], walking.split(":")[1] > 0, w.at.x === desk.x && w.at.y === desk.y && (lounge.x !== desk.x || lounge.y !== desk.y), hands("scofield"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0 true true 2" ]
+}
+
+@test "Matt sits and types for 20 s, sits on without typing to 3 minutes with his monitors lit, then dims them on the way to the lounge" {
+  run office_js "$HANDS"'
+const matt = () => office.screensNow.matt;
+render();
+const away = hands("matt") + matt();
+office.mattLast = clock; render();
+const hold = hands("matt") + matt();
+later(3000); render(); const walking = hands("matt") + matt();
+settle();
+const seated = hands("matt") + matt();
+later(25000); render();
+const idle = hands("matt") + matt();
+later(150000); render();
+const late = hands("matt") + matt();
+later(10000); render();
+const leaving = hands("matt") + matt();
+later(3000); render(); settle();
+const gone = hands("matt") + matt() + office.layoutNow.people.find((p) => p.id === "matt").place;
+console.log([away, hold, walking, seated, idle, late, leaving, gone].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0dim 0dim 0dim 2work 0work 0work 0dim 0dimlounge" ]
 }
 
 dim_count='const dim = (root) => all(find(root, "stage")).filter((n) => n.fill === "#060a24a8").length;'

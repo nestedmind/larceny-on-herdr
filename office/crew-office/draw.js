@@ -449,7 +449,8 @@ function bubble(g, x, y, label, fill, ink, k) {
     .text_size(Math.max(5, 5 * k)).font_semibold().text_color(ink).child(label);
 }
 
-const TYPING = (p) => (p.id === "matt" && p.place === "matt") || (p.state === "working" && p.place === "desk");
+// Hands on the keys: the layout says the person is typing (`typing`, where they are going), and they are at rest on their seat.
+const TYPING = (p, rest) => !!p.typing && !!rest;
 const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
   const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
   const [fx, tx] = rev ? [cx + ax, cx - ax] : [cx - ax, cx + ax];
@@ -461,11 +462,11 @@ const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
 
 /**
  * One person, seen from above: the prototype's person(). `face` is where they look (n, s, e, w) and
- * `walking` swings their arms and bobs them. Returns the elements to put in the person's wrapper.
+ * `walking` swings their arms and bobs them; `rest` is that they are standing on their goal, which typing needs. Returns the elements to put in the person's wrapper.
  * Draw order is the prototype's: shadow, ring, hands, then the body over them, so a hand shows only
  * where it sticks out; the hands bob with the body.
  */
-export function personEls(p, k, face, walking, world) {
+export function personEls(p, k, face, walking, world, rest = false) {
   const [hair, skin, shirt] = look(p.id.startsWith("x:") ? p.name : p.id);
   const B = BOX;
   const x = B, y = B;
@@ -479,7 +480,7 @@ export function personEls(p, k, face, walking, world) {
   const fy = face === "n" ? -1 : 1;
   const side = face === "e" ? 1 : face === "w" ? -1 : 0;
   const hands = [];
-  if (TYPING(p) && !walking) {
+  if (TYPING(p, rest) && !walking) {
     // Both hands on the keyboard of this person's own desk, tapping in turn.
     const d = p.id === "matt" ? world.mattDesk : world.desks.find((q) => q.key === p.desk);
     const kbY = !d ? y : p.id === "matt" ? d.y + 11.2 : d.side === "n" ? d.y + 4.2 : d.y + d.h - 3.8;
