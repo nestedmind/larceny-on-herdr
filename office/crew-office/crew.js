@@ -474,6 +474,27 @@ export function legsOf(from, points, speed = WALK_SPEED) {
   return legs;
 }
 
+/** How long a new place has to hold before the person sets off for it, in ms. */
+export const GOAL_HOLD = 2500;
+
+/**
+ * One render's decision about where someone goes. `planned` is the place they are at or walking to,
+ * `goal` the place the crew's state gives them now, `pending` what an earlier render saw first
+ * ({ goal, since } or null). Someone sets off only once the new place has held for GOAL_HOLD ms, so a
+ * state that flips back within moments (a message answered in a few seconds) moves nobody, and never
+ * while they are walking: a walk is not redirected, because its movers are already running in the
+ * renderer. It ends, and the new walk starts from where it ended. `wakeIn` is when to render again
+ * to find out, or null when something else (the end of the walk, another change) will.
+ */
+export function nextGoal(pending, planned, goal, now, walking) {
+  if (goal.x === planned.x && goal.y === planned.y) return { pending: null, go: false, wakeIn: null };
+  const p = pending && pending.goal.x === goal.x && pending.goal.y === goal.y ? pending : { goal, since: now };
+  const left = GOAL_HOLD - (now - p.since);
+  if (left > 0) return { pending: p, go: false, wakeIn: left };
+  if (walking) return { pending: p, go: false, wakeIn: null };
+  return { pending: null, go: true, wakeIn: null };
+}
+
 /** How long a whole walk takes, in ms. */
 export function walkMs(legs) {
   return legs.reduce((s, l) => s + l.ms, 0);
