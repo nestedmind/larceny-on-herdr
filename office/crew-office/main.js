@@ -8,8 +8,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
-import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, window as appWindow } from "herdr";
-import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
+import { PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -97,6 +97,13 @@ export default class CrewOffice extends View {
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
+    // The idle time the workspace sets (`idle_minutes` in its manifest, through `loh status --settings`); the idleMinutes prop wins.
+    this.idleMinutes = undefined;
+    // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
+    this.mem = newMemory();
+    this.mattUntil = 0;
+    // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
+    this.wake = null;
     // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
     this.walks = new Map();
     // The floor and the night layers: built once for a plan, kept across scales. See render().
@@ -139,7 +146,7 @@ export default class CrewOffice extends View {
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window is open
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen });
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, typed: (cx) => this.typed(cx) });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar
@@ -194,7 +201,44 @@ export default class CrewOffice extends View {
       if (r.code !== 0) return;
       const next = repoNames(r.stdout);
       if (next.join("\n") !== this.repos.join("\n")) { this.repos = next; cx.notify(); }
+      // The workspace's settings: a failure keeps the last value (loh older than the setting has no such option).
+      const s = settingsCall({ cwd: dir }, (props() || {}).loh);
+      let sr = null;
+      try { sr = await exec(s.cmd, s.args, s.options); } catch (_) { return; }
+      if (sr.code !== 0) return;
+      const minutes = idleMinutesOf(sr.stdout);
+      if (minutes !== this.idleMinutes) { this.idleMinutes = minutes; cx.notify(); }
     });
+  }
+
+  // Matt typed in the office's message box: he is at his desk for TYPING_HOLD from now. The render that finds him still
+  // there after that sends him away (see wakeIn).
+  typed(cx) {
+    const was = Date.now() < this.mattUntil;
+    this.mattUntil = Date.now() + TYPING_HOLD;
+    // A key while he already counts as typing changes nothing on screen: render only when he sits down.
+    if (cx && !was) cx.notify();
+  }
+
+  // Render again in `ms`, once: the earliest wish wins. Time alone changes things (an idle time ends, a wait for a review
+  // ends, Matt stops typing), and herdr renders only when something changes.
+  wakeIn(ms) {
+    const at = Date.now() + ms;
+    if (this.wake && this.wake.at <= at) return;
+    if (this.wake) { try { this.wake.task.cancel(); } catch (_) { /* already fired */ } }
+    const w = { at, task: null };
+    w.task = this.acx.timer.after(ms + 5, (c) => {
+      if (this.wake === w) this.wake = null;
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    });
+    this.wake = w;
+  }
+
+  // The addresses of the agents whose terminal Matt has open from the office: the docked chat and a full-terminal window.
+  openTerminals() {
+    const out = this.chat ? [this.chat.address] : [];
+    for (const [address, ids] of Object.entries(holders())) if (Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-"))) out.push(address);
+    return out;
   }
 
   // Run loh lock / unlock in the agent's own folder. It exits non-zero when loh or the command
@@ -609,7 +653,18 @@ export default class CrewOffice extends View {
     const showPanel = this.panel.open && !this.chat;
     const size = stageSize(this.size, this.sizeWithPanel, showPanel, this.panelW);
     this.drawnWithPanel = showPanel;
-    const L = layoutCrew(crew, this.repos, aspectOf(size));
+    const now = Date.now();
+    let focus = null;
+    try { focus = focused(); } catch (_) { /* no focus information: only the message box counts */ }
+    const L = layoutCrew(crew, this.repos, aspectOf(size), {
+      mem: this.mem, now,
+      idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
+      mattTyping: mattTypingAt(now, this.mattUntil, focus && focus.terminal, this.openTerminals()),
+    });
+    this.layoutNow = L;
+    // Time alone ends some things: ask for a render then. Matt's typing hold is one of them.
+    const waits = [L.wakeIn, this.mattUntil > now ? this.mattUntil - now : null].filter((x) => x !== null);
+    if (waits.length) this.wakeIn(Math.min(...waits));
     const { k, fits } = fitScale(size, L);
     const stageColour = stageBg(dark);
     const F = { chip: PAL.chip, chipInk: PAL.chipInk };

@@ -160,6 +160,18 @@ console.log(bad, total > 1000);'
   [ "$output" = "0 true" ]
 }
 
+@test "Matt's two hands tap on his keyboard only while he is at his desk typing, each hand looping 130 ms each way" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const loops = (nodes) => { let n = []; const walk = (x) => { if (x && x.node) { if (x.node.props.loop) n.push(x.node.props.loop); for (const k of x.node.kids) walk(k); } }; nodes.forEach(walk); return n; };
+  const at = (typing) => { const L = crew.layoutCrew([], ["api"], 0, { mattTyping: typing }); const m = L.people.find((p) => p.id === "matt"); return { m, L, loops: loops(draw.personEls(m, 2, m.face, false, L)) }; };
+  const on = at(true), off = at(false);
+  console.log(on.m.place, on.loops.length, JSON.stringify(on.loops.map((l) => [l[0], l[1].period])), off.m.place, off.loops.length);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'matt 2 [["top",260],["top",260]] lounge 0' ]
+}
+
 @test "the live crew's layers still use pixel coordinates, scaled when drawn" {
   run draw_js '
 const g = new draw.Layer(3, 0, 0, 10, 10).rect(1, 2, 3, 4, "#111111");

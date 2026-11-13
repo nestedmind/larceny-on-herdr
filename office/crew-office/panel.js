@@ -12,7 +12,7 @@ const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "i
 const FEED_SHOWN = 3;
 
 export class Panel {
-  // host: { loh: () => path or undefined, terminal: (agent, cx) => void }
+  // host: { loh: () => path or undefined, terminal: (agent, cx) => void, typed: (cx) => void (a key in the message box) }
   constructor(host) {
     this.host = host;
     this.address = null; // the selected agent
@@ -47,6 +47,8 @@ export class Panel {
     if (!this.inputs.has(a.address)) {
       const st = InputState.new({ placeholder: `Message ${a.name}` });
       st.on("submit", (_e, c) => this.send(c));
+      // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
+      st.on("change", (_e, c) => { if (this.host.typed) this.host.typed(c); });
       this.inputs.set(a.address, st);
     }
     this.inputs.get(a.address).focus();

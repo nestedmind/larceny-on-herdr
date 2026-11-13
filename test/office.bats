@@ -66,7 +66,7 @@ const mk = (n, role) => ({address:"t"+n,name:role,state:"live",status:"idle",lab
 const t = [mk(1,"coordinator"), mk(2,"reviewer"), mk(3,"advisor"), mk(4,"teacher")];
 console.log(crew.layoutCrew(crew.crewOf(t, "w")).people.filter((p) => p.agent).map(s => s.agent.role + ":" + s.place).sort().join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "advisor:meeting coordinator:lounge reviewer:lounge teacher:meeting" ]
+  [ "$output" = "advisor:meeting coordinator:desk reviewer:desk teacher:meeting" ]
 }
 
 @test "a fifth coder in one repo waits in the lounge" {
@@ -206,7 +206,7 @@ console.log(row.map(r => r.kind).join(","), joined, row[row.length - 1].x + row[
 
 @test "a coder with a task who is done walks to the kitchen, and back to the desk when working" {
   run crew_js '
-const mk = (st) => crew.layoutCrew(crew.crewOf([{address:"t1",name:"sucre",state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#3"}}], "w"), ["api"]);
+const mk = (st) => crew.layoutCrew(crew.crewOf([{address:"t1",name:"sucre",state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#3",pr:"5"}}], "w"), ["api"]);
 const d = mk("done"), w = mk("working");
 const k = d.rooms.find(r => r.kind === "kitchen"), s = d.people.find(p => p.id === "sucre");
 console.log(s.place, s.x >= k.x && s.x <= k.x + k.w && s.y >= k.y && s.y <= k.y + k.h, w.people.find(p => p.id === "sucre").place);'
@@ -216,7 +216,7 @@ console.log(s.place, s.x >= k.x && s.x <= k.x + k.w && s.y >= k.y && s.y <= k.y 
 
 @test "a done coder in the kitchen keeps its desk reserved, so the others do not move" {
   run crew_js '
-const mk = (n, st) => ({address:"t"+n,name:"c"+n,state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#"+n}});
+const mk = (n, st) => ({address:"t"+n,name:"c"+n,state:"live",status:st,labels:{crew:"w",role:"coder",task:"api#"+n,pr:"5"}});
 const at = (L, n) => { const s = L.people.find(x => x.agent && x.agent.name === "c" + n); return s.x + "," + s.y; };
 const before = crew.layoutCrew(crew.crewOf([mk(1,"working"), mk(2,"working"), mk(3,"working")], "w"), ["api"]);
 const after = crew.layoutCrew(crew.crewOf([mk(1,"done"), mk(2,"working"), mk(3,"working")], "w"), ["api"]);
@@ -225,11 +225,11 @@ console.log(at(before,2) === at(after,2), at(before,3) === at(after,3), after.pe
   [ "$output" = "true true kitchen" ]
 }
 
-@test "done coders overflow from the kitchen to the rest room when the kitchen is full" {
+@test "waiting coders overflow from the kitchen to the lounge, never to the rest room" {
   run crew_js '
-const t = [1,2,3,4,5,6,7].map(n => ({address:"t"+n,name:"c"+n,state:"live",status:"done",labels:{crew:"w",role:"coder",task:(n < 4 ? "api#" : "web#")+n}}));
+const t = [1,2,3,4,5,6,7].map(n => ({address:"t"+n,name:"c"+n,state:"live",status:"done",labels:{crew:"w",role:"coder",task:(n < 4 ? "api#" : "web#")+n,pr:"5"}}));
 const p = crew.layoutCrew(crew.crewOf(t, "w"), ["api","web"]).people.filter(x => x.agent).map(s => s.place);
-console.log(p.filter(x => x === "kitchen").length, p.filter(x => x === "rest").length, p.filter(x => x === "desk").length);'
+console.log(p.filter(x => x === "kitchen").length, p.filter(x => x === "lounge").length, p.filter(x => x === "rest").length);'
   [ "$status" -eq 0 ]
   [ "$output" = "6 1 0" ]
 }

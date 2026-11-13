@@ -13,7 +13,9 @@
 // live frames. Bring the herdr window to the front and run it again.
 //
 //   node test/office-parity/live.mjs [--shot FILE | --frames A B] [--crew FILE] [--workspace NAME] [--mod DIR] [--proto FILE]
-//                                    [--tol PX] [--tol-y PX] [--out DIR] [--all]
+//                                    [--tol PX] [--tol-y PX] [--out DIR] [--all] [--matt-typing]
+//
+// The layout counts each person's idle time and waits from `status_ms` (hc get). Matt is away unless --matt-typing.
 //
 // --shot analyses one file (not checked for being live; it needs --crew). --frames checks two files for a repaint, as live does.
 // Light theme only (the dark theme dims the floor). Someone who is walking is not on their seat and shows as off.
@@ -134,7 +136,7 @@ function readCrew(office) {
   const list = JSON.parse(run("hc", ["ls", "--json"])).terminals || [];
   const terminals = list.filter((t) => t.state === "live").map((t) => {
     const g = JSON.parse(run("hc", ["get", t.address]));
-    return { address: t.address, name: t.name, state: t.state, agent: t.agent, cwd: t.cwd, labels: g.labels || {}, status: g.status };
+    return { address: t.address, name: t.name, state: t.state, agent: t.agent, cwd: t.cwd, labels: g.labels || {}, status: g.status, status_ms: g.status_ms };
   });
   const ws = office.crew.pickWorkspace(terminals, opt("workspace", null));
   const lead = office.crew.crewOf(terminals, ws).find((a) => a.cwd);
@@ -185,7 +187,9 @@ async function main() {
     const workspace = office.crew.pickWorkspace(terminals, opt("workspace", null));
     const crew = office.crew.crewOf(terminals, workspace);
     if (!crew.length) { console.error("No crew found" + (workspace ? " in workspace " + workspace : "") + ": nobody to look for."); return 2; }
-    const L = office.crew.layoutCrew(crew, repos, loc.w / loc.hpx);
+    // The idle time and the waits count from herdr's time for each status change (hc get status_ms). Whether Matt is typing is
+    // not in herdr's data: he is away unless --matt-typing says he is at his desk.
+    const L = office.crew.layoutCrew(crew, repos, loc.w / loc.hpx, { now: Date.now(), mattTyping: args.includes("--matt-typing") });
     const u = loc.w / L.W;
     const f = { x: loc.x, y: Math.round(loc.above - L.corr.y * u), w: Math.round(loc.w), h: Math.round(L.H * u) };
     const world = (px, py) => ({ x: (px - f.x) / u, y: (py - f.y) / u });

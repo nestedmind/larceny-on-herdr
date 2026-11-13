@@ -97,8 +97,10 @@ export const CHECKS = {
   },
 
   /** Where each person stands: at a desk's seat, on one of a room's spots, at a meeting seat, at Matt's desk. */
-  people(f, { P, r }) {
+  people(f, { P, r, c }) {
     const { L } = r;
+    // A person the case names (c.expect) has the place the prototype's state for them gives: see the `states` check.
+    const named = (id) => !!c && !!c.expect && id in c.expect;
     const n = L.rooms.filter((q) => q.kind === "repo").length;
     const W = worldOf(P, n);
     const { repos } = roomsOf(L);
@@ -110,10 +112,10 @@ export const CHECKS = {
     const wantDesk = { scofield: "scofield", amy: "amy", matt: "matt", maya: homeKey(P.HOME_DESK.maya), opemipo: homeKey(P.HOME_DESK.opemipo) };
     for (const p of L.people) {
       const want = wantDesk[p.id];
-      const atDesk = p.id === "matt" || ((p.id === "scofield" || p.id === "amy") ? p.state === "working" || p.state === "blocked" : p.running);
+      const atDesk = named(p.id) ? P.PLACE_OF_THEN[c.expect[p.id]] === "desk" : p.id === "matt" || ((p.id === "scofield" || p.id === "amy") ? p.state === "working" || p.state === "blocked" : p.running);
       if (want && atDesk && p.place !== "desk" && p.place !== "matt") f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "desk " + want, off: Infinity });
       else if (want && atDesk && p.desk !== want) f.list.push({ check: "people", id: p.id, field: "desk", got: p.desk, want, off: Infinity });
-      if ((p.id === "yoda" || p.id === "sara") && p.running && p.place !== "meeting") f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "meeting", off: Infinity });
+      if (!named(p.id) && (p.id === "yoda" || p.id === "sara") && p.running && p.place !== "meeting") f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "meeting", off: Infinity });
     }
     for (const p of L.people) {
       if (p.id === "dog") { if (p.state === "sleep") f.point("people", p.id, p, rangeIn(L.rooms.find((q) => q.kind === "lounge"), W.bed.x, W.bed.y)); continue; }
@@ -136,6 +138,26 @@ export const CHECKS = {
         if (!best) f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "a room with spots", off: Infinity });
         else f.point("people", p.id, p, best.g, { place: p.place });
       }
+    }
+  },
+
+  /**
+   * Where the prototype's state machine puts someone in each state a case names (c.expect: { id: prototype state }): its own
+   * PLACE_OF_THEN says the room (waitReview in the kitchen, pingpong and escalated at ping pong, resting in the rest room, away
+   * and lounge in the lounge, a working state at the desk). Each named person must be in that room, and (people check) at a
+   * seat or spot the prototype has there. Which state a real session is in is the ticket's table, in cases.mjs next to each case.
+   * The prototype's own timings, 15 s in the kitchen and 2 s when someone plays alone before ping pong, are in the cases' `advance`.
+   */
+  states(f, { P, r, c }) {
+    const rooms = { desk: ["desk"], "ping pong": ["pong"], "rest room": ["rest"], kitchen: ["kitchen"], lounge: ["lounge"], meeting: ["meeting"] };
+    for (const [id, state] of Object.entries((c && c.expect) || {})) {
+      const p = r.L.people.find((q) => q.id === id);
+      const want = P.PLACE_OF_THEN[state];
+      const ok = rooms[want];
+      if (!p || !ok) { f.list.push({ check: "states", id, field: "state", got: p ? p.place : null, want: `a place for prototype state ${state}`, off: Infinity }); continue; }
+      f.counted++;
+      const place = p.place === "matt" ? "desk" : p.place;
+      if (!ok.includes(place)) f.list.push({ check: "states", id, field: "place", got: p.place, want: `${want} (the prototype's ${state})`, off: Infinity });
     }
   },
 
@@ -252,6 +274,8 @@ function distToSegment(p, a, b) {
 export async function compareCase(ctx) {
   const f = new Findings(ctx.r.k);
   for (const [name, check] of Object.entries(CHECKS)) {
+    // A case may leave a check out (`skip`): the seating cases leave out the name tags, whose stacking is #29's to fix and is checked in the first four cases.
+    if (((ctx.c && ctx.c.skip) || []).includes(name)) continue;
     const before = f.list.length;
     await check(f, ctx);
     for (let i = before; i < f.list.length; i++) f.list[i].group = f.list[i].check || name;

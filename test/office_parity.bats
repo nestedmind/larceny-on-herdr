@@ -79,10 +79,42 @@ copy_mod() {
 
 @test "Scofield and Amy swapped between their desks is reported: the prototype says who sits where" {
   copy_mod
-  sed -i 's/sit(p, deskBy.get(p.id)); continue; }/sit(p, deskBy.get(p.id === "scofield" ? "amy" : "scofield")); continue; }/' "$MOD/crew.js"
+  sed -i 's/else sit(p, deskBy.get(homes\[p.id\] || p.id));/else sit(p, deskBy.get(p.id === "scofield" ? "amy" : p.id === "amy" ? "scofield" : homes[p.id] || p.id));/' "$MOD/crew.js"
   run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
   [ "$status" -eq 1 ]
   [[ "$output" == *"scofield desk: office \"amy\", prototype \"scofield\""* ]]
+}
+
+@test "seating: people who do not leave their desks after the idle time are reported against the prototype's lounge" {
+  copy_mod
+  sed -i 's/export const IDLE_MS = 3 \* 60 \* 1000;/export const IDLE_MS = 3e9;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case idle-3-minutes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield place: office \"desk\", prototype \"lounge (the prototype's lounge)\""* ]]
+}
+
+@test "seating: someone who leaves the desk when the turn ends, before the idle time, is reported" {
+  copy_mod
+  sed -i 's/export const IDLE_MS = 3 \* 60 \* 1000;/export const IDLE_MS = 1000;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case seated-after-turn
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield place"* ]]
+}
+
+@test "seating: a coder waiting on a review who never goes to ping pong is reported" {
+  copy_mod
+  sed -i 's/export const PONG_AFTER = 15000;/export const PONG_AFTER = 1e9;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case ping-pong-after-15s
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"sucre place: office \"kitchen\""* ]]
+}
+
+@test "seating: Matt at his desk when he is not typing is reported" {
+  copy_mod
+  sed -i 's/mattTyping: mattTypingAt(now, this.mattUntil, focus \&\& focus.terminal, this.openTerminals()),/mattTyping: true,/' "$MOD/main.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case rest-room-and-away
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"matt place"* ]]
 }
 
 @test "a person drawn in a colour the prototype does not give them is reported" {

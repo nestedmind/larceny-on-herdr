@@ -48,6 +48,7 @@ export const settings = () => ({ dark: false });
 export const layout = () => ({}); export const shared = () => null; export const setShared = () => {};
 export const openOverlay = () => "o1"; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
+export const focused = () => null;
 `;
 const FILES = ["crew", "draw", "panel", "chat", "main"];
 
@@ -73,13 +74,16 @@ const v = (n, key) => (n.props[key] ? n.props[key][0] : undefined);
 
 /**
  * Draws one crew in a stage of `stage` px (the area the office fits the floor into, padding included).
- * `agents` are {name, role, status, repo, ticket, kind}. Returns the layout and scale the office chose, and
- * each figure, click target and tag as drawn, in px from the floor's corner.
+ * `agents` are {name, role, status, repo, ticket, kind, pr, round, ctx}. `typing` is whether Matt is typing, and `advance` how
+ * many ms pass with the crew as it is before it is drawn (the idle time, a wait for a review): the office first sees the crew
+ * at time 0, so what changes with time changes in that gap, and the people walk to where it puts them.
+ * Returns the layout (the office's own, from its last render) and scale the office chose, and each figure, click target and
+ * tag as drawn, in px from the floor's corner.
  */
-export async function drawOffice({ Office, crew, draw }, { agents, repos, stage }) {
+export async function drawOffice({ Office, crew, draw }, { agents, repos, stage, typing = false, advance = 0 }) {
   globalThis.TERMS = agents.map((a, i) => ({
     address: "t" + i, name: a.name, state: "live", agent: "claude", status: a.kind ? { state: a.status, kind: a.kind } : a.status || "idle",
-    labels: { crew: "parity", role: a.role || "coder", task: a.repo ? a.repo + "#" + (a.ticket || 1) : "", step: a.step || "" },
+    labels: { crew: "parity", role: a.role || "coder", task: a.repo ? a.repo + "#" + (a.ticket || 1) : "", step: a.step || "", pr: a.pr || "", round: a.round || "", ctx: a.ctx || "" },
   }));
   const realNow = Date.now;
   let clock = 1e12;
@@ -94,10 +98,14 @@ export async function drawOffice({ Office, crew, draw }, { agents, repos, stage 
     office.loadRepos = () => {};
     office.repos = repos;
     let root;
+    // Matt types for as long as the case runs.
+    if (typing) office.mattUntil = clock + 1e9;
     for (let i = 0; i < 60; i++) { root = office.render(cx); if (office.shown) break; }
+    // Time passes with the crew as it is: what it changes is seen, held for the office's hold time, and walked to.
+    if (advance) { clock += advance; root = office.render(cx); }
     clock += 3000;
     root = office.render(cx);
-    const L = crew.layoutCrew(crew.crewOf(globalThis.TERMS, "parity"), repos, crew.aspectOf(office.size));
+    const L = office.layoutNow;
     const fit = crew.fitScale(office.size, L);
     const floor = all(root.node).find((n) => "relative" in n.props && v(n, "w") !== undefined && all(n).some((m) => String(v(m, "id") || "").startsWith("m-")));
     if (!floor) throw new Error("the floor element was not found in the office's tree");
