@@ -1,0 +1,11 @@
+{
+  "repos": ["api", "web"],
+  "terminals": [
+    { "address": "t1", "name": "scofield", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "coordinator" }, "status": "working" },
+    { "address": "t2", "name": "amy", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "reviewer" }, "status": "working" },
+    { "address": "t3", "name": "sucre", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "coder", "task": "api#1" }, "status": "working" },
+    { "address": "t4", "name": "whip", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "coder", "task": "web#1" }, "status": "working" },
+    { "address": "t5", "name": "mahone", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "coder", "task": "api#2" }, "status": "done" },
+    { "address": "t6", "name": "yoda", "state": "live", "agent": "claude-code", "cwd": "", "labels": { "crew": "parity", "role": "advisor" }, "status": "idle" }
+  ]
+}

@@ -1,0 +1,5 @@
+#!/bin/sh
+# A stand-in for `herdr-app shot FILE`, for the live part's tests: every shot is the same bytes, unless FAKE_DIFFER is set.
+n=$(cat "$FAKE_DIR/shots" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$FAKE_DIR/shots"
+if [ -n "$FAKE_DIFFER" ]; then printf 'shot%s' "$n" > "$2"; else printf same > "$2"; fi
