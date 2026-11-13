@@ -2,7 +2,9 @@
 # loh transcript <name> [--last N]: the chat of an agent, from its Claude Code
 # session file, as one JSON array on stdout:
 #   [{"role":"user"|"assistant","text":"...","ts":"<ISO time>"}, ...]
-# oldest first, newest last; N turns (default 40).
+# oldest first, newest last; N turns (default 40). The session's first user turn carries
+# "launch":true when it is the launch prompt loh sent (a <pasted_content> block), even when it
+# is older than the N turns shown.
 #
 # Which file: Claude Code keeps sessions in
 #   ${LOH_CLAUDE_PROJECTS:-~/.claude/projects}/<cwd, every non-alphanumeric
@@ -99,4 +101,10 @@ filter='
     else . end
   | .text |= (if length > 4000 then .[0:4000] + "…" else . end)'
 
-jq -cR "$filter" "$file" | tail -n "$last" | jq -s .
+# The session's first user turn is flagged "launch":true when it is a launch prompt (wrapped in
+# <pasted_content>). It is set here, where the whole session is visible, before the last N turns are cut.
+# shellcheck disable=SC2016
+mark='(map(.role == "user") | index(true)) as $i
+  | if $i != null and (.[$i].text | test("^\\s*<pasted_content\\b")) then .[$i].launch = true else . end
+  | .[]'
+jq -cR "$filter" "$file" | jq -cs "$mark" | tail -n "$last" | jq -s .
