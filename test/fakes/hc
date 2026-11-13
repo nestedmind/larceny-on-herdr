@@ -1,15 +1,49 @@
 #!/usr/bin/env bash
 # Fake hc for tests. Records argv, one invocation per line with arguments
 # separated by tabs, to $FAKE_HC_LOG, then replays canned output.
-#   FAKE_HC_LOG   file to append the argv line to (required)
-#   FAKE_HC_JSON  file whose contents are printed on stdout (default: {})
-#   FAKE_HC_EXIT  exit status (default: 0)
+#   FAKE_HC_LOG     file to append the argv line to (required)
+#   FAKE_HC_JSON    file whose contents are printed on stdout (default: {})
+#   FAKE_HC_EXIT    exit status (default: 0)
+#   FAKE_HC_SCRIPT  optional directory of per-call responses. For a call
+#                   `hc <sub> <arg2> ...` the keys "<sub>.<arg2>" then "<sub>"
+#                   are tried in that order. For a key K:
+#                     K.1, K.2, ...  a sequence: the Nth call to K prints K.N,
+#                                    and the highest-numbered file repeats
+#                     K              one file, printed on every call
+#                     K.exit         exit status for K (default: FAKE_HC_EXIT)
+#                   A call that matches no key falls back to FAKE_HC_JSON.
 set -euo pipefail
 : "${FAKE_HC_LOG:?FAKE_HC_LOG must be set}"
 (
   IFS=$'\t'
   printf '%s\n' "$*" >>"$FAKE_HC_LOG"
 )
+
+if [[ -n "${FAKE_HC_SCRIPT:-}" ]]; then
+  keys=()
+  [[ -n "${2:-}" ]] && keys+=("${1:-}.$2")
+  keys+=("${1:-}")
+  for key in "${keys[@]}"; do
+    base="$FAKE_HC_SCRIPT/$key"
+    if [[ -f "$base.1" ]]; then
+      counter="$FAKE_HC_SCRIPT/.count.$key"
+      n=1
+      [[ -f "$counter" ]] && n=$(($(cat "$counter") + 1))
+      printf '%s\n' "$n" >"$counter"
+      while [[ ! -f "$base.$n" ]]; do n=$((n - 1)); done
+      cat "$base.$n"
+    elif [[ -f "$base" ]]; then
+      cat "$base"
+    elif [[ ! -f "$base.exit" ]]; then
+      continue
+    fi
+    if [[ -f "$base.exit" ]]; then
+      exit "$(cat "$base.exit")"
+    fi
+    exit "${FAKE_HC_EXIT:-0}"
+  done
+fi
+
 if [[ -n "${FAKE_HC_JSON:-}" ]]; then
   cat "$FAKE_HC_JSON"
 else
