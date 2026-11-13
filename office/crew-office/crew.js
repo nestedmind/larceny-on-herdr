@@ -134,14 +134,51 @@ export function unlockCall(agent, loh) {
 const MIN_SCALE = 0.2;
 
 /**
- * Scale that fits the floor into the stage, the area main.js measures for it (the bar and the offer row are outside it; 8px of padding all round).
+ * Scale that fits the floor into the stage, the area main.js measures for it (the bar and the offer row are outside it; PAD px of padding all round).
  * It may drop below 1, so a narrow pane (the chat takes half the tab) shrinks the floor instead of
  * cutting it. `fits` is false only when even the smallest scale overflows: main.js then stops centring.
  */
 export function fitScale(size, floor) {
-  const raw = Math.min((size.width - 16) / floor.W, (size.height - 16) / floor.H);
+  const raw = Math.min((size.width - 2 * PAD) / floor.W, (size.height - 2 * PAD) / floor.H);
   const k = Math.min(8, Math.max(MIN_SCALE, raw));
-  return { k, fits: floor.W * k <= size.width - 16 + 0.5 };
+  return { k, fits: floor.W * k <= size.width - 2 * PAD + 0.5 };
+}
+
+// ---------- full-screen mode ----------
+
+/** herdr's chrome, by the node ids in layouts/main.json. */
+export const CHROME = ["sidebar", "tabs", "panel", "status"];
+
+/** The node with this id in the shown layout, or null. */
+export function findNode(node, id) {
+  if (!node || typeof node !== "object") return null;
+  if (node.id === id) return node;
+  for (const c of Array.isArray(node.children) ? node.children : []) {
+    const f = findNode(c, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/**
+ * What entering full screen does. `layout` is the shown layout (herdr's layout()), `fullscreen` the
+ * window's state, `zoomed` whether the office pane is zoomed already, `siblings` whether another
+ * pane shares its tab (a chat split: with none, zoom has nothing to hide). Only chrome that is
+ * visible now is hidden, and only what the plan did is undone, so a bar the person had hidden
+ * stays hidden. A layout that cannot be read hides nothing.
+ */
+export function fullscreenPlan(layout, { fullscreen, zoomed, siblings }) {
+  const hide = CHROME.filter((id) => { const n = findNode(layout, id); return !!n && !n.hidden; });
+  return { zoom: !!siblings && !zoomed, hide, window: !fullscreen };
+}
+
+/** The steps that undo a plan, last first: window, then each hidden node, then the zoom. */
+export function restoreSteps(plan) {
+  const out = [];
+  if (plan.window) out.push({ window: true });
+  for (const id of [...plan.hide].reverse()) out.push({ show: id });
+  if (plan.zoom) out.push({ zoom: true });
+  return out;
 }
 
 /** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
@@ -221,7 +258,51 @@ export function castKey(agent, all = [agent]) {
 
 // ---------- the world ----------
 
-const mkRoom = (key, kind, label, x, y, w, h, door) => ({ key, kind, label, x, y, w, h, door });
+/** The padding the office leaves round the floor inside its stage, in pixels. */
+export const PAD = 8;
+
+/** The pane's width over its height, as the floor wants it: the stage's size less the padding. */
+export function aspectOf(size) {
+  const w = Math.max(1, size.width - 2 * PAD);
+  const h = Math.max(1, size.height - 2 * PAD);
+  return Math.round((w / h) * 1000) / 1000;
+}
+
+/**
+ * The floor's size for a row `minW` wide at the least (the prototype's 480, or more with many
+ * repos) and an `aspect` (width over height; none or 0 keeps the prototype's). The short side grows
+ * and the long side stays at its least, so the floor is never smaller than the prototype's.
+ */
+export function floorSize(minW, aspect) {
+  if (!(aspect > 0)) return { W: minW, H: WORLD_H };
+  if (aspect >= minW / WORLD_H) return { W: WORLD_H * aspect, H: WORLD_H };
+  return { W: minW, H: minW / aspect };
+}
+
+/** The stage behind the floor, in the prototype's two colours (never the theme's canvas). */
+export function stageBg(dark) {
+  return dark ? "#0b0e14" : "#d5dae3";
+}
+
+// A room's place in the prototype (x0, y0, w0, h0) and where it is now (x, y, w, h). Everything the
+// prototype puts in a room is written in prototype coordinates and moved with shiftOf, so people,
+// desks and furniture keep their size and their place in the room however the room grows.
+const mkRoom = (key, kind, label, row, p, door) => ({ key, kind, label, row, x0: p[0], y0: p[1], w0: p[2], h0: p[3], door, x: p[0], y: p[1], w: p[2], h: p[3], sx: 0, sy: 0, gw: 0, gh: 0 });
+
+/**
+ * How far to move a point of the prototype's room to where it is now. `ax` and `ay` say which edge
+ * it keeps: 0 the left or top, 1 the right or bottom, 0.5 (the default) the middle, so a group of
+ * furniture and the people at it grow away from the middle together.
+ */
+export function shiftOf(room, ax = 0.5, ay = 0.5) {
+  return { dx: room.sx + ax * room.gw, dy: room.sy + ay * room.gh };
+}
+
+/** Which edges a decoration at a prototype point keeps: the nearest third of the room, or the middle. */
+export function anchorOf(room, x, y) {
+  const third = (v, lo, size) => ((v - lo) < size / 3 ? 0 : (v - lo) > (2 * size) / 3 ? 1 : 0.5);
+  return { ax: third(x, room.x0, room.w0), ay: third(y, room.y0, room.h0) };
+}
 
 const mkDesk = (key, room, cx, y, side, w = 28) => ({
   key, room, cx, x: cx - w / 2, y, w, h: DESK_H, side,
@@ -229,74 +310,100 @@ const mkDesk = (key, room, cx, y, side, w = 28) => ({
 });
 
 export function repoDesks(room) {
-  const px = room.x + REPO_W / 2;
-  return [mkDesk(`${room.key}:1`, room.key, px - 15, 42, "n"), mkDesk(`${room.key}:2`, room.key, px + 15, 42, "n"),
-    mkDesk(`${room.key}:3`, room.key, px - 15, 58, "s"), mkDesk(`${room.key}:4`, room.key, px + 15, 58, "s")];
+  const { dx, dy } = shiftOf(room);
+  const px = room.x0 + REPO_W / 2 + dx;
+  return [mkDesk(`${room.key}:1`, room.key, px - 15, 42 + dy, "n"), mkDesk(`${room.key}:2`, room.key, px + 15, 42 + dy, "n"),
+    mkDesk(`${room.key}:3`, room.key, px - 15, 58 + dy, "s"), mkDesk(`${room.key}:4`, room.key, px + 15, 58 + dy, "s")];
 }
 
 /**
  * The floor plan, from the prototype: a row of repo rooms (one per repo, four desks each), then the
  * leads room and the meeting room; a corridor; then Matt's room, kitchen, lounge, ping pong and the
- * rest room. The top row grows with the repo count. The bottom row is 480 wide, so extra width goes
- * to the lounge and moves ping pong and the rest room over.
+ * rest room. The prototype's floor is at least 480 wide and 288 high; `aspect` (the pane's width
+ * over its height) makes it match the pane. Extra width is shared across the rooms of each row, and
+ * extra height across the two rows and the corridor in proportion to their height.
  */
-export function worldFor(repoNames = []) {
+export function worldFor(repoNames = [], aspect = 0) {
   const repos = [...new Set(repoNames)];
   const n = repos.length;
   const topW = n * REPO_W + 2 * SIDE_W;
-  const W = Math.max(topW, BASE_W);
-  const e = W - BASE_W;
-  const rooms = repos.map((r, i) => mkRoom("repo:" + r, "repo", r, i * REPO_W, 0, REPO_W, ROOM_H, i * REPO_W + REPO_W / 2));
+  const { W, H } = floorSize(Math.max(topW, BASE_W), aspect);
+  const rooms = repos.map((r, i) => mkRoom("repo:" + r, "repo", r, "top", [i * REPO_W, 0, REPO_W, ROOM_H], i * REPO_W + REPO_W / 2));
   const leftEdge = n * REPO_W;
-  rooms.push(mkRoom("leads", "leads", "Scofield · Amy", leftEdge, 0, SIDE_W, ROOM_H, leftEdge + 45));
-  rooms.push(mkRoom("meet", "meet", "meeting", leftEdge + SIDE_W, 0, SIDE_W, ROOM_H, leftEdge + SIDE_W + 45));
-  rooms.push(mkRoom("matt", "matt", "Matt", 0, ROW_Y, 96, ROW_H, 50));
-  rooms.push(mkRoom("kitchen", "kitchen", "kitchen", 96, ROW_Y, 100, ROW_H, 146));
-  rooms.push(mkRoom("lounge", "lounge", "lounge", 196, ROW_Y, 104 + e, ROW_H, 284));
-  rooms.push(mkRoom("pong", "pong", "ping pong", 300 + e, ROW_Y, 96, ROW_H, 348 + e));
-  rooms.push(mkRoom("rest", "rest", "rest room", 396 + e, ROW_Y, 84, ROW_H, 438 + e));
+  rooms.push(mkRoom("leads", "leads", "Scofield · Amy", "top", [leftEdge, 0, SIDE_W, ROOM_H], leftEdge + 45));
+  rooms.push(mkRoom("meet", "meet", "meeting", "top", [leftEdge + SIDE_W, 0, SIDE_W, ROOM_H], leftEdge + SIDE_W + 45));
+  rooms.push(mkRoom("matt", "matt", "Matt", "bottom", [0, ROW_Y, 96, ROW_H], 50));
+  rooms.push(mkRoom("kitchen", "kitchen", "kitchen", "bottom", [96, ROW_Y, 100, ROW_H], 146));
+  rooms.push(mkRoom("lounge", "lounge", "lounge", "bottom", [196, ROW_Y, 104, ROW_H], 284));
+  rooms.push(mkRoom("pong", "pong", "ping pong", "bottom", [300, ROW_Y, 96, ROW_H], 348));
+  rooms.push(mkRoom("rest", "rest", "rest room", "bottom", [396, ROW_Y, 84, ROW_H], 438));
+
+  // Grow the rooms: each row's extra width is shared out, then the extra height by row.
+  const extra = H - WORLD_H;
+  const topH = ROOM_H + (extra * ROOM_H) / WORLD_H;
+  const corrH = (ROW_Y - ROOM_H) + (extra * (ROW_Y - ROOM_H)) / WORLD_H;
+  const botH = ROW_H + (extra * ROW_H) / WORLD_H;
+  for (const row of ["top", "bottom"]) {
+    const rs = rooms.filter((r) => r.row === row);
+    const gw = (W - rs.reduce((s, r) => s + r.w0, 0)) / rs.length;
+    let x = 0;
+    for (const r of rs) {
+      r.gw = gw; r.gh = (row === "top" ? topH : botH) - r.h0;
+      r.x = x; r.w = r.w0 + gw; r.sx = r.x - r.x0;
+      r.y = row === "top" ? 0 : topH + corrH; r.h = row === "top" ? topH : botH; r.sy = r.y - r.y0;
+      x += r.w;
+    }
+  }
+  const at = (r, x, y, ax = 0.5, ay = 0.5) => { const s = shiftOf(r, ax, ay); return { x: x + s.dx, y: y + s.dy }; };
   const room = (k) => rooms.find((r) => r.kind === k);
+  for (const r of rooms) r.door += shiftOf(r).dx;
 
   const desks = [];
   for (const r of rooms.filter((x) => x.kind === "repo")) desks.push(...repoDesks(r));
   const leads = room("leads");
-  desks.push(mkDesk("scofield", "leads", leads.x + 22, 30, "s", 32), mkDesk("amy", "leads", leads.x + 68, 30, "s", 32));
-  const mattDesk = mkDesk("matt", "matt", 36, 194, "s", 46);
+  const ld = (x) => at(leads, leads.x0 + x, 30);
+  desks.push(mkDesk("scofield", "leads", ld(22).x, ld(22).y, "s", 32), mkDesk("amy", "leads", ld(68).x, ld(68).y, "s", 32));
+  const mattAt = at(room("matt"), 36, 194);
+  const mattDesk = mkDesk("matt", "matt", mattAt.x, mattAt.y, "s", 46);
 
   const meet = room("meet");
+  const seat = (id, x, face) => ({ ...at(meet, meet.x0 + x, 50), face });
+  const pts = (key, list) => list.map(([x, y]) => at(room(key), x, y));
   const spots = {
-    kitchen: [{ x: 126, y: 216 }, { x: 166, y: 216 }, { x: 126, y: 246 }, { x: 166, y: 246 }, { x: 146, y: 206 }, { x: 146, y: 256 }],
-    lounge: [{ x: 214, y: 184 }, { x: 232, y: 184 }, { x: 250, y: 184 }, { x: 210, y: 228 }, { x: 272, y: 228 }, { x: 226, y: 258 }, { x: 254, y: 258 }, { x: 284, y: 200 }],
-    pong: [{ x: 318 + e, y: 224 }, { x: 378 + e, y: 224 }, { x: 332 + e, y: 264 }, { x: 364 + e, y: 264 }],
-    rest: [{ x: 418 + e, y: 200 }, { x: 458 + e, y: 200 }, { x: 418 + e, y: 252 }, { x: 458 + e, y: 252 }],
+    kitchen: pts("kitchen", [[126, 216], [166, 216], [126, 246], [166, 246], [146, 206], [146, 256]]),
+    lounge: pts("lounge", [[214, 184], [232, 184], [250, 184], [210, 228], [272, 228], [226, 258], [254, 258], [284, 200]]),
+    pong: pts("pong", [[318, 224], [378, 224], [332, 264], [364, 264]]),
+    rest: pts("rest", [[418, 200], [458, 200], [418, 252], [458, 252]]),
   };
   return {
-    W, H: WORLD_H, rooms, desks, mattDesk, spots,
-    bed: { x: room("lounge").x + 88, y: 270 },
-    meetSeats: { yoda: { x: meet.x + 20, y: 50, face: "e" }, sara: { x: meet.x + 70, y: 50, face: "w" } },
-    pods: rooms.filter((r) => r.kind === "repo").map((r) => ({ repo: r.label, px: r.x + REPO_W / 2 })),
+    W, H, rooms, desks, mattDesk, spots,
+    corr: { y: topH, h: corrH },
+    bed: at(room("lounge"), 196 + 88, 270),
+    meetSeats: { yoda: seat("yoda", 20, "e"), sara: seat("sara", 70, "w") },
+    pods: rooms.filter((r) => r.kind === "repo").map((r) => ({ repo: r.label, px: r.x + r.w / 2 })),
   };
 }
 
 /** The room a point is in, or null in the corridor. */
 export function roomAt(world, x, y) {
-  if (y >= ROOM_H && y <= ROW_Y) return null;
+  if (y >= world.corr.y && y <= world.corr.y + world.corr.h) return null;
   return world.rooms.find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) || null;
 }
 
 /** The point just inside a room's door. */
 export function doorInner(room) {
-  return { x: room.door, y: room.y === 0 ? ROOM_H - 10 : ROW_Y + 10 };
+  return { x: room.door, y: room.row === "top" ? room.y + room.h - 10 : room.y + 10 };
 }
 
 /** The corridor lane a walker uses: a little different for each person, so two do not overlap. */
-export function laneFor(id) {
-  return LANE_Y + ((hash(String(id)) % 5) - 2) * 3;
+export function laneFor(id, world) {
+  const mid = world && world.corr ? world.corr.y + world.corr.h / 2 : LANE_Y;
+  return mid + ((hash(String(id)) % 5) - 2) * 3;
 }
 
 /** Door-to-door waypoints from one point to another (the destination is the last one). */
 export function pathTo(world, id, from, to) {
-  const lane = laneFor(id);
+  const lane = laneFor(id, world);
   const rf = roomAt(world, from.x, from.y);
   const rt = roomAt(world, to.x, to.y);
   if (rf && rf === rt) return [{ x: to.x, y: to.y }];
@@ -335,12 +442,13 @@ const SLOT_HOME = { opemipo: { room: 0, slot: 3 }, maya: { room: 1, slot: 2 } };
  *  - Scofield and Amy at their own desks while running; Yoda and Sara at the meeting table
  *  - Maya and Opemipo at a home desk in the repo rooms while running
  *  - Matt at his desk; Waffles on her bed, or beside Matt while an agent is blocked
+ * `aspect` is the pane's width over its height (see aspectOf); the floor is made to match it.
  * Repo rooms come from `repoList` (the manifest), then any repo a coder's task names. Desks are given
  * in name order, so a desk does not move while the crew is the same.
  */
-export function layoutCrew(crew, repoList = []) {
+export function layoutCrew(crew, repoList = [], aspect = 0) {
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
-  const world = worldFor([...repoList, ...extraRepos]);
+  const world = worldFor([...repoList, ...extraRepos], aspect);
   const { desks, rooms, spots } = world;
   const deskBy = new Map(desks.map((d) => [d.key, d]));
   const repoRooms = rooms.filter((r) => r.kind === "repo");
@@ -527,8 +635,8 @@ export function anchorCwd(crew, props) {
 }
 
 /**
- * With no agent running, the folder of a pane in the office's own tab, else of any pane
- * (a terminal in the same workspace). "" when none has one.
+ * With no agent running, the folder of another pane in the office's own tab (a terminal in the
+ * same workspace). "" when there is none.
  */
 export function ownCwd(panes, minePane) {
   const list = panes || [];
