@@ -315,10 +315,10 @@ console.log(first >= 1, office.floor.layer.done, renders < 60, timers.length);'
   [ "$output" = "true true true 0" ]
 }
 
-# dark mode, and the order of what is drawn on the floor
-DARK='globalThis.DARK = true;'
+# the lights, and the order of what is drawn on the floor
+DARK='globalThis.SHARED["crew-office.lights"] = "off"; fresh();'
 
-@test "in dark mode the night shading is still there on the first render after a screen changes state" {
+@test "with the lights off the night shading is still there on the first render after a screen changes state" {
   run office_js "$DARK"'
 for (let i = 0; i < 14; i++) render();
 const dim = (root) => all(find(root, "stage")).filter((n) => n.fill === "#060a24a8").length;
@@ -826,4 +826,46 @@ globalThis.FOCUS = { terminal: "tsheba" }; render();
 console.log(focused, still, stays, matt());'
   [ "$status" -eq 0 ]
   [ "$output" = "matt matt lounge matt" ]
+}
+
+dim_count='const dim = (root) => all(find(root, "stage")).filter((n) => n.fill === "#060a24a8").length;'
+
+@test "lights start on: no night layers in herdr's dark mode" {
+  run office_js 'globalThis.DARK = true; fresh();
+for (let i = 0; i < 14; i++) render();
+'"$dim_count"'
+console.log(office.lights, dim(render()));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 0" ]
+}
+
+@test "lights off in herdr's light mode draws the night layers" {
+  run office_js 'globalThis.DARK = false; globalThis.SHARED["crew-office.lights"] = "off"; fresh();
+for (let i = 0; i < 14; i++) render();
+'"$dim_count"'
+console.log(office.lights, dim(render()));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false 1" ]
+}
+
+@test "the toggle flips the lights and the button and L both use it, and the choice is saved" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const label = () => find(render(), "lights").kids.join("");
+const a = label();
+find(render(), "lights").props.on_click[0]({}, cx);
+const b = [office.lights, label(), globalThis.SHARED["crew-office.lights"]];
+find(render(), "root").props.on_key_down[0]({ key: "l", modifiers: {} }, { stop_propagation() {}, notify() {} });
+console.log(a, b.join("/"), office.lights, globalThis.SHARED["crew-office.lights"]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "Lights off false/Lights on/off true on" ]
+}
+
+@test "the remembered lights value is read back at start" {
+  run office_js 'globalThis.SHARED["crew-office.lights"] = "off"; fresh(); const off = office.lights;
+globalThis.SHARED["crew-office.lights"] = "on"; fresh(); const on = office.lights;
+delete globalThis.SHARED["crew-office.lights"]; fresh();
+console.log(off, on, office.lights);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false true true" ]
 }
