@@ -147,17 +147,23 @@ async function main() {
   const out = opt("out", mkdtempSync(join(tmpdir(), "office-parity-live-")));
   mkdirSync(out, { recursive: true });
   let a = null, b = opt("shot", null), live = false;
+  const office = await loadOffice(resolve(opt("mod", join(here, "..", "..", "office", "crew-office"))));
+  let before = null;
   if (flag("frames")) { a = args[args.indexOf("--frames") + 1]; b = args[args.indexOf("--frames") + 2]; }
   else if (!b) {
     a = join(out, "shot-a.png"); b = join(out, "shot-b.png");
+    // The crew is read before the shots and again after them: the plan is only for the crew that was there for both.
+    before = readCrew(office);
     takeShot(a); await sleep(1200); takeShot(b);
     live = true;
+    const after = readCrew(office);
+    const key = (c) => JSON.stringify(office.crew.crewOf(c.terminals, office.crew.pickWorkspace(c.terminals, opt("workspace", null))).map((x) => [x.address, x.name, x.status, x.kind, x.role, x.repo, x.ticket, x.step, x.pr, x.round, x.withMatt]));
+    if (key(before) !== key(after)) { console.error("The crew changed while the shots were taken (someone's state, task or step is different), so the plan for who should be where is not the plan for these shots. Run it again."); return 3; }
   } else console.log("analysing " + b + " (a file you gave: not checked for being live)");
   const stale = "The window is not repainting: the floor is the same in two shots a second apart, so they are not live frames. Bring the herdr window to the front and run this again.";
   if (a && readFileSync(a).equals(readFileSync(b))) { console.error(stale); return 3; }
   if (!live && !a && !opt("crew", null)) { console.error("--shot needs --crew FILE: who should be where comes from the crew"); return 2; }
 
-  const office = await loadOffice(resolve(opt("mod", join(here, "..", "..", "office", "crew-office"))));
   const proto = await openPrototype(opt("proto", DEFAULT_PROTO));
   const chrome = await Chrome.launch({ width: 800, height: 600 });
   try {
@@ -175,7 +181,7 @@ async function main() {
     }
 
     // Who should be where: the office's own layout for the crew that is really there, on a floor of the shot's shape.
-    const { terminals, repos } = readCrew(office);
+    const { terminals, repos } = before || readCrew(office);
     const workspace = office.crew.pickWorkspace(terminals, opt("workspace", null));
     const crew = office.crew.crewOf(terminals, workspace);
     if (!crew.length) { console.error("No crew found" + (workspace ? " in workspace " + workspace : "") + ": nobody to look for."); return 2; }
@@ -251,7 +257,7 @@ async function main() {
       const sxx = fit.reduce((s, q) => s + (q.x - mx) ** 2, 0);
       const slope = sxx ? fit.reduce((s, q) => s + (q.x - mx) * (q.dx - my), 0) / sxx : 0;
       const base = my - slope * mx;
-      console.log(`people: sideways offset = ${(slope * 100).toFixed(1)}% of x ${base < 0 ? "-" : "+"} ${Math.abs(base).toFixed(1)} units (${fit.length} of ${L.people.length - 1} found; at the plan's right edge ${(slope * L.W + base).toFixed(1)} units, ${((slope * L.W + base) * u).toFixed(0)} px)`);
+      console.log(`people: sideways offset = ${(slope * 100).toFixed(1)}% of x ${base < 0 ? "-" : "+"} ${Math.abs(base).toFixed(1)} units (${fit.length} found of ${L.people.length - 1} expected, ${L.people.filter((q) => q.id !== "dog" && !q.running).length} of them not running and drawn dimmed; at the plan's right edge ${(slope * L.W + base).toFixed(1)} units, ${((slope * L.W + base) * u).toFixed(0)} px)`);
     }
 
     const shown = flag("all") ? Infinity : 10;

@@ -180,11 +180,41 @@ live() { node "$TOOL/live.mjs" --crew "$TOOL/fixtures/crew.json" --out "$BATS_TE
   [[ "$output" == *"sideways offset"* ]]
 }
 
+# Fake hc and herdr-app first on PATH (see office-parity/fixtures), with their counters in a temp dir.
+use_fakes() {
+  mkdir -p "$BATS_TEST_TMPDIR/bin" "$BATS_TEST_TMPDIR/fake"
+  ln -sf "$TOOL/fixtures/fake-hc" "$BATS_TEST_TMPDIR/bin/hc"
+  ln -sf "$TOOL/fixtures/fake-herdr-app" "$BATS_TEST_TMPDIR/bin/herdr-app"
+  export FAKE_DIR="$BATS_TEST_TMPDIR/fake" PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+}
+
 @test "the live part refuses two identical shots, says the window is not repainting, and exits 3" {
-  mkdir -p "$BATS_TEST_TMPDIR/bin"
-  printf '#!/bin/sh\n# fake herdr-app: every shot is the same bytes\nprintf same > "$2"\n' > "$BATS_TEST_TMPDIR/bin/herdr-app"
-  chmod +x "$BATS_TEST_TMPDIR/bin/herdr-app"
-  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run node "$TOOL/live.mjs" --out "$BATS_TEST_TMPDIR/live"
+  use_fakes
+  run node "$TOOL/live.mjs" --out "$BATS_TEST_TMPDIR/live"
   [ "$status" -eq 3 ]
   [[ "$output" == *"not repainting"* ]]
+}
+
+@test "live: a crew that changed between the first read and the one after the shots is refused (exit 3), not judged" {
+  use_fakes
+  export FAKE_DIFFER=1 FAKE_CHANGE_AT=1
+  run node "$TOOL/live.mjs" --out "$BATS_TEST_TMPDIR/live"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"crew changed"* ]]
+}
+
+@test "tags above and below their people swapped (the rule reversed in the office's layout) are reported" {
+  copy_mod
+  sed -i 's/up: !!d \&\& d.side === "n" }/up: !!d \&\& d.side === "s" }/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *" y: office"* ]]
+}
+
+@test "tags stacked with a 30 px gap instead of 1 px are reported" {
+  copy_mod
+  sed -i 's/hit.y - t.h - 1 : hit.y + hit.h + 1/hit.y - t.h - 30 : hit.y + hit.h + 30/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *" y: office"* ]]
 }

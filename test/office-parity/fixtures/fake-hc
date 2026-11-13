@@ -1,0 +1,13 @@
+#!/bin/sh
+# A stand-in for hc, for the live part's tests: one terminal, scofield, who is "working" until the FAKE_CHANGE_AT'th
+# `hc get` (counted in $FAKE_DIR/gets, starting at 0) and "done" from then on.
+case "$1" in
+  ls) echo '{"terminals":[{"address":"t1","agent":"claude-code","cwd":"","name":"scofield","state":"live","status":"working"}]}' ;;
+  get)
+    n=$(cat "$FAKE_DIR/gets" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$FAKE_DIR/gets"
+    st=working
+    [ "$n" -ge "${FAKE_CHANGE_AT:-999}" ] && st=done
+    echo "{\"labels\":{\"crew\":\"parity\",\"role\":\"coordinator\"},\"status\":{\"app\":\"claude-code\",\"state\":\"$st\"}}"
+    ;;
+esac
