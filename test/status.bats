@@ -88,3 +88,30 @@ setup() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Usage: loh status"* ]]
 }
+
+@test "status --repos prints the manifest's repos as a JSON array, in manifest order" {
+  printf 'name: sandbox\nrepos:\n  - name: web\n    path: ./web\n    branch: main\n    github: o/web\n  - name: api\n    path: ./api\n    branch: dev\n    github: o/api\n' >"$WS/.loh/workspace.md"
+  run "$LOH" status --repos
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.[].name]' <<<"$output")" = '["web","api"]' ]
+  [ "$(jq -r '.[1].branch' <<<"$output")" = "dev" ]
+  [ "$(jq -r '.[1].github' <<<"$output")" = "o/api" ]
+}
+
+@test "status --repos does not call hc" {
+  printf 'name: sandbox\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' >"$WS/.loh/workspace.md"
+  run "$LOH" status --repos
+  [ "$status" -eq 0 ]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "status --repos fails with a message when the manifest has no repos" {
+  run "$LOH" status --repos
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no repos"* ]]
+}
+
+@test "status rejects --repos together with --json" {
+  run "$LOH" status --repos --json
+  [ "$status" -eq 2 ]
+}

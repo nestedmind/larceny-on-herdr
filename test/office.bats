@@ -146,3 +146,51 @@ console.log(s.length, /[\u0000-\u001f]/.test(s));'
   [ "$status" -eq 0 ]
   [ "$output" = "60 false" ]
 }
+
+@test "a watch terminal and a non-Claude terminal are never drawn" {
+  run crew_js '
+const mk = (n, agent, role) => ({address:"t"+n,name:n,agent,state:"live",status:"idle",labels:{crew:"w",role}});
+const t = [mk("scofield","claude-code","coordinator"), mk("loh-watch","loh","watch"), mk("w2",undefined,"watch"), mk("shell","zsh",undefined), mk("sucre","claude-code","coder")];
+console.log(crew.crewOf(t, "w").map(a => a.name).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "scofield,sucre" ]
+}
+
+@test "the manifest's repos get rooms with four empty desks and no coders" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api", "web"]);
+const r = L.rooms.filter(x => x.kind === "repo");
+console.log(r.map(x => x.label).join(","), L.desks.length, L.seats.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "api,web 8 0" ]
+}
+
+@test "a coder whose repo is not in the manifest still gets a room, after the manifest's" {
+  run crew_js '
+const t = [{address:"t1",name:"a",state:"live",status:"working",labels:{crew:"w",role:"coder",task:"zed#1"}}];
+const L = crew.layoutCrew(crew.crewOf(t, "w"), ["web", "api"]);
+console.log(L.rooms.filter(x => x.kind === "repo").map(x => x.label).join(","), L.seats[0].place);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "web,api,zed desk" ]
+}
+
+@test "the floor is exactly as wide as its rooms" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api", "web"]);
+const edge = Math.max(...L.rooms.map(r => r.x + r.w));
+console.log(L.W === edge, crew.layoutCrew([], []).W);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 200" ]
+}
+
+@test "repo list parsing keeps names only and drops junk" {
+  run crew_js '
+console.log(crew.repoNames(JSON.stringify([{name:"api"},{name:"web"},{name:""},{x:1}])).join(","), crew.repoNames("nope").length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "api,web 0" ]
+}
+
+@test "main.js asks loh status --repos instead of reading the manifest" {
+  grep -q 'reposCall(' "$(mod_dir)/main.js"
+  ! grep -q 'workspace.md' "$(mod_dir)/main.js" "$(mod_dir)/crew.js"
+}

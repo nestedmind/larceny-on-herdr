@@ -28,14 +28,16 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 | Prop | Meaning |
 |---|---|
 | `crew` | Workspace to show. Default: the `crew` label with the most live terminals |
-| `loh` | Path of the `loh` command to run on click. Default: `loh` on herdr-app's PATH |
+| `loh` | Path of the `loh` command to run on click and to list repos. Default: `loh` on herdr-app's PATH |
 
 ## What it shows
 
-- **Repo rooms.** One room per repo, taken from the coders' `task` labels, with four desks each. A fifth coder in a repo waits in the lounge.
+- **Agents only.** Only agent terminals are drawn. A terminal labelled `role=watch` (the `loh-watch` notifier) or one that runs another program (a shell, `loh`) is left out.
+- **Repo rooms.** One room per repo in the workspace manifest, with four desks each, even when no coder is working. The office gets the list from `loh status --repos`, run in an agent's folder, so the manifest is read in one place only. A coder whose `task` names a repo that is not in the manifest still gets a room, after the others. A fifth coder in a repo waits in the lounge. If `loh` fails, the rooms from coders' `task` labels still show.
 - **Leads room.** The coordinator and the reviewer, at their own desks.
 - **Meeting room.** The advisor and the teacher.
 - **Lounge.** Coders with no task, and anyone with a role the office does not know.
+- **No dead space.** The floor is exactly as wide as its rooms and is scaled to fit the pane, centred.
 - **Top bar.** Totals of working, blocked, done and idle agents.
 - **Name tag.** Name, then `repo#ticket`, `PR <n>` and `r<round>`, then the step (or note). A "with Matt" pill shows when `with_matt=1`.
 
@@ -55,7 +57,7 @@ Set by `loh`, the status-card hooks and the lock. The office shows what is there
 | Label | Used for |
 |---|---|
 | `crew` | Which workspace's terminals to show (required) |
-| `role` | `coordinator`, `reviewer`, `advisor`, `teacher` or `coder` picks the room |
+| `role` | `coordinator`, `reviewer`, `advisor`, `teacher` or `coder` picks the room; `watch` hides the terminal |
 | `task` | `<repo>#<n>`: the repo room and the ticket on the tag |
 | `step`, `pr`, `round`, `note` | Lines on the name tag (cut to 60 characters) |
 | `with_matt` | `1` shows "with Matt" and rings the person |

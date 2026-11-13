@@ -6,7 +6,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { crewOf, layoutCrew, lockCall, pickWorkspace, ROOM_H, DESK_H } from "./crew.js";
+import { crewOf, layoutCrew, lockCall, pickWorkspace, repoNames, reposCall, ROOM_H, DESK_H } from "./crew.js";
 
 const BLOCKED = { permission: ["#e7a43a", "allow?"], question: ["#4f8ff0", "?"], other: ["#d0509f", "!"] };
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -34,6 +34,25 @@ function people(name) {
 export default class CrewOffice extends View {
   init(_props, _cx) {
     this.size = { width: 640, height: 480 };
+    // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
+    this.repos = [];
+    this.reposKey = null;
+  }
+
+  // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in an
+  // agent's folder, which is inside the workspace. A failure keeps the last list.
+  loadRepos(crew, workspace, cx) {
+    const from = crew.find((a) => a.role === "coordinator" && a.cwd) || crew.find((a) => a.cwd);
+    if (!from) return;
+    const key = `${workspace}|${from.cwd}|${crew.length}`;
+    if (key === this.reposKey) return;
+    this.reposKey = key;
+    const c = reposCall(from, (props() || {}).loh);
+    exec(c.cmd, c.args, c.options).then((r) => {
+      if (r.code !== 0) return;
+      const next = repoNames(r.stdout);
+      if (next.join("\n") !== this.repos.join("\n")) { this.repos = next; cx.notify(); }
+    }).catch(() => {});
   }
 
   // Click: focus the agent (a terminal with no pane gets one first), then lock it with loh.
@@ -94,13 +113,16 @@ export default class CrewOffice extends View {
       .child(cell("done", "done")).child(cell("idle", "idle"));
   }
 
-  render(_cx) {
+  render(cx) {
     const t = theme();
     const F = settings().dark ? FLOOR_DARK : FLOOR_LIGHT;
     const list = terminals();
-    const crew = crewOf(list, pickWorkspace(list, (props() || {}).crew));
-    const L = layoutCrew(crew);
-    const k = Math.min(4, Math.max(1, (this.size.width - 16) / L.W));
+    const workspace = pickWorkspace(list, (props() || {}).crew);
+    const crew = crewOf(list, workspace);
+    this.loadRepos(crew, workspace, cx);
+    const L = layoutCrew(crew, this.repos);
+    // Fit the floor to the pane in both directions (the bar and padding take about 48px).
+    const k = Math.min(4, Math.max(1, Math.min((this.size.width - 16) / L.W, (this.size.height - 48) / L.H)));
     const u = (n) => n * k;
 
     const rooms = L.rooms.map((r) => div().absolute().left(u(r.x) + 1).top(u(r.y) + 1).w(u(r.w) - 2).h(u(r.h) - 2).rounded(4)
@@ -121,6 +143,6 @@ export default class CrewOffice extends View {
     return v_flex().id("root").size_full().bg(t.canvas)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .child(this.bar(t, L.totals))
-      .child(div().p(8).child(floor));
+      .child(h_flex().p(8).justify_center().child(floor));
   }
 }

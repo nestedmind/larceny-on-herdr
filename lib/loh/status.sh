@@ -1,5 +1,8 @@
 # shellcheck shell=bash
 # loh status [--json]: one line per crew agent.
+# loh status --repos: the manifest's repos as a JSON array (name, path, branch,
+# github), in manifest order. The office mod reads the repo rooms from this, so
+# the manifest is still parsed in one place (manifest_load).
 #
 # Lists this workspace's terminals with `hc ls --label crew=<name>`, then reads
 # each one with `hc get` for its labels (role, task, step, pr, round,
@@ -8,11 +11,16 @@ set -euo pipefail
 # shellcheck source=lib/loh/lock.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lock.sh"
 
-usage() { echo "Usage: loh status [--json]" >&2; }
+usage() { echo "Usage: loh status [--json | --repos]" >&2; }
 
 json=""
+repos=""
 case "${1:-}" in
   "") ;;
+  --repos)
+    repos=1
+    shift
+    ;;
   --json)
     json=1
     shift
@@ -28,6 +36,17 @@ if [[ $# -gt 0 ]]; then
 fi
 
 need jq
+
+if [[ -n "$repos" ]]; then
+  manifest_load
+  for i in "${!REPO_NAMES[@]}"; do
+    jq -cn --arg name "${REPO_NAMES[i]}" --arg path "${REPO_PATHS[i]}" \
+      --arg branch "${REPO_BRANCHES[i]}" --arg github "${REPO_GITHUBS[i]}" \
+      '{name: $name, path: $path, branch: $branch, github: $github}'
+  done | jq -s '.'
+  exit 0
+fi
+
 crew="$(crew_name)"
 listing="$(hc_json ls --label "crew=$crew")" || die "hc ls failed"
 

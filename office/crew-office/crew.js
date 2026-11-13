@@ -60,6 +60,30 @@ export function pickWorkspace(terminals, wanted) {
   return best;
 }
 
+/**
+ * Only agents are people. The background notifier (role=watch) and any terminal that
+ * reports a program other than a Claude agent (a shell, loh itself) are left out.
+ */
+export function isAgent(t) {
+  const l = (t && t.labels) || {};
+  if (l.role === "watch") return false;
+  if (typeof t.agent === "string" && !/^claude/i.test(t.agent)) return false;
+  return true;
+}
+
+/** The repo names in `loh status --repos` output (a JSON array). Anything else gives []. */
+export function repoNames(text) {
+  let list;
+  try { list = JSON.parse(text); } catch { return []; }
+  if (!Array.isArray(list)) return [];
+  return list.map((r) => (r && typeof r.name === "string" ? clean(r.name, 24) : "")).filter(Boolean);
+}
+
+/** The command that lists the workspace's repos. It runs in an agent's folder, inside the workspace. */
+export function reposCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["status", "--repos"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
 /** The crew: terminals labelled crew=<workspace>, as plain records. */
 export function crewOf(terminals, workspace) {
   const out = [];
@@ -67,6 +91,7 @@ export function crewOf(terminals, workspace) {
     const l = t.labels || {};
     if (!workspace || l.crew !== workspace) continue;
     if (t.state && t.state !== "live") continue;
+    if (!isAgent(t)) continue;
     const task = parseTask(l.task);
     out.push({
       address: t.address,
@@ -104,30 +129,35 @@ export function totals(crew) {
   return n;
 }
 
-function repoDesks(room) {
+export function repoDesks(room) {
   const cx = room.x + REPO_W / 2;
   const mk = (i, dx, y, side) => ({ x: cx + dx - DESK_W / 2, y, side, seat: { x: cx + dx, y: side === "n" ? y - 8 : y + DESK_H + 8 }, tag: { x: cx + dx, y: side === "n" ? y + DESK_H + 3 : y + DESK_H + 18 } });
   return [mk(0, -32, 30, "n"), mk(1, 32, 30, "n"), mk(2, -32, 78, "s"), mk(3, 32, 78, "s")];
 }
 
 /**
- * Where everyone goes.
+ * Where everyone goes. `repoList` is the manifest's repos: each gets a room with four desks,
+ * occupied or not, in manifest order. A coder's task repo missing from it gets a room after those.
  *  - coder with a task: a desk in that repo's room (up to four; a fifth waits in the lounge)
  *  - coder with no task: the lounge
  *  - coordinator and reviewer: the leads room; advisor and teacher: the meeting room
  *  - anyone else: the lounge
  * Desks are given in name order, so a desk does not move while the crew is the same.
  */
-export function layoutCrew(crew) {
-  const repos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].sort();
+export function layoutCrew(crew, repoList = []) {
+  const extra = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
+  const repos = [...new Set(repoList), ...extra];
   const rooms = repos.map((r, i) => ({ key: "repo:" + r, kind: "repo", label: r, x: i * REPO_W, y: 0, w: REPO_W, h: ROOM_H }));
   const leftEdge = rooms.length * REPO_W;
   rooms.push({ key: "leads", kind: "leads", label: "Scofield · Amy", x: leftEdge, y: 0, w: SIDE_W, h: ROOM_H });
   rooms.push({ key: "meet", kind: "meet", label: "meeting", x: leftEdge + SIDE_W, y: 0, w: SIDE_W, h: ROOM_H });
-  const W = Math.max(leftEdge + 2 * SIDE_W, 380);
+  const W = leftEdge + 2 * SIDE_W;
   const lounge = [];
 
   const desks = [];
+  for (const room of rooms.filter((r) => r.kind === "repo")) {
+    for (const d of repoDesks(room)) desks.push({ x: d.x, y: d.y, w: DESK_W, h: DESK_H, side: d.side });
+  }
   const seats = [];
   const used = new Map();
   const leads = rooms.find((r) => r.key === "leads");
@@ -146,7 +176,6 @@ export function layoutCrew(crew) {
       if (slot < MAX_DESKS) {
         used.set(room.key, slot + 1);
         const d = repoDesks(room)[slot];
-        desks.push({ x: d.x, y: d.y, w: DESK_W, h: DESK_H, side: d.side });
         seats.push({ agent: a, x: d.seat.x, y: d.seat.y, face: d.side === "n" ? "s" : "n", tag: d.tag, place: "desk" });
         continue;
       }
