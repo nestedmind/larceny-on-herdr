@@ -42,10 +42,12 @@ try {
   if (outDir) mkdirSync(outDir, { recursive: true });
   const report = { cases: [], palette: [] };
   try {
-    report.palette = comparePalette(office.draw.PAL, paletteOf(proto.data.pal));
+    report.palette = comparePalette(office.draw.PAL, paletteOf(proto.data.pal), office.crew.look);
     console.log(`== colours: ${report.palette.length} differ from the prototype's palette`);
     for (const f of report.palette) console.log(`    ${f.id}: office ${f.got}, prototype ${f.want}`);
-    for (const c of CASES.filter((x) => !only || x.name === only)) {
+    const chosen = CASES.filter((x) => !only || x.name === only);
+    if (!chosen.length) throw new Error(`no case named ${only}; the cases are ${CASES.map((x) => x.name).join(", ")}`);
+    for (const c of chosen) {
       const r = await drawOffice(office, { agents: c.crew, repos: c.repos, stage: c.stage });
       const res = await compareCase({ P: proto.data, r, c, crew: office.crew, proto, route: c.route ? ROUTE : null });
       print(c.name, r.k, res);

@@ -103,6 +103,18 @@ export const CHECKS = {
     const W = worldOf(P, n);
     const { repos } = roomsOf(L);
     const deskBy = new Map(L.desks.concat([L.mattDesk]).map((d) => [d.key, d]));
+    // Who sits at which desk is the prototype's: Scofield and Amy at their own, Matt at his, and the helpers at the
+    // desks its HOME_DESK names ("web-3": the web room's third desk), which are the office's repo rooms in order.
+    const roomNames = [...new Set(P.DESKS.map((d) => d.room).filter((x) => x !== "leads"))];
+    const homeKey = (key) => { const [room, j] = key.split("-"); const i = roomNames.indexOf(room); return repos[i] ? `${repos[i].key}:${j}` : null; };
+    const wantDesk = { scofield: "scofield", amy: "amy", matt: "matt", maya: homeKey(P.HOME_DESK.maya), opemipo: homeKey(P.HOME_DESK.opemipo) };
+    for (const p of L.people) {
+      const want = wantDesk[p.id];
+      const atDesk = p.id === "matt" || ((p.id === "scofield" || p.id === "amy") ? p.state === "working" || p.state === "blocked" : p.running);
+      if (want && atDesk && p.place !== "desk" && p.place !== "matt") f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "desk " + want, off: Infinity });
+      else if (want && atDesk && p.desk !== want) f.list.push({ check: "people", id: p.id, field: "desk", got: p.desk, want, off: Infinity });
+      if ((p.id === "yoda" || p.id === "sara") && p.running && p.place !== "meeting") f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "meeting", off: Infinity });
+    }
     for (const p of L.people) {
       if (p.id === "dog") { if (p.state === "sleep") f.point("people", p.id, p, rangeIn(L.rooms.find((q) => q.kind === "lounge"), W.bed.x, W.bed.y)); continue; }
       if (p.place === "desk" || p.place === "matt") {
@@ -136,29 +148,45 @@ export const CHECKS = {
       const d = r.people[p.id];
       if (!d) { f.list.push({ check: "render", id: p.id, field: "figure-missing", got: null, want: [p.x * k, p.y * k], off: Infinity }); continue; }
       f.px("render", p.id, "figure-x", d.x, p.x * k); f.px("render", p.id, "figure-y", d.y, p.y * k);
+      // Everyone with an agent, and everyone not running except Matt and the dog, opens something when clicked.
+      const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
       const h = r.hits[p.id];
-      if (!h) continue;
+      if (!h) { if (clickable) f.list.push({ check: "hit", id: p.id, field: "click-target-missing", got: null, want: "a click target on the figure", off: Infinity }); continue; }
       f.px("hit", p.id, "centre-x", h.x + h.w / 2, p.x * k); f.px("hit", p.id, "centre-y", h.y + h.h / 2, p.y * k);
-      // The prototype opens an agent for a click within 8 units of them: the target is no bigger than that circle's square.
-      for (const [field, size] of [["w", h.w], ["h", h.h]]) f.axis("hit", p.id, field, size / k, [0, 16]);
+      // The prototype opens an agent for a click within 8 units of them: the target is that circle's square at most,
+      // and at least the 14 units the office gives it, so a target shrunk to nothing is reported.
+      for (const [field, size] of [["w", h.w], ["h", h.h]]) f.axis("hit", p.id, field, size / k, [14, 16]);
     }
   },
 
-  /** Name tags: inside the floor, centred on their person unless the floor's edge stops them. */
+  /**
+   * Name tags: every figure has one; it is centred on its person (kept 2 px inside the floor's edge), and sits 9 units
+   * below them, or above them for someone at the top row of a pod. A tag that would cover another is moved clear of it
+   * (down, or up for a tag above), so it may be further than that; one that covers no other is exactly there.
+   * The sizes are main.js's own sizing rules for a tag and a chip, written here so the nominal box can be found.
+   */
   tags(f, { r }) {
     const { L, k } = r;
+    const fw = r.floorBox.w;
+    const items = [];
     for (const p of L.people) {
       const t = r.tags[p.agent ? p.agent.address : p.id];
       const d = r.people[p.id];
-      if (!t || !d) continue;
-      const fw = r.floorBox.w;
-      const w = t.w;
-      if (w !== undefined) {
-        const centred = t.x + w / 2;
-        const clamped = t.x <= 2.5 || t.x + w >= fw - 2.5;
-        if (!clamped) f.px("tags", p.id, "centre-x", centred, d.x);
-        f.axis("tags", p.id, "inside-floor-x", (t.x + w / 2) / k, [w / 2 / k, (fw - w / 2) / k]);
-      } else f.axis("tags", p.id, "left-of-person", t.x / k, [0, d.x / k]);
+      if (!t || !d) { f.list.push({ check: "tags", id: p.id, field: "tag-missing", got: null, want: "a name tag on the figure", off: Infinity }); continue; }
+      const a = p.agent;
+      const where = a ? [a.repo, a.pr, a.round].some(Boolean) : false;
+      const w = a ? t.w : (p.name.length + (p.running || p.id === "matt" || p.id === "dog" ? 0 : 9)) * 6.4 + 26;
+      const h = a ? 4 + 13 + 11 + (where ? 11 : 0) + (a.withMatt ? 13 : 0) : 17;
+      const x = Math.min(Math.max(2, d.x - w / 2), Math.max(2, fw - w - 2));
+      const up = p.tag.up;
+      items.push({ p, t, d, w, h, x, up, ny: up ? d.y - 10 * k - h : d.y + 9 * k });
+    }
+    const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.ny < b.ny + b.h && b.ny < a.ny + a.h;
+    for (const a of items) {
+      f.px("tags", a.p.id, "x", a.t.x, a.x);
+      const crowded = items.some((b) => b !== a && meets(a, b));
+      if (!crowded) f.px("tags", a.p.id, "y", a.t.y, Math.max(2, a.ny));
+      else f.axis("tags", a.p.id, "y-clear-of-nominal", a.t.y / k, a.up ? [-Infinity, a.ny / k + 1 / k] : [Math.max(2, a.ny) / k - 1 / k, Infinity]);
     }
   },
 
@@ -207,11 +235,16 @@ export async function compareCase(ctx) {
 }
 
 /** Colours the office draws with, against the prototype's tokens: any that differ, or are missing, as findings. */
-export function comparePalette(officePal, protoPal) {
+export function comparePalette(officePal, protoPal, look) {
   const out = [];
+  // Each person's hair, skin and shirt (the prototype's --p-<id>-* tokens) against the office's look(id).
+  for (const [id, c] of Object.entries(protoPal.people || {})) {
+    const have = look(id);
+    ["hair", "skin", "shirt"].forEach((part, i) => { if (String(have[i]).toLowerCase() !== String(c[part]).toLowerCase()) out.push({ check: "palette", id: `${id}.${part}`, field: "colour", got: have[i], want: c[part], off: Infinity }); });
+  }
   const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
   for (const [k, want] of Object.entries(protoPal)) {
-    if (!(k in officePal)) continue; // a token the office does not draw with
+    if (k === "people" || !(k in officePal)) continue; // a token the office does not draw with
     if (Array.isArray(want)) want.forEach((w, i) => { if (w && officePal[k][i] && !same(officePal[k][i], w)) out.push({ check: "palette", id: `${k}[${i}]`, field: "colour", got: officePal[k][i], want: w, off: Infinity }); });
     else if (!same(officePal[k], want)) out.push({ check: "palette", id: k, field: "colour", got: officePal[k], want, off: Infinity });
   }

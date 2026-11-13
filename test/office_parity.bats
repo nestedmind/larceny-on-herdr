@@ -76,6 +76,110 @@ copy_mod() {
   [[ "$output" == *"the prototype is not at"* ]]
 }
 
+@test "Scofield and Amy swapped between their desks is reported: the prototype says who sits where" {
+  copy_mod
+  sed -i 's/sit(p, deskBy.get(p.id)); continue; }/sit(p, deskBy.get(p.id === "scofield" ? "amy" : "scofield")); continue; }/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield desk: office \"amy\", prototype \"scofield\""* ]]
+}
+
+@test "a person drawn in a colour the prototype does not give them is reported" {
+  copy_mod
+  sed -i 's/#3f5f93/#3f5f99/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield.shirt: office #3f5f99, prototype #3f5f93"* ]]
+}
+
+@test "name tags 12 px low are reported" {
+  copy_mod
+  sed -i 's/this.tag(s.p, off.x, off.y, s.w/this.tag(s.p, off.x, off.y + 12, s.w/; s/this.chip(s.p, off.x, off.y, slide)/this.chip(s.p, off.x, off.y + 12, slide)/' "$MOD/main.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *" y: office"* ]]
+}
+
+@test "a click target that is missing is reported" {
+  copy_mod
+  sed -i 's/hitBox(p.id, k, (_e, c) => this.pick(p, c))/div()/' "$MOD/main.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"click-target-missing"* ]]
+}
+
+@test "a click target with no size is reported" {
+  copy_mod
+  sed -i 's/\.left(-7 \* k)\.top(-8 \* k)\.w(14 \* k)\.h(16 \* k)/.left(0).top(0).w(0).h(0)/' "$MOD/draw.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"hit"* && "$output" == *" w: office 0"* ]]
+}
+
+@test "a name tag that is missing is reported" {
+  copy_mod
+  sed -i 's/const tags = sized.map((s) => {/const tags = sized.filter((s) => s.id !== "sucre").map((s) => {/' "$MOD/main.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"tag-missing"* ]]
+}
+
+@test "a --case that names no case exits 2 and says which cases there are" {
+  run node "$TOOL/run.mjs" --case two-repos-nativ
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"no case named two-repos-nativ"* && "$output" == *"two-repos-native"* ]]
+}
+
+# The live part, on stand-ins for a shot of the window (synth.mjs draws the office's own floor and people at 4 px a unit).
+synth() { node "$TOOL/synth.mjs" --crew "$TOOL/fixtures/crew.json" --out "$BATS_TEST_TMPDIR/$1.png" "${@:2}"; }
+live() { node "$TOOL/live.mjs" --crew "$TOOL/fixtures/crew.json" --out "$BATS_TEST_TMPDIR/live" "$@"; }
+
+@test "live: a shot where every person is where the plan puts them passes" {
+  synth ok
+  run live --shot "$BATS_TEST_TMPDIR/ok.png"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"sideways offset = 0.0% of x"* ]]
+}
+
+@test "live: people drawn 10 percent too far across, Scofield and Amy at their desks included, show an offset growing with x" {
+  synth fault --fault 1.1
+  run live --shot "$BATS_TEST_TMPDIR/fault.png" --all
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ sideways\ offset\ =\ (9\.[5-9]|10\.[0-4])%\ of\ x ]]
+  [[ "$output" == *"scofield x: off 129"* ]]
+  [[ "$output" == *"amy x: off 147"* ]]
+}
+
+@test "live: a person who is not found fails the run" {
+  synth nosco --hide scofield
+  run live --shot "$BATS_TEST_TMPDIR/nosco.png"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield: not found"* ]]
+}
+
+@test "live: a shot with nobody in it fails" {
+  synth nobody --hide scofield,amy,sucre,whip,mahone,yoda,sheba,maya,opemipo,sara,matt
+  run live --shot "$BATS_TEST_TMPDIR/nobody.png" --all
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"too few to measure"* ]]
+}
+
+@test "live: two shots that differ only outside the floor are not a repaint (exit 3)" {
+  synth a
+  synth b --mark
+  run live --frames "$BATS_TEST_TMPDIR/a.png" "$BATS_TEST_TMPDIR/b.png"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"not repainting"* ]]
+}
+
+@test "live: two shots that differ in the floor are a repaint, and the run goes on to measure" {
+  synth a
+  synth c --fault 1.1
+  run live --frames "$BATS_TEST_TMPDIR/a.png" "$BATS_TEST_TMPDIR/c.png"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"sideways offset"* ]]
+}
+
 @test "the live part refuses two identical shots, says the window is not repainting, and exits 3" {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   printf '#!/bin/sh\n# fake herdr-app: every shot is the same bytes\nprintf same > "$2"\n' > "$BATS_TEST_TMPDIR/bin/herdr-app"

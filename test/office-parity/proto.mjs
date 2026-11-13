@@ -34,7 +34,7 @@ export async function openPrototype(file = DEFAULT_PROTO) {
     const b = window.__crewOfficeTest.browser;
     const cs = getComputedStyle(document.documentElement);
     const pal = {};
-    for (const n of Array.from(cs).concat(["--accent"])) if (/^--((fl|st)-|accent$)/.test(n)) pal[n.slice(2)] = cs.getPropertyValue(n).trim();
+    for (const n of Array.from(cs).concat(["--accent"])) if (/^--((fl|st)-|accent$|p-)/.test(n)) pal[n.slice(2)] = cs.getPropertyValue(n).trim();
     const strip = (o) => JSON.parse(JSON.stringify(o));
     return { W: b.W, H: b.H, ROOMS: strip(b.ROOMS), DESKS: strip(b.DESKS), MATT_DESK: strip(b.MATT_DESK), SPOTS: strip(b.SPOTS), MEET_SEATS: strip(b.MEET_SEATS),
       DOG_BED: strip(b.DOG_BED), HOME_DESK: strip(b.HOME_DESK), PODS: strip(b.PODS), pal };
@@ -71,7 +71,8 @@ export function paletteOf(pal) {
   for (const [k, v] of Object.entries(pal)) {
     const name = k.replace(/^(fl|st)-/, "");
     let m;
-    if ((m = name.match(/^mat-(api|web)$/))) { (out.mats ||= [])[m[1] === "api" ? 0 : 1] = hex(v); }
+    if ((m = k.match(/^p-([a-z]+)-(hair|skin|shirt)$/))) { ((out.people ||= {})[m[1]] ||= {})[m[2]] = hex(v); }
+    else if ((m = name.match(/^mat-(api|web)$/))) { (out.mats ||= [])[m[1] === "api" ? 0 : 1] = hex(v); }
     else if ((m = name.match(/^book-(\d)$/))) { (out.books ||= [])[+m[1] - 1] = hex(v); }
     else if (k === "accent") out.accent = hex(v);
     else out[camel(name)] = hex(v);

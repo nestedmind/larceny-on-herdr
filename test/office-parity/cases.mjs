@@ -15,6 +15,8 @@ export const CREW = [
   S("whip", "working", { repo: "web" }),
   S("sheba", "idle", { repo: "web" }),
   S("mahone", "done", { repo: "api" }),
+  S("maya", "working", { role: "helper" }),
+  S("opemipo", "idle", { role: "helper" }),
   S("yoda", "idle", { role: "advisor" }),
   S("sara", "idle", { role: "teacher" }),
   ...extras,
