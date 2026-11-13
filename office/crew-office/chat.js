@@ -29,10 +29,14 @@ export function parseTranscript(text) {
   try { list = JSON.parse(text); } catch { return []; }
   if (!Array.isArray(list)) return [];
   const out = [];
+  let firstUser = true;
   for (const m of list) {
     if (!m || (m.role !== "user" && m.role !== "assistant" && m.role !== "agent") || typeof m.text !== "string" || m.text === "") continue;
     // role "agent" is another agent's message into this session; `from` is its sender.
-    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false });
+    // The first user turn of a session is the launch prompt loh sent, wrapped in <pasted_content>: not Matt's words.
+    const launch = m.role === "user" && firstUser && /^\s*<pasted_content\b/.test(m.text);
+    if (m.role === "user") firstUser = false;
+    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch });
   }
   return out;
 }
@@ -88,9 +92,16 @@ export function sendBlock(agent) {
 
 /** Who a log turn is from: Matt for typed turns, the sender's name for another agent's message. */
 export function speaker(m, agentName) {
+  if (m.launch) return "launch prompt";
   if (m.role === "user") return "Matt";
   if (m.role === "agent") return m.from || "another agent";
   return agentName;
+}
+
+/** The text a turn shows: a launch prompt is one clipped line without its wrapper tags. */
+export function shownText(m) {
+  if (m.launch) return clip(m.text.replace(/<\/?pasted_content\b[^>]*>/g, " ").replace(/\s+/g, " "), 140);
+  return m.text.length > 1200 ? m.text.slice(0, 1200) + "…" : m.text;
 }
 
 /** Card rows for an agent: [label, value], only the ones known. */

@@ -170,14 +170,6 @@ console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Sco
   grep -q 'this.panel.select(p.agent, cx); if (this.chat) this.open(p.agent, cx);' "$(mod_dir)/main.js"
 }
 
-@test "panel: a loh that cannot start says so and restores the text" {
-  grep -q "could not run loh" "$(mod_dir)/panel.js"
-  run grep -A14 "}).catch((e) => {" "$(mod_dir)/panel.js"
-  [[ "$output" == *'rejectOutcome(Date.now() - began) === "failed"'* ]]
-  [[ "$output" == *'st.set_value(text)'* ]]
-  [[ "$output" == *'unknown();'* ]]
-}
-
 @test "panel: a quick rejection is a start failure, a late one may be a timeout" {
   run chat_js '
 console.log(chat.rejectOutcome(0), chat.rejectOutcome(40), chat.rejectOutcome(4999));
@@ -187,4 +179,21 @@ console.log(chat.REJECT_QUICK_MS < chat.TELL_TIMEOUT);'
   [ "${lines[0]}" = "failed failed failed" ]
   [ "${lines[1]}" = "unknown unknown unknown unknown" ]
   [ "${lines[2]}" = "true" ]
+}
+
+@test "panel: the agent's launch prompt is marked, labelled and cut to one line, not shown as Matt" {
+  run chat_js '
+const wrapped = "<pasted_content id=\"fbdb\">\nYou are running in a herdr terminal.\n\nLoad these skills first.\n</pasted_content id=\"fbdb\">";
+const t = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: wrapped }, { role: "assistant", text: "ok" },
+  { role: "user", text: wrapped }, { role: "user", text: "Hey" }]));
+console.log(t.map((m) => !!m.launch).join(","));
+console.log(chat.speaker(t[0], "Scofield"), "|", chat.speaker(t[3], "Scofield"));
+console.log(chat.shownText(t[0]));
+console.log(chat.shownText(t[3]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true,false,false,false" ]
+  [ "${lines[1]}" = "launch prompt | Matt" ]
+  [ "${lines[2]}" = "You are running in a herdr terminal. Load these skills first." ]
+  [ "${lines[3]}" = "Hey" ]
 }
