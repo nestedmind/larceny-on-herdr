@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Fake herdr-app for tests. Appends each call's argv, tab-joined, to
+# $FAKE_APP_LOG. `status` exits 0 (a window is open) unless
+# FAKE_APP_RUNNING=0, when it prints an error and exits 1. Any other command
+# exits with FAKE_APP_EXIT (default 0).
+set -euo pipefail
+: "${FAKE_APP_LOG:?FAKE_APP_LOG must be set}"
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$FAKE_APP_LOG"
+)
+if [[ "${1:-}" == "status" ]]; then
+  if [[ "${FAKE_APP_RUNNING:-1}" == "0" ]]; then
+    echo '{"error":"no herdr-app window"}'
+    exit 1
+  fi
+  echo '{"errors":[]}'
+  exit 0
+fi
+echo '{}'
+exit "${FAKE_APP_EXIT:-0}"

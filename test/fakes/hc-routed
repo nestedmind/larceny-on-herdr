@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Routed fake hc for tests that need different answers for different calls.
+# Copy it to a directory on PATH under the name `hc` (see use_routed_hc in
+# test/crew_helper.bash). It appends each call's argv, tab-joined, to
+# $FAKE_HC_LOG, then replies from files in $FAKE_HC_DIR:
+#   hc ls ...        -> ls.json
+#   hc get <x> ...   -> get-<x>.json (x is a name or an address); a missing
+#                       file prints an error and exits 1, like an unknown name
+#   anything else    -> no output, exit 0
+set -euo pipefail
+: "${FAKE_HC_LOG:?FAKE_HC_LOG must be set}"
+: "${FAKE_HC_DIR:?FAKE_HC_DIR must be set}"
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$FAKE_HC_LOG"
+)
+case "${1:-}" in
+  ls)
+    cat "$FAKE_HC_DIR/ls.json"
+    ;;
+  get)
+    f="$FAKE_HC_DIR/get-${2:-}.json"
+    if [[ -f "$f" ]]; then
+      cat "$f"
+    else
+      echo "hc: no such terminal: ${2:-}" >&2
+      exit 1
+    fi
+    ;;
+esac
