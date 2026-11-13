@@ -46,6 +46,15 @@ workspace_root() {
   die "no .loh/workspace.md found in $PWD or any parent (set LOH_WORKSPACE to override)"
 }
 
+# manifest_path: print the path of the workspace manifest,
+# <root>/.loh/workspace.md. Every reader of the manifest goes through here.
+# When the file is missing it still prints that path, so callers report it.
+manifest_path() {
+  local root
+  root="$(workspace_root)" || exit 1
+  printf '%s\n' "$root/.loh/workspace.md"
+}
+
 # ---------------------------------------------------------------------------
 # Workspace manifest: .loh/workspace.md
 #
@@ -84,7 +93,8 @@ _manifest_value() {
 #   REPO_NAMES[] REPO_PATHS[] REPO_BRANCHES[] REPO_GITHUBS[]
 manifest_load() {
   WS_ROOT="$(workspace_root)" || exit 1
-  local file="$WS_ROOT/.loh/workspace.md"
+  local file
+  file="$(manifest_path)" || exit 1
   [[ -f "$file" ]] || die "manifest not found: $file"
   WS_NAME=""
   WS_PANE_MODE="auto"

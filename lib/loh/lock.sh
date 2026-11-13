@@ -13,14 +13,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 # the crew label on every terminal of this workspace. Trimmed, with one pair of
 # surrounding quotes removed, the same rule as _manifest_value.
 crew_name() {
-  local root name
-  root="$(workspace_root)" || exit 1
-  name="$(sed -n 's/^name:[[:space:]]*//p' "$root/.loh/workspace.md" | head -n 1)"
+  local file name
+  file="$(manifest_path)" || exit 1
+  name="$(sed -n 's/^name:[[:space:]]*//p' "$file" | head -n 1)"
   name="${name%"${name##*[![:space:]]}"}"
   if [[ "$name" =~ ^\"(.*)\"$ || "$name" =~ ^\'(.*)\'$ ]]; then
     name="${BASH_REMATCH[1]}"
   fi
-  [[ -n "$name" ]] || die "no name: in $root/.loh/workspace.md"
+  [[ -n "$name" ]] || die "no name: in $file"
   printf '%s\n' "$name"
 }
 

@@ -73,6 +73,17 @@ setup() {
   [ "$output" = "$ws" ]
 }
 
+@test "manifest_path prints the .loh manifest and nothing on stderr" {
+  ws="$BATS_TEST_TMPDIR/ws"
+  mkdir -p "$ws/.loh"
+  : >"$ws/.loh/workspace.md"
+  cd "$ws"
+  run --separate-stderr manifest_path
+  [ "$status" -eq 0 ]
+  [ "$output" = "$ws/.loh/workspace.md" ]
+  [ -z "$stderr" ]
+}
+
 @test "workspace_root dies when no manifest is found" {
   mkdir -p "$BATS_TEST_TMPDIR/bare/sub"
   cd "$BATS_TEST_TMPDIR/bare/sub"
