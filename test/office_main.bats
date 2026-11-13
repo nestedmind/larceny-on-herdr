@@ -261,6 +261,17 @@ console.log(first.done, office.floor.layer === first, office.floor.layer.done);'
   [ "$output" = "true true true" ]
 }
 
+@test "the first render of a new plan draws no floor, so a start after a reload stays short; the second makes the drawing list" {
+  run office_js '
+render();
+const a = office.floor.layer;
+render();
+const b = office.floor.layer;
+console.log(a === null, b !== null && !b.done);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true" ]
+}
+
 @test "a floor still being built asks for another render, and stops asking once it is done" {
   run office_js '
 render();

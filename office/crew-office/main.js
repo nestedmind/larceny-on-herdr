@@ -479,7 +479,8 @@ export default class CrewOffice extends View {
     }
     let floorEl = null;
     let building = true;
-    if (!this.floor.layer) this.floor.layer = floorLayer(L, k);
+    // (A first render after a reload also has the whole crew to draw, so the drawing list waits for the second.)
+    if (!this.floor.layer) { if (this.floor.waited) this.floor.layer = floorLayer(L, k); this.floor.waited = true; }
     else { floorEl = this.floor.layer.at(k).el(BUILD_MS); building = !this.floor.layer.done; }
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
