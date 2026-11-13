@@ -1,0 +1,17 @@
+{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}
+{"type":"mode","mode":"normal","sessionId":"s1"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Hello coordinator, what is open?"},"timestamp":"2026-11-13T02:33:12.000Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]},"timestamp":"2026-11-13T02:33:13.000Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]},"timestamp":"2026-11-13T02:33:14.000Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":"file.txt"}]},"timestamp":"2026-11-13T02:33:15.000Z"}
+{"isSidechain":false,"isMeta":true,"type":"user","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x"}]},"timestamp":"2026-11-13T02:33:16.000Z"}
+{"isSidechain":false,"type":"attachment","attachment":{"type":"hook"},"timestamp":"2026-11-13T02:33:16.500Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Two tickets are open: api#2 and web#1."},{"type":"tool_use","name":"Bash","input":{}}]},"timestamp":"2026-11-13T02:33:17.000Z"}
+{"isSidechain":true,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}]},"timestamp":"2026-11-13T02:33:17.500Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"<system-reminder>be brief</system-reminder>Please merge api#2"},"timestamp":"2026-11-13T02:33:18.000Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"<system-reminder>only noise</system-reminder>"},"timestamp":"2026-11-13T02:33:18.500Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-stdout>ok</local-command-stdout>"},"timestamp":"2026-11-13T02:33:18.600Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"<hc>t1c sucre exited (exit 129). Read: hc read t1c</hc>"},"timestamp":"2026-11-13T02:33:18.700Z"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"<hc from=\"t1d whip\">web PR #5 squash-merged.</hc>"},"timestamp":"2026-11-13T02:33:18.800Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Merged.\n\nDone."}]},"timestamp":"2026-11-13T02:33:19.000Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assista

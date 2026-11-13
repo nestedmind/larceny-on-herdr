@@ -8,6 +8,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
 import { chatGone, crewOf, fitScale, layoutCrew, lockCall, officePane, pickWorkspace, repoNames, reposCall, unlockCall, ROOM_H, DESK_H } from "./crew.js";
+import { Panel, PANEL_W } from "./panel.js";
 
 const BLOCKED = { permission: ["#e7a43a", "allow?"], question: ["#4f8ff0", "?"], other: ["#d0509f", "!"] };
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -46,6 +47,8 @@ export default class CrewOffice extends View {
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
+    // The chat panel beside the office; its Terminal button docks the real terminal (open below).
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx) });
   }
 
   // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in an
@@ -183,7 +186,7 @@ export default class CrewOffice extends View {
       .when(this.anim, (el) => el.transition("left", WALK).transition("top", WALK))
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
-      .on_click((_e, cx) => this.open(a, cx))
+      .on_click((_e, cx) => { this.panel.select(a, cx); if (this.chat) this.open(a, cx); })
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))
@@ -215,6 +218,7 @@ export default class CrewOffice extends View {
     const crew = crewOf(list, workspace);
     this.loadRepos(crew, workspace, cx);
     const L = layoutCrew(crew, this.repos);
+    this.panel.sync(crew, cx);
     const allPanes = panes();
     // The person closed the chat's split by hand: release the lock the click set.
     if (chatGone(allPanes, this.chat)) {
@@ -228,7 +232,8 @@ export default class CrewOffice extends View {
     const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
     // Fit the floor to the pane in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.
-    const { k, fits } = fitScale(this.size, L);
+    const showPanel = this.panel.open && !this.chat;
+    const { k, fits } = fitScale(showPanel ? { ...this.size, width: this.size.width - PANEL_W } : this.size, L);
     // Slide only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
     // the transition and everything jumps with the rooms and desks.
@@ -280,8 +285,12 @@ export default class CrewOffice extends View {
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .on_key_down((e, cx) => {
         if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
+        else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }
+        else if (e.key === "escape" && this.panel.open) { this.panel.close(cx); cx.stop_propagation(); }
       })
       .child(this.bar(t, L.totals, view))
-      .child(h_flex().p(8).when(fits, (el) => el.justify_center()).child(floor));
+      .child(h_flex().flex_1().min_h(0)
+        .child(h_flex().flex_1().p(8).when(fits, (el) => el.justify_center()).child(floor))
+        .when(showPanel, (el) => el.child(this.panel.render(t, F, cx))));
   }
 }

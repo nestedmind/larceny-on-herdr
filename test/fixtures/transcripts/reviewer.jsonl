@@ -1,0 +1,3 @@
+{"type":"agent-setting","agentSetting":"larceny:reviewer","sessionId":"s2"}
+{"isSidechain":false,"type":"user","message":{"role":"user","content":"review PR 3"},"timestamp":"2026-11-13T03:00:00.000Z"}
+{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"On it."}]},"timestamp":"2026-11-13T03:00:01.000Z"}
