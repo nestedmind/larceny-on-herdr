@@ -101,7 +101,10 @@ setup() {
   [[ "$log" == *"Do not run \`loh say scofield\`"* ]]
   [[ "$log" == *"hc wait --children any"* ]]
   [[ "$log" == *"loh gh sucre pr view <n> --json reviews,headRefOid"* ]]
-  [[ "$log" == *"loh gh sucre pr merge <n> --squash"* ]]
+  [[ "$log" == *"loh gh sucre pr merge <n> --squash --delete-branch"* ]]
+  [[ "$log" == *"git branch -D sucre/12-fix-the-login-bug-retries"* ]]
+  [[ "$log" == *"Then end your turn; Amy's reply arrives as a new turn"* ]]
+  [[ "$log" == *"Merge only after Amy's reply"* ]]
   [[ "$log" == *"origin/main"* ]]
 }
 

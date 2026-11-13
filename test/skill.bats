@@ -160,6 +160,30 @@ named_commands() {
   done < <(grep -E '`hc run ' "$(skill_file)")
 }
 
+@test "the coordinator reads a coder's last message when a wait returns" {
+  grep -qF 'read that coder'"'"'s last message with `hc read <coder>`' "$(skill_file)"
+}
+
+@test "the skill no longer says a wait returns because a coder sent a message" {
+  run grep -F 'sent you a message' "$(skill_file)"
+  [ "$status" -ne 0 ]
+}
+
+@test "the coordinator waits on Amy with hc wait amy and a timeout" {
+  grep -qF '`hc wait amy --timeout <s>`' "$(skill_file)"
+}
+
+@test "the reviewer does not loh say the coordinator and ends her turn with the verdict" {
+  line=$(grep -F 'Reply to a coder with `loh say <coder> ' "$(skill_file)")
+  [[ "$line" == *'Do not `loh say scofield`'* ]]
+  [[ "$line" == *"final message"* ]]
+}
+
+@test "the approval check names the reviewer login and how to get it" {
+  grep -qF 'loh gh amy api user --jq .login' "$(skill_file)"
+  grep -qF "\`author.login\` is the reviewer's login" "$(skill_file)"
+}
+
 @test "skill never recommends hc send --force" {
   run grep -E 'hc send[^`]*--force' "$(skill_file)"
   [ "$status" -ne 0 ]
