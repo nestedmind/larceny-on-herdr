@@ -190,11 +190,11 @@ console.log(JSON.stringify(crew.restoreSteps(plan)), JSON.stringify(crew.restore
   [ "$output" = '[{"window":true},{"show":"status"},{"show":"sidebar"},{"zoom":true}] []' ]
 }
 
-@test "the floor cache key changes when only the height changes" {
+@test "the floor cache key changes when only the height changes, and not with the scale" {
   run crew_js '
 const a = crew.layoutCrew([], ["api", "web"], 1.2), b = crew.layoutCrew([], ["api", "web"], 1.1);
 const k = 1.5;
-console.log(a.W === b.W, a.H !== b.H, crew.floorKey(a, k) !== crew.floorKey(b, k), crew.floorKey(a, k) === crew.floorKey(a, k), crew.floorKey(a, k) !== crew.floorKey(a, 1.6));'
+console.log(a.W === b.W, a.H !== b.H, crew.floorKey(a, k) !== crew.floorKey(b, k), crew.floorKey(a, k) === crew.floorKey(a, k), crew.floorKey(a, k) === crew.floorKey(a, 1.6));'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true true true" ]
 }
