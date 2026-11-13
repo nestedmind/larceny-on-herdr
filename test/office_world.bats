@@ -131,16 +131,62 @@ const L = lay(ts, ["web"]);
 const pl = L.people.filter((p) => p.id.startsWith("x:")).map((p) => p.place);
 console.log(pl.filter((x) => x === "desk").length, pl.filter((x) => x === "lounge").length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "2 3" ]
+  [ "$output" = "4 1" ]
 }
 
-@test "Yoda and Sara sit at the meeting table while running and Scofield and Amy at their desks" {
+@test "Yoda and Sara sit at the meeting table while running, Scofield and Amy at their desks while working or blocked" {
   run crew_js "$HELPERS"'
-const L = lay([T("yoda", "idle", {role: "advisor"}), T("sara", "working", {role: "teacher"}), T("scofield", "idle", {role: "coordinator"}), T("amy", "working", {role: "reviewer"})], ["api", "web"]);
+const L = lay([T("yoda", "idle", {role: "advisor"}), T("sara", "working", {role: "teacher"}), T("scofield", "working", {role: "coordinator"}), T("amy", "blocked", {role: "reviewer"})], ["api", "web"]);
 const f = (id) => { const p = P(L, id); return [p.place, p.x, p.y, p.face].join(","); };
 console.log(f("yoda"), f("sara"), f("scofield"), f("amy"));'
   [ "$status" -eq 0 ]
   [ "$output" = "meeting,410,50,e meeting,460,50,w desk,322,52,n desk,368,52,n" ]
+}
+
+@test "Scofield and Amy leave their desks when idle or done, like everyone else" {
+  run crew_js "$HELPERS"'
+const L = lay([T("scofield", "idle", {role: "coordinator"}), T("amy", "done", {role: "reviewer"})], ["api", "web"]);
+console.log(P(L, "scofield").place, P(L, "amy").place, P(L, "scofield").desk, L.screens.scofield);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "lounge kitchen null undefined" ]
+}
+
+@test "three working coders in a one-repo workspace all sit at desks" {
+  run crew_js "$HELPERS"'
+const L = lay([T("sucre", "working", {role: "coder", task: "r#1"}), T("sheba", "working", {role: "coder", task: "r#2"}), T("mahone", "working", {role: "coder", task: "r#3"})], ["r"]);
+console.log(["sucre", "sheba", "mahone"].map((id) => P(L, id).place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk desk desk" ]
+}
+
+@test "a working coder whose repo room is full takes a free desk in another room before waiting" {
+  run crew_js "$HELPERS"'
+const ts = ["sucre", "sheba", "mahone", "whip", "c5"].map((n, i) => T(n, i === 3 ? "blocked" : "working", {role: "coder", task: "r1#" + i}));
+const L = lay(ts, ["r1", "r2"]);
+const pl = L.people.filter((p) => p.agent);
+console.log(pl.map((p) => p.place).join(" "), new Set(pl.map((p) => p.desk)).size, pl.filter((p) => p.desk.startsWith("repo:r2")).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk desk desk desk desk 5 1" ]
+}
+
+@test "a working coder waits in the lounge only when every desk is taken" {
+  run crew_js "$HELPERS"'
+const ts = [1, 2, 3, 4, 5].map((n) => T("c" + n, "working", {role: "coder", task: "r#" + n}));
+const L = lay(ts, ["r"]);
+const pl = L.people.filter((p) => p.agent).map((p) => p.place);
+console.log(pl.filter((x) => x === "desk").length, pl.filter((x) => x === "lounge").length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "4 1" ]
+}
+
+@test "a helper's home desk is held only while the helper runs" {
+  run crew_js "$HELPERS"'
+const coders = [1, 2, 3, 4].map((n) => T("c" + n, "working", {role: "coder", task: "r#" + n}));
+const off = lay(coders, ["r"]), on = lay([...coders, T("opemipo", "idle", {role: "advisor"}), T("maya", "idle", {role: "advisor"})], ["r"]);
+const n = (L) => L.people.filter((p) => p.agent && p.id.startsWith("x:") && p.place === "desk").length;
+console.log(n(off), n(on), P(on, "opemipo").place);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "4 2 desk" ]
 }
 
 @test "Scofield and Amy are in the lounge when they have no terminal" {
@@ -255,13 +301,55 @@ console.log(p.ask, c.cmd, c.args.join(" "), c.options.cwd, c.options.timeout);'
   [ "$output" = "Start Scofield and Amy with loh up? /opt/loh up /ws/lead 60000" ]
 }
 
-@test "a coder needs a repo and a ticket, so the office names the command and does not guess" {
+@test "a coder's start offer lists the manifest's repos and runs nothing until a repo and a ticket are chosen" {
   run crew_js "$HELPERS"'
-const L = lay([], ["api"]);
-const p = crew.startPlan(P(L, "sheba"));
-console.log(p.kind, p.hint, crew.startCall(p, "/x", "loh"));'
+const L = lay([], ["api", "web"]);
+const p = crew.startPlan(P(L, "sheba"), ["api", "web"]);
+console.log(p.kind, p.repos.join(","), crew.startCall(p, "/x", "loh"), crew.startCall(p, "/x", "loh", {repo: "api", ticket: ""}));'
   [ "$status" -eq 0 ]
-  [ "$output" = "spawn loh spawn sheba <repo> <ticket> null" ]
+  [ "$output" = "spawn api,web null null" ]
+}
+
+@test "loh spawn is run with the coder, a manifest repo and a ticket number, in the workspace folder" {
+  run crew_js "$HELPERS"'
+const L = lay([], ["api", "web"]);
+const p = crew.startPlan(P(L, "sheba"), ["api", "web"]);
+const c = crew.startCall(p, "/ws/x", "/opt/loh", {repo: "web", ticket: "42"});
+console.log(c.cmd, c.args.join(" "), c.options.cwd, c.options.timeout);
+console.log(crew.startCall(p, "/ws/x", "loh", {repo: "nope", ticket: "42"}), crew.startCall(p, "/ws/x", "loh", {repo: "web", ticket: "4 2; rm"}));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "/opt/loh spawn sheba web 42 /ws/x 180000" ]
+  [ "${lines[1]}" = "null null" ]
+}
+
+@test "the floor takes the whole measured stage: a 1990 by 1000 stage gives the height-limited scale, with nothing else taken off" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api", "web"]);
+const s = crew.fitScale({width: 1990, height: 1000}, L);
+console.log(s.k.toFixed(3), (L.H * s.k + 16).toFixed(0), s.fits);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3.417 1000 true" ]
+}
+
+@test "main.js measures the stage the floor sits in, not the whole pane" {
+  grep -q 'id("stage")' "$(mod_dir)/main.js"
+  grep -A3 'id("stage")' "$(mod_dir)/main.js" | grep -q on_size_change
+  ! grep -q 'id("root")[^;]*on_size_change' "$(mod_dir)/main.js"
+}
+
+@test "a ticket is digits only" {
+  run crew_js "$HELPERS"'
+console.log(["12", "0", "", "1a", "-3", " 4", "007"].map((s) => crew.validTicket(s)).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true,false,false,false,false,false,true" ]
+}
+
+@test "with no agent running the office finds the workspace from a pane in its own tab, then any pane, then dir" {
+  run crew_js "$HELPERS"'
+const ps = [{pane: "p1", tab: "a", cwd: "/other", mod: null}, {pane: "p2", tab: "b", cwd: "/mine"}, {pane: "p3", tab: "b", mod: "crew-office", cwd: null}];
+console.log(crew.ownCwd(ps, "p3"), crew.ownCwd(ps, "p9"), crew.ownCwd([{pane: "p3", tab: "b", cwd: null}], "p3") === "");'
+  [ "$status" -eq 0 ]
+  [ "$output" = "/mine /other true" ]
 }
 
 @test "the folder loh runs in is a running agent's, else the dir prop" {

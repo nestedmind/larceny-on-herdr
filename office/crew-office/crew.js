@@ -134,13 +134,13 @@ export function unlockCall(agent, loh) {
 const MIN_SCALE = 0.2;
 
 /**
- * Scale that fits the floor into the pane (the top bar and padding take about 48px high, 16px wide).
+ * Scale that fits the floor into the stage, the area main.js measures for it (the bar and the offer row are outside it; 8px of padding all round).
  * It may drop below 1, so a narrow pane (the chat takes half the tab) shrinks the floor instead of
  * cutting it. `fits` is false only when even the smallest scale overflows: main.js then stops centring.
  */
 export function fitScale(size, floor) {
-  const raw = Math.min((size.width - 16) / floor.W, (size.height - 48) / floor.H);
-  const k = Math.min(4, Math.max(MIN_SCALE, raw));
+  const raw = Math.min((size.width - 16) / floor.W, (size.height - 16) / floor.H);
+  const k = Math.min(8, Math.max(MIN_SCALE, raw));
   return { k, fits: floor.W * k <= size.width - 16 + 0.5 };
 }
 
@@ -367,7 +367,9 @@ export function layoutCrew(crew, repoList = []) {
   // Home desks for the helpers, then the coders' free slots in each repo room.
   const homes = {};
   if (repoRooms.length) {
+    // A home desk is held only while its helper runs, so it never costs a coder a desk otherwise.
     for (const [id, h] of Object.entries(SLOT_HOME)) {
+      if (!by(id).running) continue;
       const r = repoRooms[Math.min(h.room, repoRooms.length - 1)];
       homes[id] = repoDesks(r)[h.slot].key;
     }
@@ -381,8 +383,9 @@ export function layoutCrew(crew, repoList = []) {
     const list = slots.get("repo:" + p.agent.repo);
     if (list && list.length) p.desk = list.shift();
   }
-  // A working coder with no task still gets a desk, in the first room that has one free.
-  for (const p of coders.filter((c) => !c.agent.repo && (c.state === "working" || c.state === "blocked"))) {
+  // A working or blocked coder is never in the lounge while any desk is free: one with no task, or
+  // whose own room is full, takes a free desk in the first room that has one.
+  for (const p of coders.filter((c) => !c.desk && (c.state === "working" || c.state === "blocked"))) {
     const list = [...slots.values()].find((l) => l.length);
     if (list) p.desk = list.shift();
   }
@@ -393,18 +396,18 @@ export function layoutCrew(crew, repoList = []) {
     if (p.id === "matt") { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; continue; }
     if (p.id === "dog") continue;
     if (!p.running) { needSpot.push({ p, chain: ["lounge", "kitchen", "rest"] }); continue; }
-    if (p.id === "scofield" || p.id === "amy") { sit(p, deskBy.get(p.id)); continue; }
+    // Scofield and Amy are at their desks while working or blocked; idle or done they go to the lounge or kitchen.
+    if ((p.id === "scofield" || p.id === "amy") && (p.state === "working" || p.state === "blocked")) { sit(p, deskBy.get(p.id)); continue; }
     if (p.id === "yoda" || p.id === "sara") {
       const m = world.meetSeats[p.id];
       p.place = "meeting"; p.x = m.x; p.y = m.y; p.face = m.face;
       continue;
     }
     if (homes[p.id]) { sit(p, deskBy.get(homes[p.id])); continue; }
-    if (p.role === "coder" && p.desk) {
-      if (p.state === "working" || p.state === "blocked") { sit(p, deskBy.get(p.desk)); continue; }
+    if (p.role === "coder") {
+      if (p.desk && (p.state === "working" || p.state === "blocked")) { sit(p, deskBy.get(p.desk)); continue; }
       if (p.state === "done") { needSpot.push({ p, chain: ["kitchen", "rest", "lounge"] }); continue; }
-      needSpot.push({ p, chain: ["pong", "kitchen", "lounge", "rest"] });
-      continue;
+      if (p.state === "idle" && p.agent.repo) { needSpot.push({ p, chain: ["pong", "kitchen", "lounge", "rest"] }); continue; }
     }
     needSpot.push({ p, chain: p.state === "done" ? ["kitchen", "rest", "lounge"] : ["lounge", "kitchen", "rest"] });
   }
@@ -483,21 +486,34 @@ export function stackTags(items) {
 // ---------- starting someone who is not running ----------
 
 /**
- * What a click on a person who is not running can offer. `loh up` starts Scofield and Amy. Coders
- * start with `loh spawn <coder> <repo> <ticket>`, which needs a repo and a ticket the office cannot
- * guess, so it only names the command. loh has no command for anyone else.
+ * What a click on a person who is not running can offer. `loh up` starts Scofield and Amy. A coder
+ * starts with `loh spawn <coder> <repo> <ticket>`: the offer lists `repos` (the manifest's) and
+ * takes a ticket number. loh has no command for anyone else.
  */
-export function startPlan(p) {
+export function startPlan(p, repos = []) {
   if (!p || p.running) return { kind: "running" };
   if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: "Start Scofield and Amy with loh up?", hint: "loh up" };
-  if (p.role === "coder") return { kind: "spawn", hint: `loh spawn ${p.id} <repo> <ticket>` };
+  if (p.role === "coder") return { kind: "spawn", coder: p.id, repos: [...repos], hint: `loh spawn ${p.id} <repo> <ticket>` };
   return { kind: "none", hint: `loh has no command to start ${p.name}` };
 }
 
-/** The command that runs a start plan, or null when the office cannot run it. */
-export function startCall(plan, cwd, loh) {
-  if (!plan || plan.kind !== "up") return null;
-  return { cmd: loh || "loh", args: ["up"], options: { cwd: cwd || undefined, timeout: 60000 } };
+/** A ticket number: digits only, not zero. */
+export function validTicket(s) {
+  return /^[0-9]+$/.test(String(s)) && Number(s) > 0;
+}
+
+/**
+ * The command that runs a start plan, or null when the office cannot run it yet. A coder needs
+ * `choice` = {repo, ticket}: the repo one of the plan's, the ticket digits.
+ */
+export function startCall(plan, cwd, loh, choice) {
+  if (!plan) return null;
+  if (plan.kind === "up") return { cmd: loh || "loh", args: ["up"], options: { cwd: cwd || undefined, timeout: 60000 } };
+  if (plan.kind === "spawn" && choice && plan.repos.includes(choice.repo) && validTicket(choice.ticket)) {
+    // spawn fetches, makes a worktree and reads the issue, so it gets longer than the lock calls.
+    return { cmd: loh || "loh", args: ["spawn", plan.coder, choice.repo, String(choice.ticket)], options: { cwd: cwd || undefined, timeout: 180000 } };
+  }
+  return null;
 }
 
 /** The folder loh runs in to find the workspace: the coordinator's, any agent's, else the `dir` prop. */
@@ -505,4 +521,16 @@ export function anchorCwd(crew, props) {
   const a = crew.find((x) => x.role === "coordinator" && x.cwd) || crew.find((x) => x.cwd);
   if (a) return a.cwd;
   return props && typeof props.dir === "string" ? props.dir : "";
+}
+
+/**
+ * With no agent running, the folder of a pane in the office's own tab, else of any pane
+ * (a terminal in the same workspace). "" when none has one.
+ */
+export function ownCwd(panes, minePane) {
+  const list = panes || [];
+  const mine = list.find((p) => p.pane === minePane);
+  const same = mine ? list.find((p) => p.tab === mine.tab && p.pane !== minePane && typeof p.cwd === "string" && p.cwd) : null;
+  const any = same || list.find((p) => p.pane !== minePane && typeof p.cwd === "string" && p.cwd);
+  return any ? any.cwd : "";
 }

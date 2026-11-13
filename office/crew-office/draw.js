@@ -32,59 +32,70 @@ export const BLOCKED = { permission: [PAL.perm, "allow?"], question: [PAL.q, "?"
 const STATE_RING = { working: PAL.work, done: PAL.work };
 const BOX = 30; // half the side of a person's box, in world units: room for a bubble and a flag
 
-const TAU = Math.PI * 2;
+// A shape is a list of path commands; consecutive fills of one colour become one path (one element).
+function buildPath(cmds, stroke) {
+  let b = stroke ? PathBuilder.stroke(stroke) : PathBuilder.fill();
+  for (const [name, ...args] of cmds) b = b[name](...args);
+  return b.build();
+}
 
-/** A box on the floor holding shapes in world units; each shape is its own paint_path element. */
+/** A box on the floor holding shapes in world units. Built once, then `el()` makes the elements. */
 export class Layer {
   constructor(k, x, y, w, h, alpha = "") {
-    this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = [];
+    this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.groups = null;
   }
   X(x) { return (x - this.x) * this.k; }
   Y(y) { return (y - this.y) * this.k; }
-  c(fill) { return this.alpha && fill.length === 7 ? fill + this.alpha : fill; }
-  add(path, fill) { this.ops.push([path, this.c(fill)]); return this; }
+  add(cmds, fill, stroke = 0) {
+    const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
+    const last = this.ops[this.ops.length - 1];
+    if (!stroke && last && !last.stroke && last.fill === c) last.cmds.push(...cmds);
+    else this.ops.push({ cmds: [...cmds], fill: c, stroke });
+    this.groups = null;
+    return this;
+  }
   rect(x, y, w, h, fill) {
     const X = this.X(x), Y = this.Y(y), W = w * this.k, H = h * this.k;
-    return this.add(PathBuilder.fill().move_to(X, Y).line_to(X + W, Y).line_to(X + W, Y + H).line_to(X, Y + H).close().build(), fill);
+    return this.add([["move_to", X, Y], ["line_to", X + W, Y], ["line_to", X + W, Y + H], ["line_to", X, Y + H], ["close"]], fill);
   }
   rr(x, y, w, h, r, fill) {
     const X = this.X(x), Y = this.Y(y), W = w * this.k, H = h * this.k;
     const R = Math.min(r * this.k, W / 2, H / 2);
-    const b = PathBuilder.fill().move_to(X + R, Y).line_to(X + W - R, Y).arc_to(R, R, 0, false, true, X + W, Y + R)
-      .line_to(X + W, Y + H - R).arc_to(R, R, 0, false, true, X + W - R, Y + H)
-      .line_to(X + R, Y + H).arc_to(R, R, 0, false, true, X, Y + H - R)
-      .line_to(X, Y + R).arc_to(R, R, 0, false, true, X + R, Y).close();
-    return this.add(b.build(), fill);
+    return this.add([["move_to", X + R, Y], ["line_to", X + W - R, Y], ["arc_to", R, R, 0, false, true, X + W, Y + R],
+      ["line_to", X + W, Y + H - R], ["arc_to", R, R, 0, false, true, X + W - R, Y + H],
+      ["line_to", X + R, Y + H], ["arc_to", R, R, 0, false, true, X, Y + H - R],
+      ["line_to", X, Y + R], ["arc_to", R, R, 0, false, true, X + R, Y], ["close"]], fill);
   }
   ell(x, y, rx, ry, fill) {
     const X = this.X(x), Y = this.Y(y), RX = rx * this.k, RY = ry * this.k;
-    return this.add(PathBuilder.fill().move_to(X + RX, Y).arc_to(RX, RY, 0, false, true, X - RX, Y).arc_to(RX, RY, 0, false, true, X + RX, Y).close().build(), fill);
+    return this.add([["move_to", X + RX, Y], ["arc_to", RX, RY, 0, false, true, X - RX, Y], ["arc_to", RX, RY, 0, false, true, X + RX, Y], ["close"]], fill);
   }
   circ(x, y, r, fill) { return this.ell(x, y, r, r, fill); }
   ring(x, y, r, stroke, lw) {
     const X = this.X(x), Y = this.Y(y), R = r * this.k;
-    return this.add(PathBuilder.stroke(lw * this.k).move_to(X + R, Y).arc_to(R, R, 0, false, true, X - R, Y).arc_to(R, R, 0, false, true, X + R, Y).close().build(), stroke);
+    return this.add([["move_to", X + R, Y], ["arc_to", R, R, 0, false, true, X - R, Y], ["arc_to", R, R, 0, false, true, X + R, Y], ["close"]], stroke, lw * this.k);
   }
   line(x1, y1, x2, y2, stroke, lw) {
-    return this.add(PathBuilder.stroke(lw * this.k).move_to(this.X(x1), this.Y(y1)).line_to(this.X(x2), this.Y(y2)).build(), stroke);
+    return this.add([["move_to", this.X(x1), this.Y(y1)], ["line_to", this.X(x2), this.Y(y2)]], stroke, lw * this.k);
   }
   poly(points, fill) {
-    return this.add(PathBuilder.fill().add_polygon(points.map(([x, y]) => [this.X(x), this.Y(y)]), true).build(), fill);
+    const [first, ...rest] = points.map(([x, y]) => [this.X(x), this.Y(y)]);
+    return this.add([["move_to", ...first], ...rest.map((p) => ["line_to", ...p]), ["close"]], fill);
   }
   // A circular sector of the head, as the prototype's hair: arc a0 to a1 (radians, clockwise on screen).
   fan(cx, cy, r, a0, a1, fill, from) {
     const p = (a) => [this.X(cx + Math.cos(a) * r), this.Y(cy + Math.sin(a) * r)];
     const [sx, sy] = p(a0), [ex, ey] = p(a1);
     const R = r * this.k;
-    const b = PathBuilder.fill().move_to(...(from ? [this.X(from[0]), this.Y(from[1])] : [sx, sy]));
-    if (from) b.line_to(sx, sy);
-    b.arc_to(R, R, 0, a1 - a0 > Math.PI, true, ex, ey);
-    return this.add(b.close().build(), fill);
+    const cmds = from ? [["move_to", this.X(from[0]), this.Y(from[1])], ["line_to", sx, sy]] : [["move_to", sx, sy]];
+    cmds.push(["arc_to", R, R, 0, a1 - a0 > Math.PI, true, ex, ey], ["close"]);
+    return this.add(cmds, fill);
   }
   /** The box as an element. Its shapes are absolute children that each fill it. */
   el() {
+    if (!this.groups) this.groups = this.ops.map((o) => ({ fill: o.fill, path: buildPath(o.cmds, o.stroke) }));
     return div().absolute().left(this.x * this.k).top(this.y * this.k).w(this.w * this.k).h(this.h * this.k)
-      .children(this.ops.map(([path, fill]) => window.paint_path(path, fill).absolute().left(0).top(0).size_full()));
+      .children(this.groups.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
   }
 }
 
@@ -256,7 +267,6 @@ export function labels(world, k, crewCount) {
 // ---------- the moving parts ----------
 
 const blink = (el) => el.loop("opacity", { from: 0.35, to: 0.95, period: 1000 });
-
 /** The lit strip on a desk's monitor. `s` is work, perm, q, esc or dim. */
 export function glow(d, s, k) {
   const col = s === "work" ? PAL.work : s === "dim" ? PAL.screen : PAL[s];
@@ -264,9 +274,11 @@ export function glow(d, s, k) {
   const g = new Layer(k, d.cx - 6.5, y, 13, 1.6, s === "dim" ? "e6" : "f2").rr(d.cx - 6.5, y, 13, 1.6, 0.8, col);
   const out = [s === "q" || s === "perm" || s === "esc" ? blink(g.el()) : g.el()];
   if (s === "work") {
-    // a cursor that walks along the line, as the prototype's
-    const c = new Layer(k, d.cx - 6, y, 3, 1.6, "e6").rect(d.cx - 6, y + 0.4, 3, 0.8, PAL.screenInk);
-    out.push(c.el().loop("left", { from: (d.cx - 6) * k, to: (d.cx + 2) * k, period: 1920, easing: "linear" }));
+    // The prototype's cursor steps along the line, two units every 240 ms. frames() swaps text, so the
+    // cursor is a glyph padded with em spaces: the font is sized so one em is two world units.
+    const step = ["", " ", "  ", "   "].map((pad) => pad + "▬");
+    out.push(div().absolute().left((d.cx - 5) * k).top((y - 0.6) * k).text_size(2 * k).line_height(2 * k)
+      .text_color(PAL.screenInk).whitespace_nowrap().frames(step, 240));
   }
   return out;
 }
@@ -279,7 +291,7 @@ export function ball(world, k, rally) {
   return [b.el().left((325 + e) * k).top(222.7 * k)
     .loop("left", { from: (325 + e) * k, to: (369 + e) * k, period: 1300, easing: "linear" })
     .loop("top", { from: 223.7 * k, to: 219.7 * k, period: 650 })];
-};
+}
 
 function bubble(g, x, y, label, fill, ink, k) {
   const w = Math.max(9, label.length * 3 + 6);
@@ -290,22 +302,32 @@ function bubble(g, x, y, label, fill, ink, k) {
 }
 
 const TYPING = (p) => p.id === "matt" || (p.state === "working" && p.place === "desk");
+const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
+  const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
+  const [fx, tx] = rev ? [cx + ax, cx - ax] : [cx - ax, cx + ax];
+  const [fy, ty] = rev ? [cy + ay, cy - ay] : [cy - ay, cy + ay];
+  return hand.el().left((fx - 1.6) * k).top((fy - 1.6) * k)
+    .loop("left", { from: (fx - 1.6) * k, to: (tx - 1.6) * k, period: 534 })
+    .loop("top", { from: (fy - 1.6) * k, to: (ty - 1.6) * k, period: 534 });
+};
 
 /**
  * One person, seen from above: the prototype's person(). `face` is where they look (n, s, e, w) and
  * `walking` swings their arms and bobs them. Returns the elements to put in the person's wrapper.
+ * Draw order is the prototype's: shadow, ring, hands, then the body over them, so a hand shows only
+ * where it sticks out; the hands bob with the body.
  */
 export function personEls(p, k, face, walking, world) {
   const [hair, skin, shirt] = look(p.id.startsWith("x:") ? p.name : p.id);
   const B = BOX;
   const x = B, y = B;
   const a = p.dim ? "b3" : "";
-  const out = [];
-  const shade = new Layer(k, 0, 0, 2 * B, 2 * B).ell(x, y + 4.4, 6.4, 2.4, PAL.shade);
-  out.push(shade.el());
-  const fig = new Layer(k, 0, 0, 2 * B, 2 * B, a);
-  const ringCol = p.state === "blocked" ? BLOCKED[p.kind || "other"][0] : STATE_RING[p.state];
-  if (ringCol) fig.ring(x, y, 8.4, ringCol, 1.5);
+  const box = () => new Layer(k, 0, 0, 2 * B, 2 * B, a);
+  const out = [new Layer(k, 0, 0, 2 * B, 2 * B).ell(x, y + 4.4, 6.4, 2.4, PAL.shade).el()];
+  const kind = p.kind || "other";
+  const ringCol = p.state === "blocked" ? BLOCKED[kind][0] : STATE_RING[p.state];
+  const under = box();
+  if (ringCol) under.ring(x, y, 8.4, ringCol, 1.5);
   const fy = face === "n" ? -1 : 1;
   const side = face === "e" ? 1 : face === "w" ? -1 : 0;
   const hands = [];
@@ -315,8 +337,8 @@ export function personEls(p, k, face, walking, world) {
     const kbY = !d ? y : p.id === "matt" ? d.y + 11.2 : d.side === "n" ? d.y + 4.2 : d.y + d.h - 3.8;
     const reach = d ? Math.abs(kbY - p.y) : 4.6;
     const hl = { x: x - 2.6, y: y + fy * reach }, hr = { x: x + 2.6, y: y + fy * (reach - 0.7) };
-    fig.line(x - 4.2, y + fy * 1.5, hl.x, hl.y - fy * 1.2, shirt, 1.8);
-    fig.line(x + 4.2, y + fy * 1.5, hr.x, hr.y - fy * 1.2, shirt, 1.8);
+    under.line(x - 4.2, y + fy * 1.5, hl.x, hl.y - fy * 1.2, shirt, 1.8);
+    under.line(x + 4.2, y + fy * 1.5, hr.x, hr.y - fy * 1.2, shirt, 1.8);
     for (const [h, other] of [[hl, hr.y], [hr, hl.y]]) {
       const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
       hands.push(hand.el().left((h.x - 1.6) * k).top((h.y - 1.6) * k)
@@ -324,74 +346,82 @@ export function personEls(p, k, face, walking, world) {
     }
   }
   if (walking) {
-    // The arms swing against each other in step with the bob (the prototype's gait).
-    const swing = (cx, cy, ax, ay, rev) => {
-      const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
-      const [fx, tx] = rev ? [cx + ax, cx - ax] : [cx - ax, cx + ax];
-      const [fyy, tyy] = rev ? [cy + ay, cy - ay] : [cy - ay, cy + ay];
-      return hand.el().left((fx - 1.6) * k).top((fyy - 1.6) * k)
-        .loop("left", { from: (fx - 1.6) * k, to: (tx - 1.6) * k, period: 534 })
-        .loop("top", { from: (fyy - 1.6) * k, to: (tyy - 1.6) * k, period: 534 });
-    };
-    if (side) hands.push(swing(x, y - 5.4, 1.28, 0, false), swing(x, y + 5.4, 1.28, 0, true));
-    else hands.push(swing(x - 5.4, y, 0, 0.96, false), swing(x + 5.4, y, 0, 0.96, true));
+    if (side) hands.push(swing(k, skin, a, x, y - 5.4, 1.28, 0, false), swing(k, skin, a, x, y + 5.4, 1.28, 0, true));
+    else hands.push(swing(k, skin, a, x - 5.4, y, 0, 0.96, false), swing(k, skin, a, x + 5.4, y, 0, 0.96, true));
   }
   // body, long hair behind the head, head, hair on top
-  if (side) fig.ell(x, y, 4.8, 6.2, shirt); else fig.ell(x, y, 6.2, 4.8, shirt);
-  if (p.long) { if (side) fig.circ(x - side * 1.2, y, 4.3, hair); else fig.circ(x, y - fy * 0.8, 4.3, hair); }
-  fig.circ(x, y, 3.7, skin);
+  const body = box();
+  if (side) body.ell(x, y, 4.8, 6.2, shirt); else body.ell(x, y, 6.2, 4.8, shirt);
+  if (p.long) { if (side) body.circ(x - side * 1.2, y, 4.3, hair); else body.circ(x, y - fy * 0.8, 4.3, hair); }
+  body.circ(x, y, 3.7, skin);
   if (side) {
     const back = side > 0 ? Math.PI : 0;
-    fig.fan(x, y, 3.8, back - Math.PI * 0.62, back + Math.PI * 0.62, hair, [x + side * 1.2, y]);
+    body.fan(x, y, 3.8, back - Math.PI * 0.62, back + Math.PI * 0.62, hair, [x + side * 1.2, y]);
   } else if (face === "n") {
-    fig.circ(x, y, 3.8, hair);
+    body.circ(x, y, 3.8, hair);
   } else {
-    fig.fan(x, y - 0.4, 3.8, Math.PI * 0.95, Math.PI * 2.05, hair);
-    fig.poly([[x + 3.6, y - 1], [x - 3.6, y - 1], [x - 3.5, y - 0.4], [x + 3.5, y - 0.4]], hair);
+    body.fan(x, y - 0.4, 3.8, Math.PI * 0.95, Math.PI * 2.05, hair);
+    body.poly([[x + 3.6, y - 1], [x - 3.6, y - 1], [x - 3.5, y - 0.4], [x + 3.5, y - 0.4]], hair);
   }
-  if (face === "n") fig.circ(x, y - 2.4, 1.6, skin);
-  if (p.headset) fig.ring(x, y, 4.1, PAL.monitor, 0.8);
-  if (p.mug) { fig.circ(x + 6.6, y + 1, 1.9, PAL.fridge); fig.circ(x + 6.6, y + 1, 1.1, PAL.shelf); }
-  if (p.paddle) fig.circ(x + p.paddle * 6, y - 1.5, 2.4, PAL.paddle);
-  if (p.state === "blocked") { fig.circ(x + 6, y - 7.5, 1.7, skin); fig.line(x + 4, y - 2, x + 5.6, y - 6.4, shirt, 1.6); }
-  const body = fig.el();
-  out.push(walking ? body.loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : body);
-  out.push(...hands);
-  // the bubble over a blocked or finished agent; it clears the top row's name tag by sitting higher
+  if (face === "n") body.circ(x, y - 2.4, 1.6, skin);
+  if (p.headset) body.ring(x, y, 4.1, PAL.monitor, 0.8);
+  if (p.mug) { body.circ(x + 6.6, y + 1, 1.9, PAL.fridge); body.circ(x + 6.6, y + 1, 1.1, PAL.shelf); }
+  if (p.paddle) body.circ(x + p.paddle * 6, y - 1.5, 2.4, PAL.paddle);
+  // A raised hand for a question or a permission prompt only.
+  if (p.state === "blocked" && kind !== "other") { body.circ(x + 6, y - 7.5, 1.7, skin); body.line(x + 4, y - 2, x + 5.6, y - 6.4, shirt, 1.6); }
+  const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).child(under.el()).children(hands).child(body.el());
+  out.push(walking ? figure.loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : figure);
+  // The bubble over a question or a permission prompt; a flag over anything else that blocks.
+  // A person at the top row of a pod gets it higher, clear of the name tag.
   const up = p.place === "desk" && world.desks.find((q) => q.key === p.desk)?.side === "n" ? 11 : 0;
-  if (p.state === "blocked" || p.state === "done") {
-    const [bg, label, ink] = p.state === "done" ? [PAL.work, "✓", PAL.white] : [...BLOCKED[p.kind || "other"], p.kind === "permission" ? PAL.eye : PAL.white];
+  if (p.state === "blocked" && kind !== "other") {
     const bl = new Layer(k, 0, 0, 2 * B, 2 * B);
-    const text = bubble(bl, x + 7, y - 15 - up, label, bg, ink, k);
+    const text = bubble(bl, x + 7, y - 15 - up, BLOCKED[kind][1], BLOCKED[kind][0], kind === "permission" ? PAL.eye : PAL.white, k);
     out.push(bl.el(), text);
+  }
+  if (p.state === "blocked" && kind === "other") {
+    out.push(new Layer(k, 0, 0, 2 * B, 2 * B).line(x - 7, y + 2, x - 7, y - 15 - up, PAL.wall, 0.8).el());
+    const pennant = new Layer(k, 0, 0, 2 * B, 2 * B).poly([[x - 7, y - 15 - up], [x + 1, y - 12.5 - up], [x - 7, y - 10 - up]], PAL.esc);
+    out.push(pennant.el().loop("opacity", { from: 0.6, to: 1, period: 900 }));
+  }
+  // zz over someone resting in the rest room, drifting up
+  if (p.place === "rest") {
+    out.push(div().absolute().left((x + 7) * k).top((y - 12) * k).text_size(Math.max(6, 5.5 * k)).font_semibold().text_color(PAL.white).child("zz")
+      .loop("top", { from: (y - 9) * k, to: (y - 15) * k, period: 1800, easing: "linear" }));
   }
   return out;
 }
 
-/** Waffles, as the prototype's drawDog(): asleep with a slow "zz", or on her feet and wagging. */
-export function dogEls(p, k, walking) {
+/**
+ * Waffles, as the prototype's drawDog(): curled asleep with a slow "zz" only once she has settled on
+ * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags.
+ */
+export function dogEls(p, k, walking, face) {
   const B = BOX, x = B, y = B;
   const out = [new Layer(k, 0, 0, 2 * B, 2 * B).ell(x, y + 3, 7, 2.4, PAL.shade).el()];
-  if (p.state === "sleep") {
+  if (p.state === "sleep" && !walking) {
     const g = new Layer(k, 0, 0, 2 * B, 2 * B);
     g.ell(x, y, 6.5, 4.6, PAL.dog); g.circ(x - 4, y + 1, 2.8, PAL.dog); g.ell(x - 5.4, y - 0.6, 1.4, 2, PAL.dogDark);
-    g.add(PathBuilder.stroke(1.2 * k).move_to(...arcPt(g, x, y, 6, 0.2)).arc_to(6 * k, 6 * k, 0, false, true, ...arcPt(g, x, y, 6, 1.4)).build(), PAL.dogDark);
+    const R = 6 * k;
+    g.add([["move_to", ...arcPt(g, x, y, 6, 0.2)], ["arc_to", R, R, 0, false, true, ...arcPt(g, x, y, 6, 1.4)]], PAL.dogDark, 1.2 * k);
     out.push(g.el());
     out.push(div().absolute().left((x + 6) * k).top((y - 10) * k).text_size(Math.max(7, 5.5 * k)).font_semibold().text_color(PAL.white).child("zz")
       .loop("top", { from: (y - 7) * k, to: (y - 13) * k, period: 2100, easing: "linear" }));
     return out;
   }
-  const f = p.dir < 0 ? -1 : 1;
-  const g = new Layer(k, 0, 0, 2 * B, 2 * B);
+  const f = face === "e" ? 1 : face === "w" ? -1 : p.dir < 0 ? -1 : 1;
   const legs = [[-3, -2.6], [3, -2.6], [-3, 2.6], [3, 2.6]].map(([lx, ly], i) => {
-    const leg = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el();
-    const el = leg.left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
+    const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
     return walking ? el.loop("left", { from: (x + lx - 1.2 + (i % 2 ? -1 : 1)) * k, to: (x + lx - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
   });
+  const g = new Layer(k, 0, 0, 2 * B, 2 * B);
   g.ell(x, y, 6, 3.6, PAL.dog);
   g.circ(x + f * 6, y - 0.4, 3, PAL.dog); g.ell(x + f * 6, y - 3, 1.2, 1.6, PAL.dogDark); g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
-  const tail = new Layer(k, 0, 0, 2 * B, 2 * B).line(x - f * 5.6, y, x - f * 8.6, y, PAL.dog, 1.4).el().loop("top", { from: -1.5 * k, to: 1.5 * k, period: 440 });
-  out.push(...legs, g.el(), tail);
+  g.line(x - f * 5.6, y, x - f * 7.1, y, PAL.dog, 1.4);
+  // the tip of the tail wags; the base stays
+  const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x - f * 7.1, y, x - f * 8.6, y, PAL.dog, 1.4).el()
+    .loop("top", { from: -1.5 * k, to: 1.5 * k, period: 440 });
+  out.push(...legs, g.el(), tip);
   return out;
 }
 const arcPt = (g, cx, cy, r, a) => [g.X(cx + Math.cos(a) * r), g.Y(cy + Math.sin(a) * r)];

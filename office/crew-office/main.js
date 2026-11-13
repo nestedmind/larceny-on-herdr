@@ -8,7 +8,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { anchorCwd, chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED } from "./crew.js";
+import { anchorCwd, chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, ownCwd, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -36,7 +36,7 @@ export default class CrewOffice extends View {
   // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in a
   // folder inside the workspace: an agent's, else the `dir` prop. A failure keeps the last list.
   loadRepos(crew, workspace, cx) {
-    const dir = anchorCwd(crew, props());
+    const dir = this.workspaceDir(crew);
     if (!dir) return;
     const key = `${workspace}|${dir}|${crew.length}`;
     if (key === this.reposKey) return;
@@ -166,31 +166,67 @@ export default class CrewOffice extends View {
 
   // A click on someone who is not running: say what would start them, and ask first.
   offerStart(p, cx) {
-    this.offer = { person: p, plan: startPlan(p) };
+    const plan = startPlan(p, this.repos);
+    this.offer = { person: p, plan, repo: plan.kind === "spawn" ? (plan.repos[0] || "") : "", ticket: "" };
+    this.handle.focus();
     cx.notify();
+  }
+
+  // The folder loh runs in to find the workspace: a running agent's, else a pane in this tab or
+  // any pane (a terminal in the same workspace), else the `dir` prop.
+  workspaceDir(crew) {
+    return anchorCwd(crew, {}) || ownCwd(panes(), officePane(panes(), props())) || anchorCwd([], props());
   }
 
   confirmStart(cx) {
     const o = this.offer;
+    if (!o) return;
+    const dir = this.workspaceDir(this.crewNow);
+    const call = startCall(o.plan, dir, (props() || {}).loh, { repo: o.repo, ticket: o.ticket });
+    if (!call) return; // a coder still needs a repo and a ticket: keep the form open
     this.offer = null;
-    if (o && o.plan.kind === "up") {
-      const dir = anchorCwd(this.crewNow, props());
-      if (!dir) notify({ title: "Could not start the crew", body: "No agent is running to find the workspace from. Set the dir prop to a folder in the workspace.", level: "warning" });
-      else this.runLoh(startCall(o.plan, dir, (props() || {}).loh), { name: "the crew" }, "start");
-    }
+    if (!dir) notify({ title: "Could not start", body: "No folder to find the workspace from. Set the dir prop to a folder in the workspace.", level: "warning" });
+    else this.runLoh(call, { name: o.plan.kind === "spawn" ? o.person.name : "the crew" }, "start");
     cx.notify();
+  }
+
+  // Keys while a coder's form is open: digits make the ticket, Enter starts, Esc cancels.
+  offerKey(e, cx) {
+    const o = this.offer;
+    if (!o || o.plan.kind !== "spawn") return false;
+    if (e.key === "escape") { this.offer = null; cx.notify(); return true; }
+    if (e.key === "enter") { this.confirmStart(cx); return true; }
+    if (e.key === "backspace") { o.ticket = o.ticket.slice(0, -1); cx.notify(); return true; }
+    if (/^[0-9]$/.test(e.key) && o.ticket.length < 7) { o.ticket += e.key; cx.notify(); return true; }
+    return false;
   }
 
   offerRow(t) {
     const o = this.offer;
     if (!o) return null;
     const button = (id, label, bg, fg, onClick) => h_flex().id(id).px(8).py(2).rounded(5).bg(bg).text_size(12).text_color(fg).cursor_pointer().hover((e) => e.opacity(0.85)).on_click(onClick).child(label);
+    const cancel = button("offer-no", o.plan.kind === "up" || o.plan.kind === "spawn" ? "Cancel" : "Dismiss", t.raised, t.foreground, (_e, cx) => { this.offer = null; cx.notify(); });
+    if (o.plan.kind === "spawn") {
+      // Start <coder> on a repo from the manifest and a ticket number; nothing runs until Start.
+      const ready = !!startCall(o.plan, "x", "loh", { repo: o.repo, ticket: o.ticket });
+      const repos = o.plan.repos.map((r) => h_flex().id(`offer-repo-${r}`).px(8).py(2).rounded(5).text_size(12)
+        .bg(o.repo === r ? t.solid : t.raised).text_color(o.repo === r ? t.solid_foreground : t.foreground).cursor_pointer()
+        .on_click((_e, cx) => { o.repo = r; this.handle.focus(); cx.notify(); }).child(r));
+      return h_flex().id("offer").px(12).py(6).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+        .child(div().text_size(12).text_color(t.foreground).child(`Start ${o.person.name} (loh spawn) on`))
+        .children(repos.length ? repos : [div().text_size(12).text_color(t.muted).child("no repos in the manifest")])
+        .child(div().text_size(12).text_color(t.foreground).child("ticket #"))
+        .child(h_flex().id("offer-ticket").px(8).py(2).rounded(5).border_1().border_color(t.border).min_w(60).text_size(12).text_color(t.foreground)
+          .child(o.ticket === "" ? "number" : o.ticket).when(o.ticket === "", (el) => el.text_color(t.muted)))
+        .child(div().flex_1())
+        .child(button("offer-yes", "Start", ready ? t.solid : t.raised, ready ? t.solid_foreground : t.muted, (_e, cx) => this.confirmStart(cx)))
+        .child(cancel);
+    }
     const asks = o.plan.kind === "up";
-    const text = asks ? o.plan.ask : o.plan.kind === "spawn" ? `${o.person.name} is not running. Start with: ${o.plan.hint}` : `${o.plan.hint}.`;
     return h_flex().id("offer").px(12).py(6).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
-      .child(div().flex_1().text_size(12).text_color(t.foreground).child(text))
+      .child(div().flex_1().text_size(12).text_color(t.foreground).child(asks ? o.plan.ask : `${o.plan.hint}.`))
       .when(asks, (el) => el.child(button("offer-yes", "Start", t.solid, t.solid_foreground, (_e, cx) => this.confirmStart(cx))))
-      .child(button("offer-no", asks ? "Cancel" : "Dismiss", t.raised, t.foreground, (_e, cx) => { this.offer = null; cx.notify(); }));
+      .child(cancel);
   }
 
   // A person with no terminal, and Matt and Waffles: one line, a dot and the name. Someone who can be
@@ -201,8 +237,7 @@ export default class CrewOffice extends View {
     const el = h_flex().id(`tag-${p.id}`).absolute().left(left).top(top).h(17).px(6).gap(4).items_center().rounded_full().bg(PAL.chip)
       .when(this.anim, (e) => e.transition("left", motion).transition("top", motion))
       .child(div().w(7).h(7).rounded_full().bg(dot))
-      .child(div().text_size(10.5).font_semibold().text_color(PAL.chipInk).whitespace_nowrap().child(p.name))
-      .when(startable, (e) => e.child(div().text_size(10).text_color(PAL.chipInk).opacity(0.7).whitespace_nowrap().child("· no pane")));
+      .child(div().text_size(10.5).font_semibold().text_color(PAL.chipInk).whitespace_nowrap().child(p.name));
     return startable ? el.cursor_pointer().hover((e) => e.opacity(0.85)).on_click((_e, cx) => this.offerStart(p, cx)) : el;
   }
 
@@ -300,7 +335,7 @@ export default class CrewOffice extends View {
     const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
       const m = mo.get(p.id);
       const motion = this.anim ? { duration: m.ms, easing: "linear" } : null;
-      const kids = p.id === "dog" ? dogEls(p, k, m.walking) : personEls(p, k, m.walking ? m.face : p.face, m.walking, L);
+      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.walking ? m.face : p.face, m.walking, L);
       return wrapper(p.id, m.x, m.y, k, motion).children(kids);
     });
 
@@ -326,16 +361,24 @@ export default class CrewOffice extends View {
     const nightEls = dark ? night(L, k, lit).concat(lit.flatMap(([d, s]) => glow(d, s, k))) : [];
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
-      .child(this.floor.layer.el()).children(labels(L, k, crew.length)).children(glows).child(plaque.el())
-      .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(tags);
+      .child(this.floor.layer.el()).children(glows).child(plaque.el())
+      .children(ball(L, k, L.rally)).children(figures).children(nightEls)
+      // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
+      .children(labels(L, k, crew.length)).children(tags);
+
+    // The floor is scaled to the stage: the area left under the bar and the offer row, measured
+    // there, so nothing is subtracted by guess.
+    const stage = h_flex().id("stage").flex_1().min_h(0).w_full().p(8).when(fits, (el) => el.justify_center())
+      .on_size_change((size, cx) => { if (size.width !== this.size.width || size.height !== this.size.height) { this.size = size; cx.notify(); } })
+      .child(floor);
 
     return v_flex().id("root").size_full().bg(t.canvas).track_focus(this.handle)
-      .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .on_key_down((e, cx) => {
+        if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
         if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
       })
       .child(this.bar(t, L.totals, view))
       .when(!!this.offer, (el) => el.child(this.offerRow(t)))
-      .child(h_flex().p(8).when(fits, (el) => el.justify_center()).child(floor));
+      .child(stage);
   }
 }

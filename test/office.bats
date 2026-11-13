@@ -66,7 +66,7 @@ const mk = (n, role) => ({address:"t"+n,name:role,state:"live",status:"idle",lab
 const t = [mk(1,"coordinator"), mk(2,"reviewer"), mk(3,"advisor"), mk(4,"teacher")];
 console.log(crew.layoutCrew(crew.crewOf(t, "w")).people.filter((p) => p.agent).map(s => s.agent.role + ":" + s.place).sort().join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "advisor:meeting coordinator:desk reviewer:desk teacher:meeting" ]
+  [ "$output" = "advisor:meeting coordinator:lounge reviewer:lounge teacher:meeting" ]
 }
 
 @test "a fifth coder in one repo waits in the lounge" {
@@ -75,7 +75,7 @@ const t = [1,2,3,4,5].map(n => ({address:"t"+n,name:"c"+n,state:"live",status:"w
 const s = crew.layoutCrew(crew.crewOf(t, "w")).people.filter((p) => p.agent).map(x => x.place);
 console.log(s.filter(p => p === "desk").length, s.filter(p => p === "lounge").length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "2 3" ]
+  [ "$output" = "4 1" ]
 }
 
 @test "blocked kind comes from the report, other when absent" {
