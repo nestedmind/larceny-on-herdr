@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, window as appWindow } from "herdr";
-import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -18,6 +18,8 @@ import { Panel } from "./panel.js";
 const BUILD_MS = 12;
 // A walk's end is taken this long after its last leg should have ended, so the clock never ends it early.
 const ARRIVE_SLACK = 60;
+// How long a walker stands at rest, movers put back, between the end of one walk and the start of the next.
+const SETTLE_MS = 50;
 // The name tag's own slide, for when the tags restack at rest.
 const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
@@ -91,11 +93,11 @@ export default class CrewOffice extends View {
     this.sig = null;
     this.anim = false;
     this.handle = cx.focus_handle();
+    this.acx = cx;
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
     // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
-    this.acx = cx;
     this.walks = new Map();
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
@@ -370,8 +372,9 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
-      else if (w.goal.x !== goal.x || w.goal.y !== goal.y) this.planWalk(w, p, L, goal, now);
+      if (snap) { this.stopWalk(w); w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      else if (w.settling) this.settle(w);
+      else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
@@ -386,23 +389,40 @@ export default class CrewOffice extends View {
     w.tasks = [];
   }
 
-  planWalk(w, p, L, goal, now) {
-    // Where they are now: at rest, where they stood; mid-walk, as far along as the clock says.
-    const moving = w.legs.length > 0;
-    const start = moving ? posAt(w.from, w.legs, now - w.t0) : w.at;
+  // The render after a walk ends draws the person at rest, with every mover put back to zero, and asks for one
+  // more render a moment on: a walk is never handed over in the render that ends the one before it. The movers
+  // of the walk that ended still hold its offsets, and a new walk's offsets with their delays would be drawn
+  // from there, a whole walk away, each leg sliding the wrong way in a leg's time.
+  settle(w) {
+    w.settling = false;
+    w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    }));
+  }
+
+  // A new place for someone is acted on only once it has held for a moment, and never while they walk
+  // (crew.js nextGoal). A state that flips back within seconds moves nobody. A walk already handed to the
+  // renderer is never redirected, so nobody is routed from a point in mid-air and no running mover is
+  // retargeted. When the walk ends, the next render sees the new place and walks there from where they stand.
+  holdOrGo(w, p, L, goal, now) {
+    const d = nextGoal(w.pending, w.goal, goal, now, w.legs.length > 0);
+    w.pending = d.pending;
+    if (d.wakeIn !== null && !w.wake) {
+      w.wake = this.acx.timer.after(d.wakeIn + 5, (c) => {
+        w.wake = null;
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
+    if (d.go) this.planWalk(w, p, L, goal);
+  }
+
+  planWalk(w, p, L, goal) {
+    const start = w.at;
     this.stopWalk(w);
     w.goal = goal;
     const legs = legsOf(start, pathTo(L, p.id, start, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
     if (!legs.length) { w.at = goal; w.legs = []; w.i = 0; return; }
-    if (!moving) { this.beginWalk(w, start, legs); return; }
-    // Changed course mid-walk: stand them where they are for a moment, with no transitions, so the
-    // old walk's movers are all put back, then begin the new one.
-    w.at = start; w.legs = []; w.i = 0;
-    w.tasks.push(this.acx.timer.after(50, (c) => {
-      if (w.goal !== goal) return;
-      this.beginWalk(w, start, legs);
-      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
-    }));
+    this.beginWalk(w, start, legs);
   }
 
   beginWalk(w, from, legs) {
@@ -415,7 +435,7 @@ export default class CrewOffice extends View {
       const last = i === legs.length - 1;
       w.tasks.push(this.acx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
         if (w.legs !== legs) return;
-        if (last) { w.at = goal; w.legs = []; w.i = 0; } else w.i = i + 1;
+        if (last) { w.at = goal; w.legs = []; w.i = 0; w.settling = true; } else w.i = i + 1;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
       }));
     });

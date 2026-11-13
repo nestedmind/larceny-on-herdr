@@ -67,8 +67,25 @@ const timers = [];
 const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
 let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
+// herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
+// calls a test makes: its functions, and those of its timer, throw once alive is false, so a view that keeps a cx and
+// uses it later fails here. Each render below gets one and ends it when it returns. The cx of init is an AsyncContext in herdr (it may be held), so init gets the plain one.
+const strictCx = () => {
+  const s = { alive: true };
+  const guard = (o, name) => new Proxy(o, { get: (t, k) => {
+    const v = t[k], n = name + "." + String(k);
+    if (typeof v === "function") return (...a) => { if (!s.alive) throw new Error("cx is no longer valid: " + n); return v.apply(t, a); };
+    return k === "timer" ? guard(v, n) : v;
+  } });
+  s.cx = guard(cx, "cx");
+  return s;
+};
 const fresh = () => { office = new Office({}, cx); office.init({}, cx); office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
-const render = () => office.render(cx);
+const render = () => { const s = strictCx(); try { return office.render(s.cx); } finally { s.alive = false; } };
+// A clock a test moves by hand: the hold before a walk and the time a walk has run are read from Date.now.
+let clock = 1e12;
+Date.now = () => clock;
+const later = (ms) => { clock += ms; };
 fresh();
 for (let i = 0; i < 40 && !office.shown; i++) render();
 timers.length = 0;
@@ -153,6 +170,7 @@ console.log(chain("m-sheba"), chain("tm-sheba"), insideTag, insideFigure);'
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions).map((n) => [id(n), n.props.transitions.map((t) => [t[0], t[1].duration, t[1].delay, t[1].easing]), n.props.left[0], n.props.top[0]]));
 render();
 terms()[1].status = "done";
+render(); later(3000);
 const a = render();
 const b = render();
 const mine = sig(a, "m-sheba");
@@ -169,6 +187,7 @@ console.log(real.length > 1, delays[0] === 0, delays.slice(1).every((d, i) => d 
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions && /^t?m-/.test(id(n))).map((n) => [id(n).replace(/^tm-/, "m-"), n.props.transitions, n.props.left[0], n.props.top[0]]));
 render();
 terms()[1].status = "done";
+render(); later(3000);
 const a = render();
 console.log(sig(a, "m-sheba") === sig(a, "tm-sheba"), sig(a, "m-sheba").length > 10);'
   [ "$status" -eq 0 ]
@@ -188,6 +207,7 @@ console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].durat
   run office_js '
 render();
 terms()[1].status = "done";
+render(); later(3000); timers.length = 0;
 render();
 const walk = office.walks.get("sheba");
 const total = walk.legs.reduce((s, l) => s + l.ms, 0);
@@ -201,6 +221,7 @@ console.log(walk.legs.length > 1, Math.max(...ms) > total, Math.max(...ms) <= to
   run office_js '
 render();
 terms()[1].status = "done";
+render(); later(3000); timers.length = 0;
 render();
 const goal = { x: office.walks.get("sheba").goal.x, y: office.walks.get("sheba").goal.y };
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
@@ -335,6 +356,82 @@ const walking = tr(render());
 console.log(rest.length, walking.length, walking.includes(220));'
   [ "$status" -eq 0 ]
   [ "$output" = "2 2 true" ]
+}
+
+@test "a state that flips back within the hold moves nobody, and its render is asked for again only to find out" {
+  run office_js '
+const walk = () => office.walks.get("sheba");
+render();
+terms()[1].status = "done";
+render();
+const wake = timers.filter((t) => !t.cancelled).map((t) => t.ms);
+later(1500);
+terms()[1].status = "working";
+render();
+later(5000);
+render();
+console.log(wake.length, wake[0] > 2400 && wake[0] < 2600, walk().legs.length, walk().goal === walk().at || (walk().goal.x === walk().at.x && walk().goal.y === walk().at.y));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true 0 true" ]
+}
+
+@test "a walk on its way is not redirected by a flip back: its movers stay as handed over, and the way back starts after it ends" {
+  run office_js '
+const sig = (root) => JSON.stringify(all(find(root, "m-sheba")).filter((n) => n.props.transitions).map((n) => [id(n), n.props.transitions, n.props.left[0], n.props.top[0]]));
+const walk = () => office.walks.get("sheba");
+render();
+const home = { x: walk().goal.x, y: walk().goal.y };
+terms()[1].status = "done";
+render(); later(3000);
+const first = sig(render());
+const legs = walk().legs;
+terms()[1].status = "working";
+later(500); render();
+later(4000); const mid = sig(render());
+const same = mid === first && walk().legs === legs;
+// the walk ends: the timers run, one render at rest follows, and the next sees the old place wanted again, held long enough
+later(60000);
+timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
+render(); later(60); timers.filter((t) => !t.cancelled).forEach((t) => t.fn({ notify() {} })); render();
+const back = walk();
+console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y === home.y, back.from.x !== home.x || back.from.y !== home.y);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true" ]
+}
+
+@test "a whole walk, from the hold to the last timer, runs with every render and timer callback on a cx of its own" {
+  run office_js '
+render();
+terms()[1].status = "done";
+render(); later(3000);
+render();
+timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
+render();
+console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goal === office.walks.get("sheba").at || office.walks.get("sheba").goal.x === office.walks.get("sheba").at.x);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 true" ]
+}
+
+@test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
+  run office_js '
+const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
+const going = (l) => l.some((x) => x[2] > 1);
+const rest = (l) => l.every((x) => x[0] === 0 && x[1] === 0);
+let prev = null, walks = 0, bad = 0;
+const R = () => { const l = links(render()); if (going(l) && !(prev && going(prev) && JSON.stringify(l) === JSON.stringify(prev))) { walks++; if (!(prev && rest(prev))) bad++; } prev = l; };
+const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
+R();
+// out to the desk, and back to the kitchen while still on the way
+terms()[1].status = "done"; R(); later(3000); R();
+later(1000); terms()[1].status = "working"; R();
+later(60000); fire(); R(); later(60); fire(); R();
+// the walk back, and out again as soon as it has begun
+terms()[1].status = "done"; R();
+later(60000); fire(); R(); later(60); fire(); R();
+later(60000); fire(); R(); later(60); fire(); R();
+console.log(walks, bad);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3 0" ]
 }
 
 @test "while a new plan builds, the last finished floor stays on screen" {
