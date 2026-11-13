@@ -109,6 +109,8 @@ export function crewOf(terminals, workspace) {
       kind: statusOf(t) === "blocked" ? blockedKind(t) : null,
       step: clean(l.step, 60),
       pr: clean(l.pr, 8),
+      // Set with the pr label cleared once the pull request merged or closed: the coder has no work in hand, whatever its ticket.
+      prDone: l.prdone === "1",
       round: clean(l.round, 4),
       note: clean(l.note, 60),
       // Set by the hooks while the session compacts (compact) or has just been cleared (clear).
@@ -717,6 +719,18 @@ export function focusArrived(focusedTerminal, lastFocus, open) {
   return !!focusedTerminal && focusedTerminal !== lastFocus && (open || []).includes(focusedTerminal);
 }
 
+/**
+ * How often the office asks GitHub whether the waiting coders' pull requests are still open: one `gh pr view` per coder
+ * with a pr label (none when nobody waits), every 2 minutes, in the background, never in a render. A pull request merged
+ * or closed by someone else ends the wait within that time; the coder's own merge or close ends it at once (the hook).
+ */
+export const PRS_EVERY_MS = 120000;
+
+/** The command that has loh clear the pr label of every coder whose pull request ended. Same folder rules as reposCall. */
+export function prsCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["status", "--prs"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 30000 } };
+}
+
 /** The command that reads the workspace's settings. Same folder rules as reposCall. */
 export function settingsCall(agent, loh) {
   return { cmd: loh || "loh", args: ["status", "--settings"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
@@ -804,7 +818,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   for (const p of people) {
     if (!p.agent) continue;
     const a = p.agent;
-    const ticket = a.repo !== "";
+    const ticket = a.repo !== "" && !(a.prDone && !a.pr);
     if (a.ctx === "compact") { p.mode = "rest"; mem.cleared.delete(p.id); continue; }
     if (a.ctx === "clear") {
       if (!mem.cleared.has(p.id)) mem.cleared.set(p.id, now);

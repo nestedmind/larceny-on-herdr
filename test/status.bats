@@ -130,3 +130,51 @@ setup() {
   [ "$status" -eq 0 ]
   [ "$output" = '{"idle_minutes":10}' ]
 }
+
+# prs_setup <state>: a manifest with the api repo, and a gh that answers `pr view` with <state>.
+prs_setup() {
+  printf 'name: sandbox\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n  - name: web\n    path: ./web\n    branch: main\n    github: o/web\n' >"$WS/.loh/workspace.md"
+  export FAKE_GH_LOG="$BATS_TEST_TMPDIR/gh.log"
+  : >"$FAKE_GH_LOG"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$FAKE_GH_LOG"\nif [[ "${FAKE_GH_FAIL:-}" ]]; then exit 1; fi\nprintf "%%s\\n" "$FAKE_PR_STATE"\n' >"$BATS_TEST_TMPDIR/bin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  export FAKE_PR_STATE="$1"
+}
+
+@test "status --prs clears the pr label of a coder whose pull request was merged by someone else" {
+  prs_setup MERGED
+  run "$LOH" status --prs
+  [ "$status" -eq 0 ]
+  grep -qx $'label\tt9\tpr=\tprdone=1' "$FAKE_HC_LOG"
+  [ "$(jq -c '[.[] | [.name, .pr, .state]]' <<<"$output")" = '[["sucre","4","MERGED"]]' ]
+  grep -qx $'pr\tview\t4\t-R\to/api\t--json\tstate\t--jq\t.state' <(tr ' ' '\t' <"$FAKE_GH_LOG")
+}
+
+@test "status --prs clears the pr label of a pull request closed without merging" {
+  prs_setup CLOSED
+  run "$LOH" status --prs
+  grep -qx $'label\tt9\tpr=\tprdone=1' "$FAKE_HC_LOG"
+  [ "$(jq -r '.[0].state' <<<"$output")" = "CLOSED" ]
+}
+
+@test "status --prs leaves the pr label of an open pull request" {
+  prs_setup OPEN
+  run "$LOH" status --prs
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+  ! grep -q '^label' "$FAKE_HC_LOG"
+}
+
+@test "status --prs asks gh only about agents with a pr label" {
+  prs_setup OPEN
+  run "$LOH" status --prs
+  [ "$(wc -l <"$FAKE_GH_LOG")" -eq 1 ]
+}
+
+@test "status --prs keeps the label when gh fails" {
+  prs_setup MERGED
+  FAKE_GH_FAIL=1 run "$LOH" status --prs
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+  ! grep -q '^label' "$FAKE_HC_LOG"
+}

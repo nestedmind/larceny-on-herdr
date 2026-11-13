@@ -382,3 +382,37 @@ console.log(a[0].wakeIn, a[1].wakeIn, a[2].wakeIn);'
   [ "$status" -eq 0 ]
   [ "$output" = "180000 80000 null" ]
 }
+
+# A coder whose pull request ended (the hook or loh status --prs clears pr and sets prdone=1) is no longer waiting on review.
+@test "a coder whose PR merged or closed leaves ping pong and, after the idle time, is in the lounge" {
+  run crew_js "$HELPERS"'
+const o = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", round: "1"})];
+const m = [T("sucre", "idle", {role: "coder", task: "api#4", prdone: "1", round: "1"})];
+const a = play([[0, o], [60, o], [70, m], [100, m], [400, m]]);
+console.log(a.map((L) => P(L, "sucre").place).join(" "), P(last(a), "sucre").mug, P(last(a), "sucre").paddle);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "kitchen pong desk desk lounge true 0" ]
+}
+
+@test "a coder who merged its own PR keeps its desk while it cleans up, then is in the lounge" {
+  run crew_js "$HELPERS"'
+const o = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "9"})];
+const w = [T("sucre", "working", {role: "coder", task: "api#4", prdone: "1"})];
+const d = [T("sucre", "done", {role: "coder", task: "api#4", prdone: "1"})];
+const a = play([[0, o], [5, w], [20, d], [20 + 181, d]]);
+console.log(a.map((L) => P(L, "sucre").place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "kitchen desk desk lounge" ]
+}
+
+@test "a coder with a new PR waits again even if an earlier one ended" {
+  run crew_js "$HELPERS"'
+const d = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "12", prdone: ""})];
+console.log(P(last(play([[0, d]])), "sucre").place);'
+  [ "$output" = "kitchen" ]
+}
+
+@test "prsCall runs loh status --prs in the agent folder" {
+  run crew_js "$HELPERS"'console.log(JSON.stringify(crew.prsCall({cwd: "/ws"}, "/bin/loh")), crew.PRS_EVERY_MS);'
+  [ "$output" = '{"cmd":"/bin/loh","args":["status","--prs"],"options":{"cwd":"/ws","timeout":30000}} 120000' ]
+}

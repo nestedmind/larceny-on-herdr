@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -212,6 +212,23 @@ export default class CrewOffice extends View {
       if (sr.code !== 0) return;
       const minutes = idleMinutesOf(sr.stdout);
       if (minutes !== this.idleMinutes) { this.idleMinutes = minutes; cx.notify(); }
+    });
+  }
+
+  // Waiting coders' pull requests: every PRS_EVERY_MS, `loh status --prs` asks GitHub about each coder with a pr label and
+  // clears the label of one that merged or closed, whoever did it. A coder with no pr label costs nothing; a failure is
+  // tried again at the next time.
+  checkPrs(crew, cx) {
+    if (!crew.some((a) => a.pr)) { this.prsAt = 0; return; }
+    const now = Date.now();
+    if (this.prsAt && now - this.prsAt < PRS_EVERY_MS) { this.wakeIn(this.prsAt + PRS_EVERY_MS - now); return; }
+    this.prsAt = now;
+    this.wakeIn(PRS_EVERY_MS);
+    const dir = this.workspaceDir(crew);
+    if (!dir) return;
+    const c = prsCall({ cwd: dir }, (props() || {}).loh);
+    cx.spawn(async (cx) => {
+      try { await exec(c.cmd, c.args, c.options); } catch (_) { /* tried again next time */ }
     });
   }
 
@@ -646,6 +663,7 @@ export default class CrewOffice extends View {
     }
     this.termOpen = termHeld(holders());
     this.loadRepos(crew, workspace, cx);
+    this.checkPrs(crew, cx);
     this.panel.sync(crew, cx);
     const allPanes = panes();
     // The person closed the chat's split by hand: release the lock the click set.

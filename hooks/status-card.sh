@@ -68,6 +68,48 @@ current_note() {
   printf '%s' "$out" | jq -r '.labels.note // empty' 2>/dev/null
 }
 
+# current_label <key>: this terminal's label value, or nothing (hc get fails, or no such label).
+current_label() {
+  local t="" out
+  if command -v timeout >/dev/null 2>&1; then
+    t=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then
+    t=gtimeout
+  fi
+  if [[ -n "$t" ]]; then
+    out="$("$t" 3 hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  else
+    out="$(hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  fi
+  printf '%s' "$out" | jq -r --arg k "$1" '.labels[$k] // empty' 2>/dev/null
+}
+
+# merge_close_number <command>: the pull request number a `gh pr merge|close` command names (a number or a pull URL), or nothing.
+merge_close_number() {
+  local -a w
+  local seen="" x
+  read -r -a w <<<"$1"
+  for x in "${w[@]}"; do
+    if [[ -n "$seen" ]]; then
+      if [[ "$x" =~ ^[0-9]+$ ]]; then printf '%s' "$x"; return; fi
+      if [[ "$x" =~ /pull/([0-9]+) ]]; then printf '%s' "${BASH_REMATCH[1]}"; return; fi
+    fi
+    [[ "$x" == merge || "$x" == close ]] && seen=1
+  done
+}
+
+# pr_state <number> [-R repo]: MERGED, CLOSED or OPEN as GitHub says, or nothing when gh is missing or fails.
+pr_state() {
+  command -v gh >/dev/null 2>&1 || return 0
+  local t=""
+  if command -v timeout >/dev/null 2>&1; then t=timeout; elif command -v gtimeout >/dev/null 2>&1; then t=gtimeout; fi
+  if [[ -n "$t" ]]; then
+    "$t" 3 gh pr view "$@" --json state --jq .state 2>/dev/null
+  else
+    gh pr view "$@" --json state --jq .state 2>/dev/null
+  fi
+}
+
 # rel_path <abs path> <cwd>: the path relative to the repo that holds the file
 # (found from the file's own folder, or the nearest one that exists), else
 # relative to the repo of cwd, else unchanged.
@@ -224,7 +266,20 @@ case "$event" in
     if [[ "$command" =~ (^|[[:space:]])gh[[:space:]]+([^[:space:]]+[[:space:]]+)*pr[[:space:]]+create ]]; then
       stdout="$(field '.tool_response.stdout')"
       if [[ "$stdout" =~ /pull/([0-9]+) ]]; then
-        label "pr=${BASH_REMATCH[1]}"
+        label "pr=${BASH_REMATCH[1]}" "prdone="
+      fi
+    elif [[ "$command" =~ (^|[[:space:]])gh[[:space:]]+([^[:space:]]+[[:space:]]+)*pr[[:space:]]+(merge|close)([[:space:]]|$) && ! "$command" =~ [[:space:]]--auto([[:space:]]|$) ]]; then
+      # A successful command can still have changed nothing (`gh pr merge 40 || true` after a refusal, or a close of another
+      # pull request). Clear only when the command names this agent's pull request (or none), and GitHub says it ended.
+      # --auto only queues the merge. Anything unsure keeps the label: loh status --prs settles it within minutes.
+      mine="$(current_label pr)"
+      named="$(merge_close_number "$command")"
+      if [[ -n "$mine" && ( -z "$named" || "$named" == "$mine" ) ]]; then
+        repo_arg=()
+        [[ "$command" =~ (^|[[:space:]])(-R|--repo)[[:space:]]+([^[:space:]]+) ]] && repo_arg=(-R "${BASH_REMATCH[3]}")
+        case "$(pr_state "$mine" "${repo_arg[@]}")" in
+          MERGED | CLOSED) label "pr=" "prdone=1" ;;
+        esac
       fi
     fi
     ;;

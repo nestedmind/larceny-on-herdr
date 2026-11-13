@@ -174,12 +174,12 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 @test "PostToolUse gh pr create sets pr from the URL in the result" {
   run_hook_pipe < <(fixture post-bash)
   [ "$status" -eq 0 ]
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse gh pr create through loh gh sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh sheba-ns pr create --base main"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse for a command that is not pr create sets nothing" {
@@ -321,12 +321,12 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 
 @test "PostToolUse gh -R <repo> pr create sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh -R nestedmind/x pr create --fill"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse loh gh <persona> -R <repo> pr create sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh sheba -R o/r pr create --fill"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "the repo root comes from the edited file, not from cwd" {
@@ -362,4 +362,64 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
   cd "$BATS_TEST_TMPDIR/empty"
   run timeout 3 bash "$HOOK" <"$in"
   [ "$status" -eq 0 ]
+}
+
+# end_setup <state> [pr]: this terminal has pr=<pr> (default 88), and gh says the pull request is <state>.
+end_setup() {
+  printf '{"labels":{"pr":"%s"}}\n' "${2:-88}" >"$BATS_TEST_TMPDIR/get.json"
+  export FAKE_HC_JSON="$BATS_TEST_TMPDIR/get.json"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$BATS_TEST_TMPDIR/gh.log"\nprintf "%%s\\n" "$FAKE_PR_STATE"\n' >"$BATS_TEST_TMPDIR/hcbin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/hcbin/gh"
+  export FAKE_PR_STATE="$1"
+}
+
+set_calls() { grep -c $'^label\tt9\tpr=\tprdone=1$' "$FAKE_HC_LOG" || true; }
+
+@test "PostToolUse gh pr merge clears pr when GitHub says it merged" {
+  end_setup MERGED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88 --squash --delete-branch"')
+  [ "$status" -eq 0 ]
+  [ "$(set_calls)" = 1 ]
+}
+
+@test "PostToolUse loh gh pr merge clears pr" {
+  end_setup MERGED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh mahone pr merge 88 --squash --delete-branch"')
+  [ "$(set_calls)" = 1 ]
+}
+
+@test "PostToolUse gh pr close clears pr when GitHub says it closed" {
+  end_setup CLOSED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh mahone pr close 88"')
+  [ "$(set_calls)" = 1 ]
+}
+
+@test "PostToolUse gh pr merge without a number clears the agent's own pr" {
+  end_setup MERGED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge --squash"')
+  [ "$(set_calls)" = 1 ]
+}
+
+@test "PostToolUse gh pr close of another pull request keeps pr" {
+  end_setup CLOSED 40
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr close 38"')
+  [ "$(set_calls)" = 0 ]
+}
+
+@test "PostToolUse gh pr merge that left the pull request open (|| true) keeps pr" {
+  end_setup OPEN 40
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 40 --squash || true"')
+  [ "$(set_calls)" = 0 ]
+}
+
+@test "PostToolUse gh pr merge keeps pr when gh gives no answer" {
+  end_setup ""
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88"')
+  [ "$(set_calls)" = 0 ]
+}
+
+@test "PostToolUse gh pr merge --auto keeps pr, the merge has not happened yet" {
+  end_setup OPEN
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88 --auto --squash"')
+  [ "$(set_calls)" = 0 ]
 }
