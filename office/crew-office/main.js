@@ -10,6 +10,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
 import { anchorCwd, chatGone, crewOf, fitScale, layoutCrew, legsOf, lockCall, officePane, ownCwd, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
+import { Panel } from "./panel.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 
@@ -31,6 +32,8 @@ export default class CrewOffice extends View {
     // A click on someone who is not running: { person, plan }. Nothing starts until the person confirms.
     this.offer = null;
     this.crewNow = [];
+    // The chat panel beside the office; its Terminal button docks the real terminal (open below).
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx) });
   }
 
   // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in a
@@ -251,7 +254,7 @@ export default class CrewOffice extends View {
       .when(this.anim, (el) => el.transition("left", s.motion).transition("top", s.motion))
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
-      .on_click((_e, cx) => this.open(a, cx))
+      .on_click((_e, cx) => { this.panel.select(a, cx); if (this.chat) this.open(a, cx); })
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))
@@ -285,6 +288,7 @@ export default class CrewOffice extends View {
     this.crewNow = crew;
     this.loadRepos(crew, workspace, cx);
     const L = layoutCrew(crew, this.repos);
+    this.panel.sync(crew, cx);
     const allPanes = panes();
     // The person closed the chat's split by hand: release the lock the click set.
     if (chatGone(allPanes, this.chat)) {
@@ -298,6 +302,8 @@ export default class CrewOffice extends View {
     const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
     // Fit the floor to the pane in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.
+    // The stage is measured beside the panel column, so the panel's width is already out of it.
+    const showPanel = this.panel.open && !this.chat;
     const { k, fits } = fitScale(this.size, L);
     // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
@@ -368,7 +374,7 @@ export default class CrewOffice extends View {
 
     // The floor is scaled to the stage: the area left under the bar and the offer row, measured
     // there, so nothing is subtracted by guess.
-    const stage = h_flex().id("stage").flex_1().min_h(0).w_full().p(8).when(fits, (el) => el.justify_center())
+    const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(8).when(fits, (el) => el.justify_center())
       .on_size_change((size, cx) => { if (size.width !== this.size.width || size.height !== this.size.height) { this.size = size; cx.notify(); } })
       .child(floor);
 
@@ -376,9 +382,13 @@ export default class CrewOffice extends View {
       .on_key_down((e, cx) => {
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
         if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
+        else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }
+        else if (e.key === "escape" && this.panel.open) { this.panel.close(cx); cx.stop_propagation(); }
       })
       .child(this.bar(t, L.totals, view))
       .when(!!this.offer, (el) => el.child(this.offerRow(t)))
-      .child(stage);
+      .child(h_flex().flex_1().min_h(0)
+        .child(stage)
+        .when(showPanel, (el) => el.child(this.panel.render(t, F, cx))));
   }
 }

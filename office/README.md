@@ -81,9 +81,23 @@ Set by `loh`, the status-card hooks and the lock. The office shows what is there
 
 Status comes from the terminal itself (`idle`, `working`, `blocked`, `done`). For a blocked agent the kind (`permission` or `question`) is read from the terminal's report; if herdr-app does not expose it, the bubble shows `!`.
 
-## Chat
+## Chat panel
 
-Clicking a name tag opens a chat with that agent beside the office, in the same tab. The mod splits its own pane to the right (`pane.split`) and shows the agent's live terminal in the new pane (`terminal.show`), so you type straight to the agent and see what it does. It does not switch to the agent's own tab. Clicking another name swaps the terminal in the same split.
+Clicking a name tag opens a panel on the right of the office (360 px; the floor shrinks to fit the rest). It holds:
+
+- **Card.** Role, state, ticket, PR and round, step, note, and the lock, as far as the labels say.
+- **Terminal.** A button that shows the agent's real terminal (see "Terminal" below).
+- **Activity.** The last six crew changes since the office opened: an agent starts working, finishes a turn, goes idle, needs you (with the kind), or sets an `escalation:` note. It is built from the same status and `note` label that `loh watch` follows, by comparing each render with the last; changes before the office opened are not shown.
+- **Chat.** The conversation with that agent, newest at the bottom: your turns and the agent's text replies, read from its Claude Code session file by `loh transcript`. Tool calls, thinking, sub-agent turns and system reminders are left out. The log is read again when the agent's state, step, note or turn changes (herdr redraws the office then), so a reply appears when the agent finishes its turn; there is no timer.
+- **Message box.** "Message <name>" and Send (or Enter). It runs `loh tell <name> <text>` in the agent's folder. The message shows greyed as "sending" until the session file has it. A blocked agent is waiting on a permission prompt or a question, and a typed line would answer it, so Send is off and the panel says so; use the terminal to answer. `loh tell` also refuses, so a state that changes between the click and the send is safe. It sends to an agent that is with Matt; `loh say` between agents still does not. Failures from loh (a finished terminal, a changed status) show under the log.
+
+Esc, or Close, closes the panel while no terminal is docked.
+
+The mod runs `loh` in the agent's folder (the `loh` prop names the command), as it does for the lock. It does not read the session file itself: `readTextFile` stops at 1 MiB (`herdr.d.ts` line 24) and a session file is often larger, so `loh transcript` reads it.
+
+### Terminal
+
+The Terminal button docks the agent's live terminal beside the office, in the same tab. The mod splits its own pane to the right (`pane.split`) and shows the agent's live terminal in the new pane (`terminal.show`), so you type straight to the agent and see what it does. It does not switch to the agent's own tab. The panel hides while the terminal is docked. Clicking another name swaps the terminal in the same split. Esc or "Close chat" closes the split and brings the panel back.
 
 The click then runs `loh lock <name>` in that terminal's own folder (loh finds the workspace by walking up from there; herdr-app itself runs outside any workspace), using the terminal's real name. If the command exits non-zero, the office posts a warning notification with loh's message.
 
