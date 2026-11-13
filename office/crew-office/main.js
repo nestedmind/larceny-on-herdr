@@ -3,14 +3,23 @@
 // and each terminal's status. Keeps no state of its own beyond the pane size and the open chat
 // (which agent, in which pane). Clicking an agent docks its live terminal in a split beside the office.
 // The drawing is in draw.js and the placement in crew.js. Gaits, typing and the ball animate natively
-// (.loop(), .transition()); no repeating timer. A walk is one step per render: a one-shot timer ends each leg.
+// (.loop(), .transition()); no repeating timer. A whole walk is handed to the renderer in one render
+// (see motion()); one-shot timers only turn the walker to face the next leg and end the gait.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, window as appWindow } from "herdr";
-import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
-import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
-import { Panel } from "./panel.js";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { PANEL_W, Panel } from "./panel.js";
+
+// How long one render may spend building a big layer's paths before it carries on in the next one.
+// herdr stops a render at about 50 ms, so a render that built everything at once was cut off.
+const BUILD_MS = 12;
+// A walk's end is taken this long after its last leg should have ended, so the clock never ends it early.
+const ARRIVE_SLACK = 60;
+// The name tag's own slide, for when the tags restack at rest.
+const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
@@ -28,10 +37,18 @@ export default class CrewOffice extends View {
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
-    // Where each person is drawn: { cur, goal, legs, i, tasks }. See motion().
+    // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
     this.acx = cx;
     this.walks = new Map();
+    // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
+    this.floors = new Map();
+    this.night = null;
+    this.moreBuilding = false;
+    // Whether the chat panel was showing when the stage was last measured, and when it was last drawn:
+    // herdr reports the stage's size a frame late, so a render that opens the panel must know the size is too wide.
+    this.sizeWithPanel = false;
+    this.drawnWithPanel = false;
     // A click on someone who is not running: { person, plan }. Nothing starts until the person confirms.
     this.offer = null;
     this.crewNow = [];
@@ -219,22 +236,29 @@ export default class CrewOffice extends View {
   }
 
   // Where each person is drawn this render. A person whose place changed walks there door to door:
-  // crew.js gives the legs, and each render draws the person at the end of the current leg with a
-  // linear slide of the leg's length (a native transition). A one-shot timer ends each leg and
-  // redraws, so the next leg starts and the gait stops when the last one ends. A render that changes
-  // nothing for a person leaves its walk alone. `snap` (a new scale or floor) puts everyone in place.
+  // crew.js gives the legs, and this render hands the whole walk to the renderer at once as a chain of
+  // movers (draw.js's mover), each leg a native transition that starts when the one before ends. The
+  // render describes the same chain for as long as the walk lasts, so a render for any other reason
+  // leaves the walk alone and nothing depends on a timer arriving on time. One-shot timers do two
+  // small things: turn the walker to face the next leg, and end the gait when the walk is over.
+  // `snap` (a new scale or floor) puts everyone in place.
+  // Each person is { at, goal, from, legs, t0, i, tasks }: `at` is where they stand when not walking;
+  // while walking they go from `from` along `legs`, which began at `t0` (ms), and `i` is the leg they face.
   motion(L, snap) {
     const out = new Map();
     const here = new Set();
+    const now = Date.now();
     for (const p of L.people) {
       here.add(p.id);
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
-      if (!w) { w = { cur: goal, goal, legs: [], i: 0, tasks: [] }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.cur = goal; w.goal = goal; w.legs = []; w.i = 0; }
-      else if (w.goal.x !== goal.x || w.goal.y !== goal.y) this.planWalk(w, p, L, goal);
-      const leg = w.legs[w.i];
-      out.set(p.id, leg ? { x: leg.x, y: leg.y, face: leg.face, ms: leg.ms, walking: true } : { x: goal.x, y: goal.y, face: p.face, ms: 1, walking: false });
+      if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
+      if (snap) { this.stopWalk(w); w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      else if (w.goal.x !== goal.x || w.goal.y !== goal.y) this.planWalk(w, p, L, goal, now);
+      const walking = w.legs.length > 0;
+      const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
+      const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
+      out.set(p.id, { walking, from: walking ? w.from : w.at, chain: walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), x: pos.x, y: pos.y, face });
     }
     for (const id of [...this.walks.keys()]) if (!here.has(id)) { this.stopWalk(this.walks.get(id)); this.walks.delete(id); }
     return out;
@@ -245,18 +269,36 @@ export default class CrewOffice extends View {
     w.tasks = [];
   }
 
-  planWalk(w, p, L, goal) {
+  planWalk(w, p, L, goal, now) {
+    // Where they are now: at rest, where they stood; mid-walk, as far along as the clock says.
+    const moving = w.legs.length > 0;
+    const start = moving ? posAt(w.from, w.legs, now - w.t0) : w.at;
     this.stopWalk(w);
-    const legs = legsOf(w.cur, pathTo(L, p.id, w.cur, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
-    w.goal = goal; w.legs = legs; w.i = 0;
-    if (!legs.length) { w.cur = goal; return; }
+    w.goal = goal;
+    const legs = legsOf(start, pathTo(L, p.id, start, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
+    if (!legs.length) { w.at = goal; w.legs = []; w.i = 0; return; }
+    if (!moving) { this.beginWalk(w, start, legs); return; }
+    // Changed course mid-walk: stand them where they are for a moment, with no transitions, so the
+    // old walk's movers are all put back, then begin the new one.
+    w.at = start; w.legs = []; w.i = 0;
+    w.tasks.push(this.acx.timer.after(50, (c) => {
+      if (w.goal !== goal) return;
+      this.beginWalk(w, start, legs);
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    }));
+  }
+
+  beginWalk(w, from, legs) {
+    const goal = w.goal;
+    w.from = from; w.legs = legs; w.t0 = Date.now(); w.i = 0;
     let at = 0;
     legs.forEach((leg, i) => {
       at += leg.ms;
-      w.tasks.push(this.acx.timer.after(at, (c) => {
+      // At each corner, turn to face the next leg; after the last, stop the gait.
+      const last = i === legs.length - 1;
+      w.tasks.push(this.acx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
         if (w.legs !== legs) return;
-        w.cur = leg; w.i = i + 1;
-        if (w.i >= legs.length) { w.legs = []; w.i = 0; w.cur = goal; }
+        if (last) { w.at = goal; w.legs = []; w.i = 0; } else w.i = i + 1;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
       }));
     });
@@ -329,29 +371,37 @@ export default class CrewOffice extends View {
       .child(cancel);
   }
 
+  // What a click on a person does, from the figure or from the name tag: someone running opens their
+  // chat panel (and moves the open chat to them), someone not running who can be started gets the offer.
+  pick(p, cx) {
+    if (p.agent) { this.panel.select(p.agent, cx); if (this.chat) this.open(p.agent, cx); }
+    else if (!p.running && p.id !== "matt" && p.id !== "dog") this.offerStart(p, cx);
+  }
+
   // A person with no terminal, and Matt and Waffles: one line, a dot and the name. Someone who can be
-  // started is a button.
-  chip(p, left, top, motion) {
+  // started is a button. (left, top) is where its corner is, in px from the person.
+  chip(p, left, top, slide) {
     const startable = !p.running && p.id !== "matt" && p.id !== "dog";
     const dot = p.id === "dog" ? PAL.dog : p.id === "matt" ? PAL.accent : PAL.idle;
     const el = h_flex().id(`tag-${p.id}`).absolute().left(left).top(top).h(17).px(6).gap(4).items_center().rounded_full().bg(PAL.chip)
-      .when(this.anim, (e) => e.transition("left", motion).transition("top", motion))
+      .when(!!slide, (e) => e.transition("left", slide).transition("top", slide))
       .child(div().w(7).h(7).rounded_full().bg(dot))
       .child(div().text_size(10.5).font_semibold().text_color(PAL.chipInk).whitespace_nowrap().child(p.name));
-    return startable ? el.cursor_pointer().hover((e) => e.opacity(0.85)).on_click((_e, cx) => this.offerStart(p, cx)) : el;
+    return startable ? el.cursor_pointer().hover((e) => e.opacity(0.85)).on_click((_e, cx) => this.pick(p, cx)) : el;
   }
 
-  tag(a, s, k, F, t) {
+  // An agent's name tag, `w` wide, its corner (left, top) px from the person.
+  tag(p, left, top, w, F, t, slide) {
+    const a = p.agent;
     const color = a.status === "blocked" ? BLOCKED[a.kind][0] : a.status === "working" ? "#3fae69" : a.status === "done" ? "#3fae69" : t.muted;
     const ticket = a.repo ? `${a.repo}${a.ticket ? "#" + a.ticket : ""}` : "";
     const where = [ticket, a.pr ? `PR ${a.pr}` : "", a.round ? `r${a.round}` : ""].filter(Boolean).join(" · ");
     const step = a.step || a.note || WORDS[a.status];
-    const w = Math.min(100, Math.max(64, 100 * k));
-    return v_flex().id(`tag-${a.address}`).absolute().left(s.tag.x * k - w / 2).top(s.tag.y * k).w(w)
-      .when(this.anim, (el) => el.transition("left", s.motion).transition("top", s.motion))
+    return v_flex().id(`tag-${a.address}`).absolute().left(left).top(top).w(w)
+      .when(!!slide, (el) => el.transition("left", slide).transition("top", slide))
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
-      .on_click((_e, cx) => { this.panel.select(a, cx); if (this.chat) this.open(a, cx); })
+      .on_click((_e, cx) => this.pick(p, cx))
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))
@@ -384,7 +434,6 @@ export default class CrewOffice extends View {
     const crew = crewOf(list, workspace);
     this.crewNow = crew;
     this.loadRepos(crew, workspace, cx);
-    const L = layoutCrew(crew, this.repos, aspectOf(this.size));
     this.panel.sync(crew, cx);
     const allPanes = panes();
     // The person closed the chat's split by hand: release the lock the click set.
@@ -397,11 +446,15 @@ export default class CrewOffice extends View {
     // to the chat, and officePane looks for the focused one.
     const mine = (this.chat && this.chat.office) || officePane(allPanes, props());
     const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
-    // Fit the floor to the pane in both directions. The scale may drop below 1 (the chat takes
+    // Fit the floor to the stage in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.
-    // The stage is measured beside the panel column, so the panel's width is already out of it.
+    // The stage is measured beside the panel column, so the panel's width is already out of it, but
+    // herdr reports it a layout late: the render that opens or closes the panel corrects for that.
     const showPanel = this.panel.open && !this.chat;
-    const { k, fits } = fitScale(this.size, L);
+    const size = stageSize(this.size, this.sizeWithPanel, showPanel, PANEL_W);
+    this.drawnWithPanel = showPanel;
+    const L = layoutCrew(crew, this.repos, aspectOf(size));
+    const { k, fits } = fitScale(size, L);
     const stageColour = stageBg(dark);
     // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
@@ -412,9 +465,22 @@ export default class CrewOffice extends View {
     const u = (n) => n * k;
     const mo = this.motion(L, !this.anim);
 
-    // The floor does not change with the crew, only with the plan and the scale.
-    const key = floorKey(L, k);
-    if (!this.floor || this.floor.key !== key) this.floor = { key, layer: floorLayer(L, k) };
+    // The floor does not change with the crew, only with the plan; a new scale only resizes it. Its
+    // paths are built a little at a time, so no render runs past herdr's deadline building them.
+    // A new plan takes three steps over three renders (the drawing list, which shapes share a path,
+    // then the paths), the floor showing what is built so far.
+    // The last few plans are kept (the panel opening and closing, full screen, each have their own shape).
+    const key = floorKey(L);
+    if (!this.floor || this.floor.key !== key) {
+      this.floor = this.floors.get(key) || { key, layer: null };
+      this.floors.delete(key);
+      this.floors.set(key, this.floor);
+      if (this.floors.size > 4) this.floors.delete(this.floors.keys().next().value);
+    }
+    let floorEl = null;
+    let building = true;
+    if (!this.floor.layer) this.floor.layer = floorLayer(L, k);
+    else { floorEl = this.floor.layer.at(k).el(BUILD_MS); building = !this.floor.layer.done; }
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
@@ -435,15 +501,18 @@ export default class CrewOffice extends View {
       if (d) plaque.rr(d.x + 2, d.side === "n" ? d.y + 1 : d.y + d.h - 3, d.w - 4, 2, 1, PAL.accent);
     }
 
-    // People, back to front. A wrapper carries each across the floor; the drawing inside is draw.js's.
+    // People, back to front. A chain of movers carries each across the floor (see motion()); the
+    // drawing inside is draw.js's, and a click on the figure does what a click on its tag does.
     const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
       const m = mo.get(p.id);
-      const motion = this.anim ? { duration: m.ms, easing: "linear" } : null;
-      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.walking ? m.face : p.face, m.walking, L);
-      return wrapper(p.id, m.x, m.y, k, motion).children(kids);
+      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.face, m.walking, L);
+      const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
+      return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids, clickable ? (_e, c) => this.pick(p, c) : null));
     });
 
-    // Name tags, stacked so none covers another.
+    // Name tags. Someone at rest has a tag where it clears the others (stacked, and kept on the floor);
+    // someone walking has theirs just below them, carried by the same chain as the figure, so it stays
+    // with them and never trails or jumps.
     const F = { chip: PAL.chip, chipInk: PAL.chipInk };
     const sized = L.people.map((p) => {
       const a = p.agent;
@@ -453,27 +522,54 @@ export default class CrewOffice extends View {
       const m = mo.get(p.id);
       const left = Math.min(Math.max(2, u(m.x) - w / 2), Math.max(2, u(L.W) - w - 2));
       const up = p.tag.up && !m.walking;
-      return { id: p.id, p, a, w, h, m, up, x: left, y: up ? u(m.y - 10) - h : u(m.y + 9) };
+      return { id: p.id, p, w, h, m, up, x: left, y: up ? u(m.y - 10) - h : u(m.y + 9) };
     });
-    const tops = stackTags(sized);
+    const tops = stackTags(sized.filter((s) => !s.m.walking));
     const tags = sized.map((s) => {
-      const top = Math.max(2, tops.get(s.id));
-      const motion = { duration: s.m.ms, easing: "linear" };
-      if (s.a) return this.tag(s.a, { tag: { x: (s.x + s.w / 2) / k, y: top / k }, motion }, k, F, t);
-      return this.chip(s.p, s.x, top, motion);
+      // Where the tag's corner is from the person, in px.
+      const off = s.m.walking ? { x: -s.w / 2, y: u(9) } : { x: s.x - u(s.m.x), y: Math.max(2, tops.get(s.id)) - u(s.m.y) };
+      const slide = this.anim && !s.m.walking ? TAG_SLIDE : null;
+      const body = s.p.agent ? this.tag(s.p, off.x, off.y, s.w, F, t, slide) : this.chip(s.p, off.x, off.y, slide);
+      return mover("tm-" + s.id, s.m.from, s.m.chain, k, s.m.walking, body);
     });
-    const nightEls = dark ? night(L, k, lit).concat(lit.flatMap(([d, s]) => glow(d, s, k))) : [];
+    // The night layers are built once for a set of lit screens, a little at a time like the floor.
+    let nightEls = [];
+    if (dark) {
+      const nkey = `${key}|${lit.map(([d, s]) => `${d.cx},${d.y},${s}`).join(";")}`;
+      if (!this.night || this.night.key !== nkey) this.night = { key: nkey, layers: nightLayers(L, lit) };
+      let budget = BUILD_MS;
+      nightEls = this.night.layers.map((layer) => {
+        const t0 = Date.now();
+        const el = layer.at(k).el(Math.max(0, budget));
+        budget -= Date.now() - t0;
+        return el;
+      });
+      if (this.night.layers.some((layer) => !layer.done)) building = true;
+      nightEls = nightEls.concat(lit.flatMap(([d, s]) => glow(d, s, k)));
+    }
+    // A layer still being built carries on in the next render, one tick on.
+    if (building && !this.moreBuilding) {
+      this.moreBuilding = true;
+      this.acx.timer.after(1, (c) => {
+        this.moreBuilding = false;
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
-      .child(this.floor.layer.el()).children(glows).child(plaque.el())
+      .when(!!floorEl, (el) => el.child(floorEl)).children(glows).child(plaque.el())
       .children(ball(L, k, L.rally)).children(figures).children(nightEls)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
 
     // The floor is scaled to the stage: the area left under the bar and the offer row, measured
-    // there, so nothing is subtracted by guess.
-    const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(PAD).bg(stageColour).when(fits, (el) => el.justify_center().items_center())
-      .on_size_change((size, cx) => { if (size.width !== this.size.width || size.height !== this.size.height) { this.size = size; cx.notify(); } })
+    // there, so nothing is subtracted by guess. Anything that still spills (for one frame, while a
+    // size is on its way) is cut at the stage, so it is never drawn under the panel.
+    const stage = h_flex().id("stage").flex_1().min_w(0).h_full().p(PAD).bg(stageColour).overflow_hidden().when(fits, (el) => el.justify_center().items_center())
+      .on_size_change((measured, cx) => {
+        this.sizeWithPanel = this.drawnWithPanel;
+        if (measured.width !== this.size.width || measured.height !== this.size.height) { this.size = measured; cx.notify(); }
+      })
       .child(floor);
 
     return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)

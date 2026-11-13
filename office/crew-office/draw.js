@@ -1,11 +1,11 @@
 // Drawing for the crew office: the prototype's canvas shapes ported onto herdr-app's PathBuilder.
-// Every shape is one `window.paint_path(path, colour)` element whose path is in pixels, relative to
+// Every shape is one `window.paint_path(path, colour)` element whose path is in pixels (or, for the floor and the night, percentages), relative to
 // the element's own box. A Layer is such a box with its shapes in world units (the prototype's
 // units: the floor is 288 high). No state lives here: main.js passes everything in, and the pure
 // placement logic is in crew.js.
 //
-// Motion is native only: .loop() for gaits, typing and the ball, .transition() on the wrapper that
-// moves a person. What the API cannot do is listed in office/README.md.
+// Motion is native only: .loop() for gaits, typing and the ball, .transition() (with delays) on the
+// movers that carry a person across the floor. What the API cannot do is listed in office/README.md.
 
 import { div, PathBuilder } from "gpui-kit";
 import { look, hash, shiftOf, anchorOf } from "./crew.js";
@@ -33,20 +33,85 @@ const STATE_RING = { working: PAL.work, done: PAL.work };
 const BOX = 30; // half the side of a person's box, in world units: room for a bubble and a flag
 
 // A shape is a list of path commands, built into its own path once and reused by every render.
-function buildPath(cmds, stroke) {
+// `pct` is the size of the layer's box in world units when its paths are to be written as percentages
+// of the painted box: such a path does not depend on the scale, so a resize or a panel opening
+// builds nothing again. (Plain loops: this runs a few thousand times in a script engine that is not fast.)
+function buildPath(cmds, stroke, pct) {
   let b = stroke ? PathBuilder.stroke(stroke) : PathBuilder.fill();
-  for (const [name, ...args] of cmds) b = b[name](...args);
+  if (!pct) {
+    for (let i = 0; i < cmds.length; i++) { const c = cmds[i]; b = b[c[0]](...c.slice(1)); }
+    return b.build();
+  }
+  const fx = 1e6 / pct.w, fy = 1e6 / pct.h;
+  for (let i = 0; i < cmds.length; i++) {
+    const c = cmds[i];
+    b = c.length === 1 ? b[c[0]]() : b[c[0]](Math.round(c[1] * fx) / 1e4 + "%", Math.round(c[2] * fy) / 1e4 + "%");
+  }
   return b.build();
 }
 
+// The box around a shape's points, when they are all plain numbers (a percentage layer's are).
+function boxOf(cmds) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < cmds.length; i++) {
+    const c = cmds[i];
+    if (c.length < 3) continue;
+    const x = c[1], y = c[2];
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return { x0, y0, x1, y1 };
+}
+
+/**
+ * Opaque shapes of one colour that follow each other draw as one path (one element, in the same
+ * order), unless one overlaps another already in that path: overlapping parts of a single path
+ * may be left unfilled, and a shape that only touches its neighbour is safe.
+ */
+export function mergeOps(ops) {
+  const out = [];
+  for (let n = 0; n < ops.length; n++) {
+    const o = ops[n];
+    const last = out[out.length - 1];
+    const same = last && !o.stroke && !last.stroke && o.fill === last.fill && o.fill.length === 7;
+    const box = same || o.fill.length === 7 ? boxOf(o.cmds) : null;
+    let clear = same;
+    if (same) {
+      const bs = last.boxes;
+      for (let i = 0; i < bs.length; i++) {
+        const b = bs[i];
+        if (box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1) { clear = false; break; }
+      }
+    }
+    if (clear) { for (let i = 0; i < o.cmds.length; i++) last.cmds.push(o.cmds[i]); last.boxes.push(box); }
+    else out.push({ cmds: o.cmds.slice(), fill: o.fill, stroke: o.stroke, boxes: [box] });
+  }
+  return out;
+}
+
+// Corners of the polygon that stands in for a circle in a percentage layer: more for a bigger circle.
+const sidesFor = (r) => (r < 2 ? 10 : r < 6 ? 14 : r < 15 ? 20 : 28);
+const CORNER = 4; // points on each rounded corner there
+
 /** A box on the floor holding shapes in world units. Built once, then `el()` makes the elements. */
 export class Layer {
-  constructor(k, x, y, w, h, alpha = "") {
-    this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.groups = null;
+  // `pct`: write the paths as percentages of the box (floor layers: fills only, no strokes). Curves
+  // become polygons there, so a path is only move_to, line_to and close.
+  constructor(k, x, y, w, h, alpha = "", pct = false) {
+    this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.pct = pct;
+    this.s = pct ? 1 : k; this.merge = false; this.plan = null; this.paths = null;
     this.dx = 0; this.dy = 0;
   }
-  X(x) { return (x + this.dx - this.x) * this.k; }
-  Y(y) { return (y + this.dy - this.y) * this.k; }
+  /** Draw this layer's neighbouring same-colour shapes as one path each. */
+  merged() { this.merge = true; this.plan = null; this.paths = null; return this; }
+  /** The same shapes at another scale. A percentage layer keeps its paths. */
+  at(k) {
+    if (k === this.k) return this;
+    this.k = k;
+    if (!this.pct) { this.s = k; this.plan = null; this.paths = null; }
+    return this;
+  }
+  X(x) { return (x + this.dx - this.x) * this.s; }
+  Y(y) { return (y + this.dy - this.y) * this.s; }
   /** Draw `fn` with everything moved by (dx, dy): a room's furniture, drawn in the prototype's coordinates. */
   shifted(dx, dy, fn) {
     const [ox, oy] = [this.dx, this.dy];
@@ -56,34 +121,49 @@ export class Layer {
     return this;
   }
   add(cmds, fill, stroke = 0) {
+    if (this.pct && stroke) throw new Error("a percentage layer draws fills only");
     const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
     this.ops.push({ cmds: [...cmds], fill: c, stroke });
-    this.groups = null;
+    this.plan = null; this.paths = null;
     return this;
   }
   rect(x, y, w, h, fill) {
-    const X = this.X(x), Y = this.Y(y), W = w * this.k, H = h * this.k;
+    const X = this.X(x), Y = this.Y(y), W = w * this.s, H = h * this.s;
     return this.add([["move_to", X, Y], ["line_to", X + W, Y], ["line_to", X + W, Y + H], ["line_to", X, Y + H], ["close"]], fill);
   }
   rr(x, y, w, h, r, fill) {
-    const X = this.X(x), Y = this.Y(y), W = w * this.k, H = h * this.k;
-    const R = Math.min(r * this.k, W / 2, H / 2);
+    const X = this.X(x), Y = this.Y(y), W = w * this.s, H = h * this.s;
+    const R = Math.min(r * this.s, W / 2, H / 2);
+    if (this.pct) {
+      // Clockwise on screen, a quarter circle at each corner.
+      const pts = [];
+      [[X + W - R, Y + R, -Math.PI / 2], [X + W - R, Y + H - R, 0], [X + R, Y + H - R, Math.PI / 2], [X + R, Y + R, Math.PI]].forEach(([cx, cy, a0]) => {
+        for (let i = 0; i <= CORNER; i++) { const a = a0 + (Math.PI / 2) * (i / CORNER); pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); }
+      });
+      return this.add([["move_to", ...pts[0]], ...pts.slice(1).map((p) => ["line_to", ...p]), ["close"]], fill);
+    }
     return this.add([["move_to", X + R, Y], ["line_to", X + W - R, Y], ["arc_to", R, R, 0, false, true, X + W, Y + R],
       ["line_to", X + W, Y + H - R], ["arc_to", R, R, 0, false, true, X + W - R, Y + H],
       ["line_to", X + R, Y + H], ["arc_to", R, R, 0, false, true, X, Y + H - R],
       ["line_to", X, Y + R], ["arc_to", R, R, 0, false, true, X + R, Y], ["close"]], fill);
   }
   ell(x, y, rx, ry, fill) {
-    const X = this.X(x), Y = this.Y(y), RX = rx * this.k, RY = ry * this.k;
+    const X = this.X(x), Y = this.Y(y), RX = rx * this.s, RY = ry * this.s;
+    if (this.pct) {
+      const pts = [];
+      const n = sidesFor(Math.max(rx, ry));
+      for (let i = 0; i < n; i++) { const a = (2 * Math.PI * i) / n; pts.push([X + RX * Math.cos(a), Y + RY * Math.sin(a)]); }
+      return this.add([["move_to", ...pts[0]], ...pts.slice(1).map((p) => ["line_to", ...p]), ["close"]], fill);
+    }
     return this.add([["move_to", X + RX, Y], ["arc_to", RX, RY, 0, false, true, X - RX, Y], ["arc_to", RX, RY, 0, false, true, X + RX, Y], ["close"]], fill);
   }
   circ(x, y, r, fill) { return this.ell(x, y, r, r, fill); }
   ring(x, y, r, stroke, lw) {
-    const X = this.X(x), Y = this.Y(y), R = r * this.k;
-    return this.add([["move_to", X + R, Y], ["arc_to", R, R, 0, false, true, X - R, Y], ["arc_to", R, R, 0, false, true, X + R, Y], ["close"]], stroke, lw * this.k);
+    const X = this.X(x), Y = this.Y(y), R = r * this.s;
+    return this.add([["move_to", X + R, Y], ["arc_to", R, R, 0, false, true, X - R, Y], ["arc_to", R, R, 0, false, true, X + R, Y], ["close"]], stroke, lw * this.s);
   }
   line(x1, y1, x2, y2, stroke, lw) {
-    return this.add([["move_to", this.X(x1), this.Y(y1)], ["line_to", this.X(x2), this.Y(y2)]], stroke, lw * this.k);
+    return this.add([["move_to", this.X(x1), this.Y(y1)], ["line_to", this.X(x2), this.Y(y2)]], stroke, lw * this.s);
   }
   poly(points, fill) {
     const [first, ...rest] = points.map(([x, y]) => [this.X(x), this.Y(y)]);
@@ -93,16 +173,37 @@ export class Layer {
   fan(cx, cy, r, a0, a1, fill, from) {
     const p = (a) => [this.X(cx + Math.cos(a) * r), this.Y(cy + Math.sin(a) * r)];
     const [sx, sy] = p(a0), [ex, ey] = p(a1);
-    const R = r * this.k;
+    const R = r * this.s;
     const cmds = from ? [["move_to", this.X(from[0]), this.Y(from[1])], ["line_to", sx, sy]] : [["move_to", sx, sy]];
     cmds.push(["arc_to", R, R, 0, a1 - a0 > Math.PI, true, ex, ey], ["close"]);
     return this.add(cmds, fill);
   }
+  get done() { return !!this.plan && !!this.paths && this.paths.length === this.plan.length; }
+  /**
+   * Build the paths not built yet, stopping once `limit` ms have gone (after at least one), so a
+   * big layer can be built over several renders instead of past herdr's render deadline. Working
+   * out which shapes share a path is a step of its own. Without a limit it does everything. Answers
+   * whether every path is built.
+   */
+  build(limit) {
+    if (!this.plan) {
+      this.plan = this.merge ? mergeOps(this.ops) : this.ops; this.paths = [];
+      if (limit !== undefined) return this.plan.length === 0;
+    }
+    const pct = this.pct ? { w: this.w * this.s, h: this.h * this.s } : null;
+    const t = Date.now();
+    while (this.paths.length < this.plan.length) {
+      const o = this.plan[this.paths.length];
+      this.paths.push({ fill: o.fill, path: buildPath(o.cmds, o.stroke, pct) });
+      if (limit !== undefined && Date.now() - t >= limit) break;
+    }
+    return this.paths.length === this.plan.length;
+  }
   /** The box as an element. Its shapes are absolute children that each fill it. */
-  el() {
-    if (!this.groups) this.groups = this.ops.map((o) => ({ fill: o.fill, path: buildPath(o.cmds, o.stroke) }));
+  el(limit) {
+    this.build(limit);
     return div().absolute().left(this.x * this.k).top(this.y * this.k).w(this.w * this.k).h(this.h * this.k)
-      .children(this.groups.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
+      .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
   }
 }
 
@@ -147,13 +248,16 @@ function deskArt(g, d, mat) {
   const props = [PAL.books[0], PAL.books[1], PAL.books[2], PAL.books[4]];
   const ph = hash(d.key);
   g.circ(d.x + (ph % 2 ? 4 : d.w - 4), ky + 1.2, 1.6, props[ph % 4]);
-  if (mat) g.rr(d.x + (ph % 2 ? d.w - 8 : 3), ky - 0.2, 5, 3, 0.6, props[(ph >> 3) % 4]);
+  if (mat) g.rr(d.x + (ph % 2 ? d.w - 8 : 3), ky - 0.2, 5, 3, 0.6, props[(ph >>> 3) % 4]);
 }
 
-/** The rooms, walls, furniture and floors: everything that does not move. Built once per scale and plan. */
+/**
+ * The rooms, walls, furniture and floors: everything that does not move. Built once per plan: its
+ * paths are percentages of its box, so a new scale (`at(k)`) only resizes the box.
+ */
 export function floorLayer(world, k) {
   const { W, H, corr } = world;
-  const g = new Layer(k, 0, 0, W, H);
+  const g = new Layer(k, 0, 0, W, H, "", true).merged();
   const R = (kind) => world.rooms.find((r) => r.kind === kind);
   const repos = world.rooms.filter((r) => r.kind === "repo");
   const leads = R("leads"), meet = R("meet"), matt = R("matt"), kitchen = R("kitchen"), lounge = R("lounge"), pong = R("pong"), rest = R("rest");
@@ -455,16 +559,47 @@ export function dogEls(p, k, walking, face) {
 }
 const arcPt = (g, cx, cy, r, a) => [g.X(cx + Math.cos(a) * r), g.Y(cy + Math.sin(a) * r)];
 
-/** The wrapper that carries a person across the floor. Its left and top slide; `ms` is the length of the step. */
-export function wrapper(id, x, y, k, motion) {
-  const el = div().id("person-" + id).absolute().left((x - BOX) * k).top((y - BOX) * k).w(2 * BOX * k).h(2 * BOX * k);
-  return motion ? el.transition("left", motion).transition("top", motion) : el;
+/** How many legs a walk can have in one go; a walk has at most five (door, lane, lane, door, spot). */
+export const SLOTS = 6;
+
+/**
+ * Where something stands on the floor, as nested movers: the first sits at `at` (world units), and
+ * each one inside it is shifted by one link of the chain from crew.js's walkChain. When someone
+ * walks, every link carries its own native `left`/`top` transition with its own start delay, so the
+ * renderer's clock takes the person around every corner and no JavaScript timer has to arrive in
+ * time. At rest the links are all zero and carry no transition, so a change is a plain jump.
+ * `leaf` is what moves with them. The same chain drawn twice (the figure, then its name tag) moves
+ * in step, because both are told the same times.
+ */
+export function mover(prefix, at, chain, k, walking, leaf) {
+  let inner = leaf;
+  for (let i = chain.links.length - 1; i >= 0; i--) {
+    const l = chain.links[i];
+    let el = div().id(`${prefix}-${i}`).absolute().left(l.dx * k).top(l.dy * k).w(0).h(0).child(inner);
+    if (walking) {
+      const policy = { duration: l.ms, delay: l.delay, easing: "linear" };
+      el = el.transition("left", policy).transition("top", policy);
+    }
+    inner = el;
+  }
+  return div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner);
 }
 
-/** The dark of lights-off: the floor dimmed, each lit screen pooling light on its desk, the wall screen kept on. */
-export function night(world, k, lit) {
-  const out = [new Layer(k, 0, 0, world.W, world.H).rect(0, 0, world.W, world.H, "#060a24a8").el()];
-  const pools = new Layer(k, 0, 0, world.W, world.H);
+/** A person's drawing box, centred on the mover that carries it, with a small click target over the body. */
+export function figureBox(id, k, kids, onClick) {
+  const el = div().id("person-" + id).absolute().left(-BOX * k).top(-BOX * k).w(2 * BOX * k).h(2 * BOX * k).children(kids);
+  if (!onClick) return el;
+  return el.child(div().id("hit-" + id).absolute().left((BOX - 7) * k).top((BOX - 8) * k).w(14 * k).h(16 * k).cursor_pointer().on_click(onClick));
+}
+
+/**
+ * The dark of lights-off: the floor dimmed, each lit screen pooling light on its desk, the wall screen
+ * kept on. Three layers in the floor's own percentage form, built once for a set of lit screens.
+ */
+export function nightLayers(world, lit) {
+  const box = () => new Layer(1, 0, 0, world.W, world.H, "", true);
+  const dim = box().rect(0, 0, world.W, world.H, "#060a24a8");
+  const pools = box();
   for (const [d, s] of lit) {
     const col = s === "work" ? PAL.work : PAL[s];
     const y = d.side === "n" ? d.y + d.h - 6 : d.y + 6;
@@ -472,10 +607,8 @@ export function night(world, k, lit) {
   }
   const ws = wallScreen(world);
   [[18, "0c"], [12, "18"], [7, "28"]].forEach(([r, al]) => pools.circ(ws.x + 19, ws.y + 5, r, PAL.screenInk + al));
-  out.push(pools.el());
-  const keep = new Layer(k, 0, 0, world.W, world.H).rr(ws.x, ws.y, ws.w, ws.h, 2, PAL.screen).rr(1, world.entrance.light.y, 7, world.entrance.light.h, 1, PAL.work);
-  out.push(keep.el());
-  return out;
+  const keep = box().rr(ws.x, ws.y, ws.w, ws.h, 2, PAL.screen).rr(1, world.entrance.light.y, 7, world.entrance.light.h, 1, PAL.work);
+  return [dim, pools, keep];
 }
 
 export { BOX };

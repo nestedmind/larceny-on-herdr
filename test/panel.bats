@@ -167,7 +167,7 @@ console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Sco
 }
 
 @test "panel: clicking a person selects the panel even when a terminal is docked" {
-  grep -q 'this.panel.select(a, cx); if (this.chat) this.open(a, cx);' "$(mod_dir)/main.js"
+  grep -q 'this.panel.select(p.agent, cx); if (this.chat) this.open(p.agent, cx);' "$(mod_dir)/main.js"
 }
 
 @test "panel: a loh that cannot start says so and restores the text" {

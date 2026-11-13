@@ -214,9 +214,9 @@ export function doArgs(step, pane) {
   return null;
 }
 
-/** Everything the cached floor drawing depends on: change any of these and it is drawn again. */
-export function floorKey(L, k) {
-  return `${k}|${L.W}|${L.H}|${L.pods.map((p) => p.repo).join(",")}`;
+/** Everything the cached floor drawing depends on: change any of these and it is drawn again. The scale is not one of them. */
+export function floorKey(L) {
+  return `${L.W}|${L.H}|${L.pods.map((p) => p.repo).join(",")}`;
 }
 
 /** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
@@ -469,6 +469,60 @@ export function legsOf(from, points, speed = WALK_SPEED) {
     at = p;
   }
   return legs;
+}
+
+/** How long a whole walk takes, in ms. */
+export function walkMs(legs) {
+  return legs.reduce((s, l) => s + l.ms, 0);
+}
+
+/**
+ * A walk as one chain of nested movers, so the whole walk can be handed to the renderer at once. Link i
+ * moves by (dx, dy) from where link i-1 left it, `ms` long, starting `delay` ms in (the sum of the legs
+ * before it). The links add up to the walk; the renderer's own clock times every corner, so no timer
+ * has to land on time for the walker not to stop. There are always `slots` links, the spare ones
+ * going nowhere, so the same elements are drawn whether or not someone is walking. A walk with more
+ * legs than slots ends its last link at the goal in one go.
+ */
+export function walkChain(from, legs, slots = 6) {
+  const links = [];
+  let at = from, delay = 0;
+  legs.forEach((leg, i) => {
+    if (i < slots) {
+      links.push({ dx: leg.x - at.x, dy: leg.y - at.y, delay, ms: leg.ms });
+    } else {
+      const last = links[slots - 1];
+      last.dx = leg.x - (at.x - last.dx); last.dy = leg.y - (at.y - last.dy); last.ms += leg.ms;
+    }
+    at = leg; delay += leg.ms;
+  });
+  while (links.length < slots) links.push({ dx: 0, dy: 0, delay: 0, ms: 1 });
+  return { from, links };
+}
+
+/** Where a walker is `elapsed` ms into a walk, and which leg `i` that is (legs.length once it has arrived). */
+export function posAt(from, legs, elapsed) {
+  let at = from, t = elapsed;
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    if (t < l.ms) {
+      const f = Math.max(0, t) / l.ms;
+      return { x: at.x + (l.x - at.x) * f, y: at.y + (l.y - at.y) * f, i };
+    }
+    t -= l.ms; at = l;
+  }
+  return { x: at.x, y: at.y, i: legs.length };
+}
+
+/**
+ * The stage's size as the next render should see it. herdr reports a size only after a layout, so for
+ * one render after the panel opens or closes the size is still the old one: it is out by the panel's
+ * width. `measuredWith` is whether the panel was showing when the size was measured.
+ */
+export function stageSize(size, measuredWith, showPanel, panelW) {
+  if (!!measuredWith === !!showPanel) return size;
+  const width = Math.max(1, size.width + (showPanel ? -panelW : panelW));
+  return { width, height: size.height };
 }
 
 // ---------- who stands where ----------
