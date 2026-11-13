@@ -49,7 +49,7 @@ export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
 export const exec = (c, a) => (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
-export const notify = () => {};
+export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: !!globalThis.DARK });
@@ -511,30 +511,26 @@ console.log(before, max());'
   [ "$output" = "600 600" ]
 }
 
-@test "after a restart a stale lock-holders value is ignored and cleared, and Full terminal works" {
+@test "a reloaded full-terminal bar holds the agent again: a chat closing meanwhile does not unlock it, and Back does" {
   run office_js '
-globalThis.SHARED["crew-office.lock-holders"] = { t2: ["term-old"], t3: "garbage" };
-const { default: Restarted } = await import("./main.mjs?restart");
-const o = new Restarted({}, cx); o.init({}, cx); office = o; o.size = { width: 1990, height: 1000 }; o.measured = true;
-const a = o.crewNow.length ? o.crewNow[0] : null;
-o.render(cx);
-const b = o.crewNow.find((c) => c.name === "sheba");
-o.panel.select(b, cx);
-o.fullTerminal(b, cx);
-console.log(o.termOpen, globalThis.SHARED["crew-office.lock-holders"] === null, globalThis.OVERLAYS.length);'
+const { default: Reloaded } = await import("./main.mjs?reload");
+const a = office.crewNow.find((c) => c.name === "sheba");
+const barProps = { terminalBar: true, termId: "term-x", loh: "loh", agent: { address: a.address, name: a.name } };
+globalThis.PROPS = barProps;
+const bar = new Reloaded({}, cx); bar.init({}, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+await tick();
+const afterInit = (globalThis.EXECS || []).join(",");
+globalThis.PROPS = { crew: "sandbox" };
+const o = new Reloaded({}, cx); o.init({}, cx);
+o.open(a, cx); await tick();
+o.closeChat(cx); await tick();
+const afterChat = (globalThis.EXECS || []).join(",");
+globalThis.PROPS = barProps;
+await bar.close(cx); await tick();
+console.log(afterInit, "|", afterChat, "|", (globalThis.EXECS || []).join(","));'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true 1" ]
-}
-
-@test "malformed shared data never throws in render, and counts as no window open" {
-  run office_js '
-globalThis.SHARED["crew-office.lock-holders"] = "nonsense";
-render();
-globalThis.SHARED["crew-office.lock-holders"] = { t2: 5, t3: null };
-render();
-console.log(office.termOpen);'
-  [ "$status" -eq 0 ]
-  [ "$output" = "false" ]
+  [ "$output" = "lock | lock | lock,unlock" ]
 }
 
 @test "two office panes docking the same agent: the agent is unlocked only when both chats are closed" {
@@ -557,4 +553,32 @@ await tick();
 console.log(!!two.chat, !!first, mid, globalThis.EXECS.join(","));'
   [ "$status" -eq 0 ]
   [ "$output" = "false true lock lock,unlock" ]
+}
+
+@test "an office run as a layout block adopts a saved plan that has no pane, and Full screen never writes over it" {
+  run office_js '
+const plan = { zoom: false, hide: ["sidebar"], window: false };
+const saved = { plan, pane: null };
+globalThis.PROPS = { crew: "sandbox" };
+globalThis.PANES = [];
+globalThis.SHARED["crew-office.fullscreen"] = saved;
+const o = new Office({}, cx); o.init({}, cx);
+const adopted = o.fs === saved;
+o.fs = null;
+o.enterFullscreen({ mine: null, zoomed: false }, cx);
+console.log(adopted, o.fs === saved, globalThis.SHARED["crew-office.fullscreen"] === saved, (globalThis.RUNS || []).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true 0" ]
+}
+
+@test "the blocked Full screen toast says an office is in full screen and how to take it back" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }, { pane: "p2", tab: "t", mod: "crew-office", focused: false }];
+globalThis.PROPS = { crew: "sandbox", pane: "p1" };
+globalThis.SHARED["crew-office.fullscreen"] = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p2" };
+const o = new Office({}, cx); o.init({}, cx);
+o.enterFullscreen({ mine: "p1", zoomed: false }, cx);
+console.log(globalThis.NOTES.map((n) => n.body).join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "An office is in full screen. Click this office to take it back, or close the other office pane." ]
 }

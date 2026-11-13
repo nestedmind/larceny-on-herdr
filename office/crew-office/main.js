@@ -25,11 +25,7 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 const FS_KEY = "crew-office.fullscreen";
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
-// LOCK_KEY is the old shared-state home of this count: an earlier version left values there, so the first office to
-// start clears it once and nothing reads it.
-const LOCK_KEY = "crew-office.lock-holders";
 let held = {};
-let legacyCleared = false;
 // loh lock and unlock for one agent go through one queue, so the last call sent is the last one run.
 const lohQueue = serialQueue();
 
@@ -61,10 +57,12 @@ export default class CrewOffice extends View {
   init(_props, cx) {
     // The slim bar of a full-terminal window: nothing else of the office runs there.
     this.termBar = !!(props() || {}).terminalBar;
-    if (this.termBar) return;
-    if (!legacyCleared) {
-      legacyCleared = true;
-      try { if (shared(LOCK_KEY) != null) setShared(LOCK_KEY, null); } catch (_) { /* nothing to clear */ }
+    if (this.termBar) {
+      // After a mod reload this copy has empty module state: record the window as a holder again, so
+      // Back unlocks the agent and nothing else's release does. The lock is idempotent.
+      const p = props() || {};
+      if (p.agent && p.agent.address && p.termId) hold(p.agent, p.loh, p.termId);
+      return;
     }
     this.size = { width: 640, height: 480 };
     // The open chat: { pane, address, name, agent } or null. The pane is a split beside this one.
@@ -245,7 +243,7 @@ export default class CrewOffice extends View {
     try { saved = shared(FS_KEY); } catch (_) { /* none */ }
     const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
     if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
-    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "Another office is in full screen. Leave it there first.", level: "warning" }); return; }
+    if (entry === "blocked") { notify({ title: "Full screen is already on", body: "An office is in full screen. Click this office to take it back, or close the other office pane.", level: "warning" }); return; }
     if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
     const me = all.find((p) => p.pane === view.mine);
     const plan = fullscreenPlan(layout(), {

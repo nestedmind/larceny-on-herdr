@@ -187,7 +187,9 @@ export function restoreSteps(plan) {
  * no longer exists (a crash or a restart), "leave" it when another live pane owns it, else "none".
  */
 export function recoveryFor(saved, paneIds, ownPane, officeIds = []) {
-  if (!saved || !saved.plan || !saved.pane) return "none";
+  if (!saved || !saved.plan) return "none";
+  // A plan with no pane belongs to an office run as a layout block, which has no pane of its own: it is live.
+  if (!saved.pane) return "adopt";
   if (saved.pane === ownPane) return "adopt";
   if (!(paneIds || []).includes(saved.pane)) return "undo";
   // A copy that cannot tell which pane is its own may still be the owner's reload: it is when the
