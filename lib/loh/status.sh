@@ -6,6 +6,15 @@
 # loh status --settings: the manifest's office settings as a JSON object
 # ({"idle_minutes": 3}); the office reads the idle time from here.
 #
+# loh status --prs: ask GitHub whether the pull request of each crew agent that
+# has a `pr` label is still open. A merged or closed one has its `pr` label
+# cleared (hc label <agent> pr=), so the agent stops waiting on review. This
+# catches a merge or close done by someone else: the coder's own `gh pr merge`
+# or `gh pr close` is caught by hooks/status-card.sh. Prints a JSON array of the
+# labels it cleared ({name, pr, state}). One `gh pr view` per agent with a pr
+# label, none for the rest; a failed call keeps the label. The office runs it
+# every few minutes, never per render.
+#
 # Lists this workspace's terminals with `hc ls --label crew=<name>`, then reads
 # each one with `hc get` for its labels (role, task, step, pr, round,
 # with_matt) and its herdr state (and kind when blocked).
@@ -13,11 +22,12 @@ set -euo pipefail
 # shellcheck source=lib/loh/lock.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lock.sh"
 
-usage() { echo "Usage: loh status [--json | --repos | --settings]" >&2; }
+usage() { echo "Usage: loh status [--json | --repos | --settings | --prs]" >&2; }
 
 json=""
 repos=""
 settings=""
+prs=""
 case "${1:-}" in
   "") ;;
   --repos)
@@ -26,6 +36,10 @@ case "${1:-}" in
     ;;
   --settings)
     settings=1
+    shift
+    ;;
+  --prs)
+    prs=1
     shift
     ;;
   --json)
@@ -57,6 +71,35 @@ if [[ -n "$repos" ]]; then
       --arg branch "${REPO_BRANCHES[i]}" --arg github "${REPO_GITHUBS[i]}" \
       '{name: $name, path: $path, branch: $branch, github: $github}'
   done | jq -s '.'
+  exit 0
+fi
+
+if [[ -n "$prs" ]]; then
+  manifest_load
+  crew="$WS_NAME"
+  listing="$(hc_json ls --label "crew=$crew")" || die "hc ls failed"
+  tmo=()
+  if command -v timeout >/dev/null 2>&1; then tmo=(timeout 10); fi
+  cleared=()
+  while IFS= read -r addr; do
+    [[ -n "$addr" ]] || continue
+    info="$(hc_json get "$addr")" || continue
+    IFS=$'\t' read -r name pr task < <(jq -r '[.name, (.labels.pr // ""), (.labels.task // "")] | @tsv' <<<"$info")
+    [[ -n "$pr" && "$task" == *"#"* ]] || continue
+    github=""
+    for i in "${!REPO_NAMES[@]}"; do
+      [[ "${REPO_NAMES[i]}" == "${task%%#*}" ]] && github="${REPO_GITHUBS[i]}"
+    done
+    [[ -n "$github" ]] || continue
+    state="$("${tmo[@]}" gh pr view "$pr" -R "$github" --json state --jq .state 2>/dev/null)" || continue
+    case "$state" in
+      MERGED | CLOSED)
+        hc label "$addr" "pr=" "prdone=1" >/dev/null 2>&1 || continue
+        cleared+=("$(jq -cn --arg n "$name" --arg p "$pr" --arg s "$state" '{name: $n, pr: $p, state: $s}')")
+        ;;
+    esac
+  done < <(jq -r '.terminals[]?.address' <<<"$listing")
+  if ((${#cleared[@]} == 0)); then echo '[]'; else printf '%s\n' "${cleared[@]}" | jq -sc '.'; fi
   exit 0
 fi
 

@@ -174,12 +174,12 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 @test "PostToolUse gh pr create sets pr from the URL in the result" {
   run_hook_pipe < <(fixture post-bash)
   [ "$status" -eq 0 ]
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse gh pr create through loh gh sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh sheba-ns pr create --base main"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse for a command that is not pr create sets nothing" {
@@ -321,12 +321,12 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
 
 @test "PostToolUse gh -R <repo> pr create sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh -R nestedmind/x pr create --fill"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "PostToolUse loh gh <persona> -R <repo> pr create sets pr" {
   run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh sheba -R o/r pr create --fill"')
-  [ "$(hc_calls)" = "$(label_line 'pr=88')" ]
+  [ "$(hc_calls)" = "$(label_line 'pr=88'$'\t''prdone=')" ]
 }
 
 @test "the repo root comes from the edited file, not from cwd" {
@@ -362,4 +362,25 @@ label_line() { printf 'label\tt9\t%s\n' "$1"; }
   cd "$BATS_TEST_TMPDIR/empty"
   run timeout 3 bash "$HOOK" <"$in"
   [ "$status" -eq 0 ]
+}
+
+@test "PostToolUse gh pr merge clears pr" {
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88 --squash --delete-branch"')
+  [ "$status" -eq 0 ]
+  [ "$(hc_calls)" = "$(label_line 'pr='$'\t''prdone=1')" ]
+}
+
+@test "PostToolUse loh gh pr merge clears pr" {
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh mahone pr merge 88 --squash --delete-branch"')
+  [ "$(hc_calls)" = "$(label_line 'pr='$'\t''prdone=1')" ]
+}
+
+@test "PostToolUse gh pr close clears pr" {
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "loh gh mahone pr close 88"')
+  [ "$(hc_calls)" = "$(label_line 'pr='$'\t''prdone=1')" ]
+}
+
+@test "PostToolUse gh pr merge --auto keeps pr, the merge has not happened yet" {
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88 --auto --squash"')
+  [ ! -s "$FAKE_HC_LOG" ]
 }

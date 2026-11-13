@@ -224,8 +224,12 @@ case "$event" in
     if [[ "$command" =~ (^|[[:space:]])gh[[:space:]]+([^[:space:]]+[[:space:]]+)*pr[[:space:]]+create ]]; then
       stdout="$(field '.tool_response.stdout')"
       if [[ "$stdout" =~ /pull/([0-9]+) ]]; then
-        label "pr=${BASH_REMATCH[1]}"
+        label "pr=${BASH_REMATCH[1]}" "prdone="
       fi
+    elif [[ "$command" =~ (^|[[:space:]])gh[[:space:]]+([^[:space:]]+[[:space:]]+)*pr[[:space:]]+(merge|close)([[:space:]]|$) && ! "$command" =~ [[:space:]]--auto([[:space:]]|$) ]]; then
+      # PostToolUse runs only when the command succeeded, so the pull request is merged or closed: the wait is over.
+      # --auto only queues the merge, so the label stays until it happens.
+      label "pr=" "prdone=1"
     fi
     ;;
   Stop | StopFailure)
