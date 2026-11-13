@@ -95,7 +95,8 @@ export class Panel {
   send(cx) {
     const a = this.agent;
     const st = a && this.inputs.get(a.address);
-    if (!a || !st || this.sending) return;
+    // While a full-terminal window is open the keyboard belongs to that terminal, never to this box.
+    if (!a || !st || this.sending || (this.host.busy && this.host.busy())) return;
     const text = st.value().trim();
     if (!text) return;
     const why = sendBlock(a);
@@ -153,7 +154,7 @@ export class Panel {
     const color = a.status === "blocked" ? "#e7a43a" : a.status === "idle" ? t.muted : "#3fae69";
     const why = sendBlock(a);
 
-    const head = h_flex().items_center().gap(8)
+    const head = h_flex().flex_none().items_center().gap(8)
       .child(v_flex().flex_1().child(div().text_size(15).font_semibold().text_color(t.foreground).child(a.name))
         .child(div().text_size(11).text_color(t.muted).child(a.role || "agent")))
       .child(div().px(8).h(19).flex().items_center().rounded_full().bg(color).text_size(11).font_semibold().text_color(t.background).child(WORDS[a.status] || a.status))
@@ -162,18 +163,18 @@ export class Panel {
     const rows = cardRows(a, WORDS).map(([k, v]) => h_flex().gap(8)
       .child(div().w(52).text_size(11).text_color(t.muted).child(k))
       .child(div().flex_1().text_size(12).text_color(t.foreground).child(v)));
-    const card = v_flex().gap(2).p(8).rounded(6).border_1().border_color(t.border).children(rows);
+    const card = v_flex().flex_none().gap(2).p(8).rounded(6).border_1().border_color(t.border).children(rows);
 
-    const actions = h_flex().gap(8).items_center()
+    const actions = h_flex().flex_none().gap(8).items_center()
       .child(this.button("panel-terminal", "Terminal", (_e, c) => this.host.terminal(a, c), t))
       .child(this.button("panel-full-terminal", "Full terminal", (_e, c) => this.host.fullTerminal(a, c), t))
       .child(div().flex_1().text_size(11).text_color(t.muted).child("Beside the office, or full size"));
     const notice = why
-      ? div().p(8).rounded(6).bg("#e7a43a33").border_1().border_color("#e7a43a").text_size(12).text_color(t.foreground).child(why)
+      ? div().flex_none().p(8).rounded(6).bg("#e7a43a33").border_1().border_color("#e7a43a").text_size(12).text_color(t.foreground).child(why)
       : null;
 
     const tail = this.feed.slice(-FEED_SHOWN);
-    const feed = v_flex().gap(1).children(tail.length
+    const feed = v_flex().flex_none().gap(1).children(tail.length
       ? tail.map((e) => h_flex().gap(6)
         .child(div().w(34).text_size(11).text_color(t.muted).child(e.at))
         .child(div().flex_1().text_size(11.5).text_color(e.level === "blocked" ? "#e7a43a" : t.foreground).child(`${e.name} ${e.text}`)))
@@ -190,19 +191,19 @@ export class Panel {
     }
     // The turns are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest turn out of reach.
-    const chat = v_flex().id("panel-log").flex_1().min_h(160).gap(6).overflow_y_scroll().track_scroll(this.scroll)
+    const chat = v_flex().id("panel-log").flex_1().min_h(0).gap(6).overflow_y_scroll().track_scroll(this.scroll)
       .children(log.length ? log : [div().text_size(11).text_color(t.muted).child(`No messages from ${a.name} yet.`)]);
 
-    const form = h_flex().gap(6).items_center()
+    const form = h_flex().flex_none().gap(6).items_center()
       .child(div().flex_1().h(28).child(Input.new(this.inputs.get(a.address))))
       .child(this.button("panel-send", this.sending ? "Sending…" : "Send", (_e, c) => this.send(c), t).opacity(why || this.sending ? 0.5 : 1));
 
-    return v_flex().id("panel").size_full().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
+    return v_flex().id("panel").size_full().overflow_hidden().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
       .child(head).child(card).child(actions).when(!!notice, (el) => el.child(notice))
       .child(div().text_size(11).font_semibold().text_color(t.muted).child("Activity")).child(feed)
       .child(div().text_size(11).font_semibold().text_color(t.muted).child(`Chat with ${a.name}`))
       .child(chat)
-      .when(!!this.error, (el) => el.child(div().text_size(11).text_color("#d0509f").child(this.error)))
+      .when(!!this.error, (el) => el.child(div().flex_none().text_size(11).text_color("#d0509f").child(this.error)))
       .child(form);
   }
 }

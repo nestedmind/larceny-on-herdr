@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, window as appWindow } from "herdr";
-import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, panelWidthKey, PANEL_MIN, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -23,6 +23,33 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
+// Who holds each agent's with-Matt lock (the docked chat, a full-terminal window), kept in shared state so the
+// office and the full-terminal bar, which are separate copies, count the same holders.
+const LOCK_KEY = "crew-office.lock-holders";
+// loh lock and unlock for one agent go through one queue, so the last call sent is the last one run.
+const lohQueue = serialQueue();
+
+function lohRun(c, a, what) {
+  const warn = (why) => notify({ title: `Could not ${what} ${a.name}`, body: String(why || "").slice(0, 200), level: "warning" });
+  return exec(c.cmd, c.args, c.options).then((r) => { if (r.code !== 0) warn(r.stderr || `loh exited ${r.code}`); }).catch((e) => warn(e && e.message));
+}
+
+function holders() {
+  try { return shared(LOCK_KEY) || {}; } catch (_) { return {}; }
+}
+
+// The agent is locked when its first holder arrives, and unlocked when the last one goes.
+function hold(a, loh, id) {
+  const r = holdersAcquire(holders(), a.address, id);
+  try { setShared(LOCK_KEY, r.state); } catch (_) { /* the count is best effort */ }
+  return r.lock ? lohQueue(a.address, () => lohRun(lockCall(a, loh), a, "lock")) : Promise.resolve();
+}
+
+function unhold(a, loh, id) {
+  const r = holdersRelease(holders(), a.address, id);
+  try { setShared(LOCK_KEY, r.state); } catch (_) { /* the count is best effort */ }
+  return r.unlock ? lohQueue(a.address, () => lohRun(unlockCall(a, loh), a, "unlock")) : Promise.resolve();
+}
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 
@@ -75,9 +102,12 @@ export default class CrewOffice extends View {
       else if (what === "undo") this.recover(left);
     } catch (_) { /* nothing to recover */ }
     // The panel's width: kept per crew in shared state, so a reload keeps it. Clamped on every render, when the office's width is known.
-    this.panelKey = panelWidthKey((props() || {}).crew);
-    this.panelW = clampPanelW(shared(this.panelKey), 1e9);
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx) });
+    // It is read once the crew shown is known (render), so it is per crew, not per prop.
+    this.panelKey = null;
+    this.panelW = clampPanelW(null, 1e9);
+    this.splitW = 0; // the resizable group's own width, once measured
+    this.termOpen = false; // a full-terminal window is open
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar
@@ -86,8 +116,16 @@ export default class CrewOffice extends View {
   // unlocks it when the window goes (see close).
   fullTerminal(a, cx) {
     const loh = (props() || {}).loh;
-    try { openOverlay(fullTerminalOverlay(a, loh)); } catch (e) { this.fail(a, e); return; }
-    this.runLoh(lockCall(a, loh), a, "lock");
+    const focus = (address) => { try { run("pane.focus", { terminal: address }); } catch (_) { /* focus is a nicety */ } };
+    // One window at a time: a second click only brings the keyboard back to it.
+    const open = Object.entries(holders()).find(([, ids]) => ids.some((i) => String(i).startsWith("term-")));
+    if (open) { focus(open[0]); return; }
+    const id = `term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    try { openOverlay(fullTerminalOverlay(a, loh, id)); } catch (e) { this.fail(a, e); return; }
+    hold(a, loh, id);
+    this.termOpen = true;
+    // A window does not take the keyboard when it opens: give it to the terminal, so Esc and typing go to the agent.
+    focus(a.address);
     if (cx) cx.notify();
   }
 
@@ -97,8 +135,9 @@ export default class CrewOffice extends View {
     const p = props() || {};
     const a = p.agent || {};
     return h_flex().id("term-bar").size_full().px(12).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .on_mouse_down("left", (_e, c) => c.stop_propagation())
       .child(div().text_size(12).font_semibold().text_color(t.foreground).child(`Terminal: ${a.name || ""}`))
-      .child(div().text_size(11).text_color(t.muted).child("Typing here goes straight to the agent"))
+      .child(div().text_size(11).text_color(t.muted).child("Keys go to the agent; Back returns to the office"))
       .child(div().flex_1())
       .child(h_flex().id("term-back").px(8).py(2).rounded(5).border_1().border_color(t.border).text_size(12).text_color(t.foreground)
         .cursor_pointer().hover((e) => e.bg(t.hover))
@@ -126,8 +165,7 @@ export default class CrewOffice extends View {
   // Run loh lock / unlock in the agent's own folder. It exits non-zero when loh or the command
   // is missing or no workspace is found: say so instead of failing silently.
   runLoh(c, a, what) {
-    const warn = (why) => notify({ title: `Could not ${what} ${a.name}`, body: String(why || "").slice(0, 200), level: "warning" });
-    exec(c.cmd, c.args, c.options).then((r) => { if (r.code !== 0) warn(r.stderr || `loh exited ${r.code}`); }).catch((e) => warn(e && e.message));
+    lohRun(c, a, what);
   }
 
   fail(a, e) {
@@ -142,7 +180,7 @@ export default class CrewOffice extends View {
     if (this.chat && this.chat.address === a.address) return;
     if (this.chat) {
       try { run("terminal.show", { terminal: a.address, pane: this.chat.pane }); } catch (e) { this.fail(a, e); return; }
-      this.runLoh(unlockCall(this.chat.agent, loh), this.chat.agent, "unlock");
+      unhold(this.chat.agent, loh, "chat");
       this.chat = { ...this.chat, address: a.address, name: a.name, agent: a };
     } else {
       const mine = officePane(panes(), props());
@@ -165,7 +203,7 @@ export default class CrewOffice extends View {
       }
       this.chat = { pane, office: mine, address: a.address, name: a.name, agent: a };
     }
-    this.runLoh(lockCall(a, loh), a, "lock");
+    hold(a, loh, "chat");
     try { run("pane.focus", { pane: this.chat.pane }); } catch (_) { /* focus is a nicety */ }
     cx.notify();
   }
@@ -184,7 +222,7 @@ export default class CrewOffice extends View {
       // The pane may be gone already; if it is not, leave it rather than risk ending the agent.
       if (panes().some((p) => p.pane === c.pane)) notify({ title: "Could not close the chat split", body: String((e && e.message) || e || "").slice(0, 200), level: "warning" });
     }
-    this.runLoh(unlockCall(c.agent, (props() || {}).loh), c.agent, "unlock");
+    unhold(c.agent, (props() || {}).loh, "chat");
     if (cx) cx.notify();
   }
 
@@ -271,7 +309,7 @@ export default class CrewOffice extends View {
     if (this.termBar) {
       // The full-terminal window is going (Back, the terminal ending, a layout switch): release the lock its opening set.
       const p = props() || {};
-      if (p.agent && p.agent.rawName) { try { const c = unlockCall(p.agent, p.loh); await exec(c.cmd, c.args, c.options); } catch (_) { /* nothing to undo */ } }
+      if (p.agent && p.agent.address && p.termId) { try { await unhold(p.agent, p.loh, p.termId); } catch (_) { /* nothing to undo */ } }
       return;
     }
     const f = this.fs;
@@ -489,6 +527,14 @@ export default class CrewOffice extends View {
     const workspace = pickWorkspace(list, (props() || {}).crew);
     const crew = crewOf(list, workspace);
     this.crewNow = crew;
+    const wkey = panelWidthKey(workspace);
+    if (wkey !== this.panelKey) {
+      this.panelKey = wkey;
+      let saved = null;
+      try { saved = shared(wkey); } catch (_) { /* none */ }
+      this.panelW = clampPanelW(saved, 1e9);
+    }
+    this.termOpen = termHeld(holders());
     this.loadRepos(crew, workspace, cx);
     this.panel.sync(crew, cx);
     const allPanes = panes();
@@ -496,7 +542,7 @@ export default class CrewOffice extends View {
     if (chatGone(allPanes, this.chat)) {
       const c = this.chat;
       this.chat = null;
-      this.runLoh(unlockCall(c.agent, (props() || {}).loh), c.agent, "unlock");
+      unhold(c.agent, (props() || {}).loh, "chat");
     }
     // While a chat is open, keep using the office pane found when it opened: the click moves focus
     // to the chat, and officePane looks for the focused one.
@@ -658,6 +704,7 @@ export default class CrewOffice extends View {
 
     return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)
       .on_key_down((e, cx) => {
+        if (this.termOpen) return;
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
         if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
@@ -666,23 +713,26 @@ export default class CrewOffice extends View {
       })
       .child(this.bar(t, L.totals, view))
       .when(!!this.offer, (el) => el.child(this.offerRow(t)))
-      .child(showPanel ? this.split(stage, t, F, cx) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)));
+      .child(showPanel ? this.split(stage, t, F, cx, view.mine) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)));
   }
 
   // The stage and the panel, with a draggable divider between them. herdr's own resizable group keeps the
   // width while it is dragged; when a drag ends the width is clamped (the panel's minimum up to half the
   // office) and saved, and the floor refits through the stage's size report like any other resize.
-  split(stage, t, F, cx) {
-    const total = this.size.width + this.panelW;
-    const max = clampPanelW(1e9, total);
-    return h_resizable("office-split").flex_1().min_h(0)
+  split(stage, t, F, cx, pane) {
+    // The limit comes from the group's own width, which a drag does not change, never from the stage plus the old panel.
+    const max = clampPanelW(1e9, this.splitW || this.size.width + this.panelW);
+    const box = (group) => div().id("split-box").flex_1().min_w(0).min_h(0).h_full()
+      .on_size_change((m, c) => { if (m.width !== this.splitW) { this.splitW = m.width; c.notify(); } })
+      .child(group);
+    return box(h_resizable(`office-split-${pane || ""}`).size_full()
       .on_resize((sizes) => {
-        const w = clampPanelW(sizes[sizes.length - 1], this.size.width + this.panelW);
+        const w = clampPanelW(sizes[sizes.length - 1], sizes.reduce((n, x) => n + x, 0));
         if (w === this.panelW) return;
         this.panelW = w;
         try { setShared(this.panelKey, w); } catch (_) { /* the width is only remembered, not needed */ }
       })
       .child(resizable_panel().size_range(120).child(stage))
-      .child(resizable_panel().size(Math.min(this.panelW, max)).size_range(PANEL_MIN, max).child(this.panel.render(t, F, cx)));
+      .child(resizable_panel().size(Math.min(this.panelW, max)).size_range(PANEL_MIN, max).child(this.panel.render(t, F, cx))));
   }
 }

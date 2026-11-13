@@ -259,7 +259,7 @@ console.log([f(100, 1600), f(500, 1600), f(900, 1600), f(undefined, 1600), f("x"
 @test "the panel width is saved per crew, and full terminal is a window with a bar over the agent's own terminal" {
   run crew_js '
 console.log(crew.panelWidthKey("sandbox"), crew.panelWidthKey(undefined));
-const o = crew.fullTerminalOverlay({ address: "t7", name: "amy", rawName: "amy", cwd: "/w/amy" }, "/bin/loh");
+const o = crew.fullTerminalOverlay({ address: "t7", name: "amy", rawName: "amy", cwd: "/w/amy" }, "/bin/loh", "term-1");
 console.log(JSON.stringify(o));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "crew-office.panel-width.sandbox crew-office.panel-width." ]
@@ -268,4 +268,27 @@ console.log(JSON.stringify(o));'
   [[ "${lines[1]}" == *'"content":{"terminal":"t7"}'* ]]
   [[ "${lines[1]}" == *'"terminalBar":true'* ]]
   [[ "${lines[1]}" == *'"rawName":"amy"'* ]]
+  [[ "${lines[1]}" == *'"termId":"term-1"'* ]]
+}
+
+@test "lock holders: the agent is locked by the first holder and unlocked only when the last one goes" {
+  run crew_js '
+let s = {}, out = [];
+const acq = (id) => { const r = crew.holdersAcquire(s, "t7", id); s = r.state; out.push("A" + id + ":" + r.lock); };
+const rel = (id) => { const r = crew.holdersRelease(s, "t7", id); s = r.state; out.push("R" + id + ":" + r.unlock); };
+acq("chat"); acq("term-1"); acq("term-1"); rel("chat"); rel("chat"); rel("term-1"); rel("term-1");
+console.log(out.join(" "), JSON.stringify(s), crew.termHeld({ t7: ["chat"] }), crew.termHeld({ t7: ["chat", "term-2"] }));'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'Achat:true Aterm-1:false Aterm-1:false Rchat:false Rchat:false Rterm-1:true Rterm-1:false {} false true' ]
+}
+
+@test "the lock queue runs one agent's calls in order, even when an earlier one is slow" {
+  run crew_js '
+const q = crew.serialQueue(), log = [];
+const slow = (ms, n) => () => new Promise((r) => setTimeout(() => { log.push(n); r(); }, ms));
+q("t7", slow(30, "lock")); q("t8", slow(1, "other")); await q("t7", slow(1, "unlock"));
+await q("t7", () => { throw new Error("x"); }); await q("t7", slow(1, "after-error"));
+console.log(log.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "other,lock,unlock,after-error" ]
 }

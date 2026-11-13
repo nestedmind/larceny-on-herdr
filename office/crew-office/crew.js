@@ -545,7 +545,7 @@ export function panelWidthKey(crew) {
  * mod (its Back button, and the unlock when the window goes) above the terminal block.
  * Esc goes to the terminal, as herdr documents for windows with terminals, so the bar is the way back.
  */
-export function fullTerminalOverlay(agent, loh) {
+export function fullTerminalOverlay(agent, loh, termId) {
   return {
     kind: "window",
     key: "crew-office-terminal",
@@ -555,10 +555,43 @@ export function fullTerminalOverlay(agent, loh) {
     layout: {
       type: "column",
       children: [
-        { type: "block", size: { px: 34 }, content: { mod: "crew-office", props: { terminalBar: true, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
+        { type: "block", size: { px: 34 }, content: { mod: "crew-office", props: { terminalBar: true, termId: termId || null, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
         { type: "block", content: { terminal: agent.address } },
       ],
     },
+  };
+}
+
+/**
+ * Who holds an agent's with-Matt lock: the docked chat and a full-terminal window, each by an id. The first
+ * holder sets the lock and the last one to go releases it. `state` is { address: [ids] }, kept in shared state.
+ */
+export function holdersAcquire(state, address, id) {
+  const cur = (state && state[address]) || [];
+  return { state: { ...(state || {}), [address]: cur.includes(id) ? cur : [...cur, id] }, lock: cur.length === 0 };
+}
+
+export function holdersRelease(state, address, id) {
+  const cur = (state && state[address]) || [];
+  const next = cur.filter((x) => x !== id);
+  const out = { ...(state || {}) };
+  if (next.length) out[address] = next; else delete out[address];
+  return { state: out, unlock: cur.includes(id) && next.length === 0 };
+}
+
+/** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-". */
+export function termHeld(state, address) {
+  const lists = address ? [(state && state[address]) || []] : Object.values(state || {});
+  return lists.some((l) => l.some((i) => String(i).startsWith("term-")));
+}
+
+/** One queue per key: each call starts when the one before it has finished, and a failure does not stop the ones after. */
+export function serialQueue() {
+  const tails = new Map();
+  return (key, fn) => {
+    const next = (tails.get(key) || Promise.resolve()).then(fn).catch(() => {});
+    tails.set(key, next);
+    return next;
   };
 }
 
