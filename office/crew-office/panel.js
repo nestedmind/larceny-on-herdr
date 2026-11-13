@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, withPending } from "./chat.js";
+import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, shownText, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const FEED_SHOWN = 3;
@@ -80,8 +80,12 @@ export class Panel {
     const a = this.agent, key = this.wantKey;
     this.fetching = true;
     const c = transcriptCall(a, this.host.loh());
-    exec(c.cmd, c.args, c.options).then((r) => {
+    // The continuation runs in cx.spawn with its own cx: the cx this method was called with is dead by then.
+    cx.spawn(async (cx) => {
+      let r = null;
+      try { r = await exec(c.cmd, c.args, c.options); } catch (_) { /* keep the old log */ }
       this.fetching = false;
+      if (!r) { this.fetchedKey = key; return; }
       if (this.address !== a.address) return;
       this.fetchedKey = key;
       if (r.code === 0) {
@@ -89,7 +93,7 @@ export class Panel {
         this.pending = withPending(this.turns, this.pending).pending;
       }
       cx.notify();
-    }).catch(() => { this.fetching = false; this.fetchedKey = key; });
+    });
   }
 
   send(cx) {
@@ -115,29 +119,32 @@ export class Panel {
       this.error = `Not sure ${a.name} got it: the send did not report back and may still go out. Check the log before sending again.`;
     };
     const began = Date.now();
-    exec(c.cmd, c.args, c.options).then((r) => {
+    cx.spawn(async (cx) => {
+      // Only a rejection of exec itself says loh could not run. Everything after it is our own
+      // handling, outside the try: a failure there must never read as "loh could not run".
+      let r = null, rejected = null;
+      try { r = await exec(c.cmd, c.args, c.options); } catch (e) { rejected = e || new Error("exec failed"); }
       this.sending = false;
-      const outcome = tellOutcome(r);
-      if (outcome === "failed") {
-        this.pending = this.pending.filter((p) => p !== entry);
-        this.error = tellError(r, a.name);
-        st.set_value(text);
-      } else if (outcome === "unknown") {
-        unknown();
-      }
-      this.fetchedKey = null;
-      cx.notify();
-    }).catch((e) => {
-      // exec rejects when the program could not be started (loh missing, folder gone): nothing ran,
-      // and the text goes back in the box. A rejection that came late may be a timeout with the
-      // send still going out: treat that as unconfirmed (rejectOutcome).
-      this.sending = false;
-      if (rejectOutcome(Date.now() - began) === "failed") {
-        this.pending = this.pending.filter((p) => p !== entry);
-        this.error = `could not run loh: ${String((e && e.message) || e || "").slice(0, 160)}`.trim();
-        st.set_value(text);
+      if (rejected) {
+        // exec rejects when the program could not be started (loh missing, folder gone): nothing ran,
+        // and the text goes back in the box. A rejection that came late may be a timeout with the
+        // send still going out: treat that as unconfirmed (rejectOutcome).
+        if (rejectOutcome(Date.now() - began) === "failed") {
+          this.pending = this.pending.filter((p) => p !== entry);
+          this.error = `could not run loh: ${String(rejected.message || rejected || "").slice(0, 160)}`.trim();
+          st.set_value(text);
+        } else {
+          unknown();
+        }
       } else {
-        unknown();
+        const outcome = tellOutcome(r);
+        if (outcome === "failed") {
+          this.pending = this.pending.filter((p) => p !== entry);
+          this.error = tellError(r, a.name);
+          st.set_value(text);
+        } else if (outcome === "unknown") {
+          unknown();
+        }
       }
       this.fetchedKey = null;
       cx.notify();
@@ -182,9 +189,9 @@ export class Panel {
 
     const { shown } = withPending(this.turns, this.pending);
     const log = shown.map((m) => v_flex().gap(1).p(6).rounded(6)
-      .bg(m.role === "user" ? t.accent + "33" : t.chrome).opacity(m.pending ? 0.6 : 1)
+      .bg(m.role === "user" && !m.launch ? t.accent + "33" : t.chrome).opacity(m.pending ? 0.6 : 1)
       .child(div().text_size(10).text_color(t.muted).child(`${speaker(m, a.name)}${m.pending ? (m.unsure ? " · not confirmed" : " · sending…") : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
-      .child(div().text_size(12).text_color(t.foreground).whitespace_normal().child(m.text.length > 1200 ? m.text.slice(0, 1200) + "…" : m.text)));
+      .child(div().text_size(m.launch ? 11 : 12).text_color(m.launch ? t.muted : t.foreground).whitespace_normal().child(shownText(m))));
     if (shown.length !== this.lastCount && shown.length > 0) {
       this.lastCount = shown.length;
       this.scroll.scroll_to_item(shown.length - 1);

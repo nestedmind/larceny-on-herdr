@@ -187,11 +187,14 @@ export default class CrewOffice extends View {
     if (key === this.reposKey) return;
     this.reposKey = key;
     const c = reposCall({ cwd: dir }, (props() || {}).loh);
-    exec(c.cmd, c.args, c.options).then((r) => {
+    // The continuation runs in cx.spawn with its own cx: the one this method got is dead by then.
+    cx.spawn(async (cx) => {
+      let r = null;
+      try { r = await exec(c.cmd, c.args, c.options); } catch (_) { return; }
       if (r.code !== 0) return;
       const next = repoNames(r.stdout);
       if (next.join("\n") !== this.repos.join("\n")) { this.repos = next; cx.notify(); }
-    }).catch(() => {});
+    });
   }
 
   // Run loh lock / unlock in the agent's own folder. It exits non-zero when loh or the command

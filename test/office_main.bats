@@ -48,7 +48,7 @@ globalThis.SELECTED = [];
 export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
-export const exec = (c, a) => (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
@@ -64,7 +64,7 @@ EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
 // A retained nested view: its node is what its render gives, so a walk of the office's tree goes into it as into any element.
-const cx = { focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
+const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
 let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
 // herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
@@ -732,4 +732,24 @@ office.floorView.inst.render();
 console.log(first !== undefined, office.floorView.inst.layer === office.shown.layer, office.shown.layer !== first, notified.filter((x) => x === office.floorView).length);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 1" ]
+}
+
+@test "the repo list is read and applied though the cx the render passed is long dead (strict cx)" {
+  run office_js '
+let resolve;
+globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
+globalThis.EXEC_HOOK = () => new Promise((r) => { resolve = r; });
+const kids = [], tasks = [], errors = [];
+const mk = () => { const c = { alive: true, notified: 0, dead: [],
+  notify() { if (!c.alive) { c.dead.push("notify"); throw new Error("cx is no longer valid"); } c.notified++; },
+  spawn(fn) { const child = mk(); kids.push(child); tasks.push(new Promise((ok) => ok(fn(child))).catch((e) => errors.push(e.message)).then(() => { child.alive = false; })); } }; return c; };
+const strict = mk();
+office.repos = []; office.reposKey = null;
+office.loadRepos([], "sandbox", strict);
+strict.alive = false;
+resolve({ code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "web" }]) });
+await Promise.all(tasks);
+console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified)]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["api","web"],[],[],[1]]' ]
 }

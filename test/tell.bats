@@ -162,11 +162,12 @@ set_get() {
   [ "$(grep -c -- '--force' "$HC_LOG")" -eq 1 ] # only inside the text argument
 }
 
-@test "tell fails with exit 1 on any other hc error" {
+@test "tell exits 12 on any other hc send error, because the message may still have gone out" {
   printf '3\n' >"$HC_DIR/send.exit"
   run --separate-stderr "$LOH" tell amy hi
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 12 ]
   [[ "$stderr" == *"hc send amy failed"* ]]
+  [[ "$stderr" == *"may still have gone out"* ]]
 }
 
 @test "say still refuses an agent that is with Matt" {

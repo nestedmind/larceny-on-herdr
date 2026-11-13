@@ -130,9 +130,10 @@ console.log(JSON.stringify(chat.cardRows({ role: "coder", status: "blocked", kin
   run chat_js '
 console.log(chat.tellOutcome({ code: 0, stderr: "" }));
 console.log(chat.tellOutcome({ code: 9, stderr: "loh: amy is blocked\n" }));
-console.log(chat.tellOutcome({ code: 1, stderr: "loh: hc send amy failed" }));
+console.log(chat.tellOutcome({ code: 1, stderr: "loh: cannot look up amy" }));
 console.log(chat.tellOutcome({ code: 124, stderr: "" }), chat.tellOutcome({ code: 137, stderr: "" }), chat.tellOutcome({ code: null }), chat.tellOutcome(undefined));
-console.log(chat.tellOutcome({ code: 10, stderr: "" }));'
+console.log(chat.tellOutcome({ code: 10, stderr: "" }));
+console.log(chat.tellOutcome({ code: 12, stderr: "loh: hc send amy failed (exit 3): x; the message may still have gone out" }));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "sent" ]
   [ "${lines[1]}" = "failed" ]
@@ -170,14 +171,6 @@ console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Sco
   grep -q 'this.panel.select(p.agent, cx); if (this.chat) this.open(p.agent, cx);' "$(mod_dir)/main.js"
 }
 
-@test "panel: a loh that cannot start says so and restores the text" {
-  grep -q "could not run loh" "$(mod_dir)/panel.js"
-  run grep -A14 "}).catch((e) => {" "$(mod_dir)/panel.js"
-  [[ "$output" == *'rejectOutcome(Date.now() - began) === "failed"'* ]]
-  [[ "$output" == *'st.set_value(text)'* ]]
-  [[ "$output" == *'unknown();'* ]]
-}
-
 @test "panel: a quick rejection is a start failure, a late one may be a timeout" {
   run chat_js '
 console.log(chat.rejectOutcome(0), chat.rejectOutcome(40), chat.rejectOutcome(4999));
@@ -187,4 +180,25 @@ console.log(chat.REJECT_QUICK_MS < chat.TELL_TIMEOUT);'
   [ "${lines[0]}" = "failed failed failed" ]
   [ "${lines[1]}" = "unknown unknown unknown unknown" ]
   [ "${lines[2]}" = "true" ]
+}
+
+@test "panel: only the turn loh flagged is the launch prompt, so a pasted turn of Matt's at the start of the window stays his" {
+  run chat_js '
+const wrapped = "<pasted_content id=\"fbdb\">\nYou are running in a herdr terminal.\n\nLoad these skills first.\n</pasted_content id=\"fbdb\">";
+const flagged = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: wrapped, launch: true }, { role: "assistant", text: "ok" }, { role: "user", text: "Hey" }]));
+console.log(flagged.map((m) => !!m.launch).join(","));
+console.log(chat.speaker(flagged[0], "Scofield"), "|", chat.speaker(flagged[2], "Scofield"));
+console.log(chat.shownText(flagged[0]));
+console.log(chat.shownText(flagged[2]));
+// The window starts after the launch prompt, with a long paste of Matt'"'"'s: no flag, so it is his.
+const late = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: "<pasted_content id=\"x\">my notes</pasted_content id=\"x\">" }, { role: "assistant", text: "ok" }]));
+console.log(late[0].launch, chat.speaker(late[0], "Scofield"), chat.shownText(late[0]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true,false,false" ]
+  [ "${lines[1]}" = "launch prompt | Matt" ]
+  [ "${lines[2]}" = "You are running in a herdr terminal. Load these skills first." ]
+  [ "${lines[3]}" = "Hey" ]
+  [ "${lines[4]}" = 'false Matt <pasted_content id="x">my notes</pasted_content id="x">' ]
 }
