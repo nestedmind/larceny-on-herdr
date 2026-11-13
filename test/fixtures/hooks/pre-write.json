@@ -1,0 +1,12 @@
+{
+  "session_id": "abc123",
+  "cwd": "__CWD__",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "__CWD__/docs/new.md",
+    "content": "file content"
+  },
+  "tool_use_id": "toolu_01ABC123..."
+}

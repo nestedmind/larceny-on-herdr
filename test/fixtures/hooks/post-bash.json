@@ -1,0 +1,20 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/Users/.../.claude/projects/.../00893aaf-19fa-41d2-8238-13269b9b3ca0.jsonl",
+  "cwd": "__CWD__",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title t --body b",
+    "description": "Open the PR"
+  },
+  "tool_response": {
+    "stdout": "https://github.com/acme/api/pull/88\n",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false
+  },
+  "tool_use_id": "toolu_01ABC123...",
+  "duration_ms": 12
+}

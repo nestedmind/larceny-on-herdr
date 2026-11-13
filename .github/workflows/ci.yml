@@ -23,6 +23,6 @@ jobs:
           shellcheck --version
           bats --version
       - name: Lint
-        run: shellcheck bin/loh lib/loh/*.sh
+        run: shellcheck bin/loh lib/loh/*.sh hooks/*.sh
       - name: Test
         run: bats test/
