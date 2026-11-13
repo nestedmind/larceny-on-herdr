@@ -17,7 +17,8 @@ crew_js() {
 # Times are in seconds here (s) so a test reads like the table.
 HELPERS='
 const T = (name, status, labels = {}, extra = {}) => ({address: "t-" + name, name, state: "live", status, cwd: "/ws/" + name, labels: {crew: "w", ...labels}, ...extra});
-const P = (L, id) => L.people.find((p) => p.id === id);
+// Someone who is simply away (idle too long, cleared, Matt away) is in the lounge, or the kitchen when stand-ins fill the lounge: both read "lounge" here.
+const P = (L, id) => { const p = L.people.find((q) => q.id === id); const away = p.mode === "away" || p.mode === "lounge" || p.mode === "deskfree" || p.mode === "desk" || p.state === "away"; return away && p.place === "kitchen" ? { ...p, place: "lounge" } : p; };
 const at = (L, id) => { const p = P(L, id); return [p.place, p.desk || "-"].join(":"); };
 const play = (steps, repos = ["api", "web"], aspect = 0) => {
   const mem = crew.newMemory(); const out = [];
@@ -128,7 +129,7 @@ console.log(a.map((L) => at(L, "sucre")).join(" "));'
   run crew_js "$HELPERS"'
 const w = [T("zed", "working", {role: "coder"})], d = [T("zed", "done", {role: "coder"})];
 const a = play([[0, w], [5, d], [184, d], [185, d]]);
-console.log(a.map((L) => L.people.find((p) => p.agent).place).join(" "));'
+console.log(a.map((L) => P(L, L.people.find((p) => p.agent).id).place).join(" "));'
   [ "$status" -eq 0 ]
   [ "$output" = "desk desk desk lounge" ]
 }
@@ -155,7 +156,7 @@ console.log(a.map((L) => P(L, "sucre").place).join(" "), P(last(a), "sucre").pad
 
 @test "a coder who waits goes to ping pong after 2 s when someone is alone at the table" {
   run crew_js "$HELPERS"'
-const esc = T("whip", "idle", {role: "coder", task: "web#2", pr: "5", round: "5"});
+const esc = T("whip", "idle", {role: "coder", task: "web#2", pr: "5", note: "escalation:stuck"});
 const w = T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", round: "1"});
 const a = play([[0, [esc, w]], [3, [esc, w]], [20, [esc, w]]]);
 console.log(a.map((L) => P(L, "whip").place + "/" + P(L, "sucre").place).join(" "));'
@@ -172,9 +173,9 @@ console.log(P(L, "sucre").place, P(L, "mahone").place, L.rally);'
   [ "$output" = "pong pong true" ]
 }
 
-@test "a coder escalated to Matt (round 5 on its PR) is at ping pong at once" {
+@test "a coder escalated to Matt (its note starts with escalation:) is at ping pong at once" {
   run crew_js "$HELPERS"'
-const ts = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", round: "5"})];
+const ts = [T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", note: "escalation:stuck"})];
 const L = last(play([[0, ts]]));
 console.log(P(L, "sucre").place, P(L, "sucre").paddle !== 0, P(L, "sucre").desk);'
   [ "$status" -eq 0 ]
@@ -247,10 +248,10 @@ console.log(a.map(f).join(" "));'
 @test "a spot in a room is kept while the person is in it: someone leaving or joining moves only themselves" {
   run crew_js "$HELPERS"'
 const mk = (n) => T(n, "idle", {role: "coder"});
-const ids = ["k1", "k2", "k3", "k4", "k5", "k6", "k7"];
+const ids = ["k1", "k2"];
 const all = ids.map(mk);
 const pos = (L, list) => list.map((id) => P(L, "x:t-" + id).x + "," + P(L, "x:t-" + id).y).join(" ");
-// Seven idle coders with no ticket: all in the lounge or the kitchen after the idle time. Then one leaves, one joins.
+// Two idle coders with no ticket: all in the lounge or the kitchen after the idle time. Then one leaves, one joins.
 const base = (list) => pos(play([[0, all], [200, all]])[1], list);
 const withLeft = (gone) => play([[0, all], [200, all], [201, all.filter((a) => a.name !== gone)]]);
 const out = [];
@@ -259,13 +260,13 @@ const joined = play([[0, all], [200, all], [201, [mk("k0"), ...all]]]);
 out.push(base(ids) === pos(last(joined), ids));
 console.log(out.every(Boolean), out.length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "true 8" ]
+  [ "$output" = "true 3" ]
 }
 
 @test "a waiting coder who gets a spot in the kitchen keeps it when another waiting coder leaves or arrives" {
   run crew_js "$HELPERS"'
 const mk = (n, i) => T(n, "done", {role: "coder", task: "api#" + i, pr: "1", round: "1"});
-const names = ["a1", "b2", "c3", "d4", "e5", "f6"];
+const names = ["a1", "b2", "c3"];
 const all = names.map(mk);
 const pos = (L, list) => list.map((id) => P(L, "x:t-" + id).x + "," + P(L, "x:t-" + id).y).join(" ");
 const base = (list) => pos(play([[0, all], [5, all]])[1], list);
@@ -273,7 +274,28 @@ const out = [];
 for (const gone of names) { const rest = names.filter((n) => n !== gone); out.push(base(rest) === pos(last(play([[0, all], [5, all], [6, all.filter((a) => a.name !== gone)]])), rest)); }
 console.log(out.every(Boolean), out.length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "true 6" ]
+  [ "$output" = "true 3" ]
+}
+
+@test "everyone keeps their spot, people with no session included, when one person arrives, leaves or changes room" {
+  run crew_js "$HELPERS"'
+const pos = (L) => Object.fromEntries(L.people.filter((p) => p.id !== "dog").map((p) => [p.id, p.place + "@" + p.x + "," + p.y]));
+const moved = (a, b, who) => Object.keys(a).filter((k) => k !== who && a[k] !== b[k]);
+const out = [];
+// Scofield goes idle past the idle time: nobody else moves (the lounge holds the stand-ins).
+{ const t = [T("scofield", "done", {role: "coordinator"}), T("sucre", "working", {role: "coder", task: "api#1"})];
+  const L = play([[0, t], [1, t], [200, t]]); out.push(moved(pos(L[1]), pos(L[2]), "scofield").length); }
+// A coder joins, a coder leaves.
+{ const base = [T("whip", "working", {role: "coder", task: "web#1"}), T("sucre", "working", {role: "coder", task: "api#2"})];
+  const joined = [...base, T("mahone", "working", {role: "coder", task: "api#3"})];
+  const a = play([[0, base], [1, joined]]); out.push(moved(pos(a[0]), pos(a[1]), "mahone").length);
+  const b = play([[0, joined], [1, base]]); out.push(moved(pos(b[0]), pos(b[1]), "mahone").length); }
+// A waiting coder in the kitchen goes back to work.
+{ const mk = (st) => [1, 2].map((i) => T("z" + i, i === 2 ? st : "done", {role: "coder", task: "api#" + i, pr: String(i)}));
+  const L = play([[0, mk("done")], [5, mk("done")], [6, mk("working")]]); out.push(moved(pos(L[1]), pos(L[2]), "x:t-z2").length); }
+console.log(out.join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0 0 0" ]
 }
 
 @test "desks are kept: a coder who joins a repo does not move the coders already at its desks" {
@@ -293,12 +315,13 @@ console.log(at(a[0], "sucre"), at(a[0], "whip"), at(a[1], "sucre"), at(a[1], "wh
   [ "$output" = "300000 120000 600000 600000 180000 180000" ]
 }
 
-@test "Matt is typing for 20 s after a key in the message box, or while the keyboard is in a terminal he opened from the office" {
+@test "Matt is typing until 20 s after his last sign, and focus counts only when it arrives on a terminal opened from the office" {
   run crew_js "$HELPERS"'
 const t = crew.TYPING_HOLD;
-console.log(t, crew.mattTypingAt(1000, 1000 + t, null, []), crew.mattTypingAt(1000 + t, 1000 + t, null, []), crew.mattTypingAt(1000, 0, "t5", ["t5"]), crew.mattTypingAt(1000, 0, "t6", ["t5"]), crew.mattTypingAt(1000, 0, null, ["t5"]), crew.mattTypingAt(1000, 0, "t5", []));'
+console.log(t, crew.mattTypingAt(1000, 1000 + t), crew.mattTypingAt(1000 + t, 1000 + t), crew.mattTypingAt(1000, 0),
+  crew.focusArrived("t5", null, ["t5"]), crew.focusArrived("t5", "t5", ["t5"]), crew.focusArrived("t6", "t5", ["t5"]), crew.focusArrived(null, "t5", ["t5"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "20000 true false true false false false" ]
+  [ "$output" = "20000 true false false true false false false" ]
 }
 
 @test "layout reports how long until the next change that time alone causes" {

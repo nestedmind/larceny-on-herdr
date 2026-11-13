@@ -638,8 +638,6 @@ export const PONG_AFTER = 15000;
 export const PONG_LONE = 2000;
 // After a clear, someone rests this long (zz) and then goes to the lounge.
 export const REST_MS = 4000;
-// A PR in this review round or later is with Matt: the coder who owns it is at ping pong.
-export const ESCALATE_ROUND = 5;
 
 /** The idle time in ms from a setting in minutes (a number or a numeric string). Anything else gives IDLE_MS. */
 export function idleMsOf(minutes) {
@@ -665,13 +663,17 @@ export function idleMinutesOf(text) {
 export const TYPING_HOLD = 20000;
 
 /**
- * Whether Matt is typing in herdr. A mod sees keys only in its own views, so: a key in the office's message box
- * within TYPING_HOLD ms (`until` is when that ends), or the keyboard is in an agent's terminal he has open from the
- * office (a docked chat or a full-terminal window: `open` lists their addresses, `focusedTerminal` is herdr's focus).
+ * Whether Matt is typing in herdr: `until` is when his last sign of activity stops counting (TYPING_HOLD after it). A mod
+ * sees keys only in its own views, so a sign is a key in the office's message box, a click on a person, or herdr's focus
+ * moving onto the terminal of an agent he opened from the office (see main.js). Never a key typed in a terminal.
  */
-export function mattTypingAt(now, until, focusedTerminal, open) {
-  if (typeof until === "number" && now < until) return true;
-  return !!focusedTerminal && (open || []).includes(focusedTerminal);
+export function mattTypingAt(now, until) {
+  return typeof until === "number" && now < until;
+}
+
+/** Whether herdr's focus has just moved onto one of `open` (addresses of terminals opened from the office): the last focus was elsewhere. */
+export function focusArrived(focusedTerminal, lastFocus, open) {
+  return !!focusedTerminal && focusedTerminal !== lastFocus && (open || []).includes(focusedTerminal);
 }
 
 /** The command that reads the workspace's settings. Same folder rules as reposCall. */
@@ -698,7 +700,7 @@ const KITCHEN = ["kitchen", "lounge"];
  *    Sara and a coder with no ticket go to the lounge once idle for `idleMs` (the kitchen when the lounge is full);
  *    a coder with a ticket stays at its desk;
  *  - a coder with a PR and no work in hand is waiting on its review: in the kitchen with a mug, at ping pong after
- *    about 15 s (2 s when someone plays alone); one whose PR is at round 5 is with Matt, at ping pong at once;
+ *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
  *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
  *    clear ends in the lounge after REST_MS;
  *  - no session: the lounge. Maya and Opemipo sit at their home desks while they run;
@@ -773,7 +775,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     const sitting = p.busy || p.recent;
     if (!p.busy && p.recent && !(p.role === "coder" && ticket) && !(p.id in SLOT_HOME)) wakes.push(idleMs - p.idleFor);
     if (p.role === "coder") {
-      if (ticket) p.mode = p.busy ? "desk" : a.pr ? (Number(a.round) >= ESCALATE_ROUND ? "esc" : "wait") : "desk";
+      if (ticket) p.mode = p.busy ? "desk" : /^escalation:/.test(a.note) ? "esc" : a.pr ? "wait" : "desk";
       else p.mode = sitting ? "deskfree" : "away";
     } else if (p.id in SLOT_HOME) p.mode = "home";
     else if (p.id === "scofield" || p.id === "amy" || p.id === "yoda" || p.id === "sara") p.mode = sitting ? "home" : "away";
@@ -891,8 +893,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     return null;
   };
   const why = (n) => n.chain.join(">");
-  // Someone with no session is a stand-in, not a person in the room: a person who arrives takes a spot before it, and it moves.
-  for (const n of needSpot.filter((x) => x.p.running || x.p.id === "matt")) {
+  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms.
+  for (const n of needSpot) {
     const h = mem.spots.get(n.p.id);
     if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) { used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room; }
   }

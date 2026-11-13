@@ -15,7 +15,7 @@ export const CREW = [
   S("amy", "working", { role: "reviewer" }),
   S("sucre", "working", { repo: "api" }),
   S("whip", "working", { repo: "web" }),
-  S("sheba", "idle", { repo: "web", pr: "5", round: "5" }),
+  S("sheba", "idle", { repo: "web", pr: "5", note: "escalation:stuck" }),
   S("mahone", "done", { repo: "api", pr: "6", round: "1" }),
   S("maya", "working", { role: "helper" }),
   S("opemipo", "idle", { role: "helper" }),
@@ -38,7 +38,7 @@ const BASE_STATES = { scofield: "working", amy: "working", sucre: "working", whi
 // the office's floor the same size, so every position must match exactly. Other stages grow the rooms on purpose
 // (crew.js worldFor): there a thing may sit anywhere its room's growth allows, and nowhere else.
 const NATIVE = { w: 976, h: 592 };
-const base = (name, crew, states, extra = {}) => ({ name, repos: ["api", "web"], stage: NATIVE, crew, typing: true, strict: true, expect: expectFor(crew, states), skip: ["tags"], ...extra });
+const base = (name, crew, states, extra = {}) => ({ name, repos: ["api", "web"], stage: NATIVE, crew, typing: true, strict: true, expect: expectFor(crew, states), ...extra });
 
 // The seated and room states of ticket #26. A turn that has ended, less than the idle time ago (a minute), and then past it
 // (3 minutes and a little); a coder with a PR and nothing to do waiting in the kitchen, then at ping pong (the prototype's
@@ -46,7 +46,7 @@ const base = (name, crew, states, extra = {}) => ({ name, repos: ["api", "web"],
 // checked against the prototype's room for the state in the table, and at a seat or spot it has there.
 const TURN_ENDED = [
   S("scofield", "done", { role: "coordinator" }), S("amy", "idle", { role: "reviewer" }), S("yoda", "done", { role: "advisor" }), S("sara", "idle", { role: "teacher" }),
-  S("sucre", "done", { repo: "api" }), S("whip", "idle", { repo: "web" }), S("Zed1", "idle", {}),
+  S("sucre", "done", { repo: "api" }), S("whip", "idle", { repo: "web" }), S("Zed1", "idle", {}), S("maya", "working", { role: "helper" }), S("opemipo", "idle", { role: "helper" }),
 ];
 const WAITING = [S("sucre", "done", { repo: "api", pr: "3", round: "1" }), S("whip", "idle", { repo: "web", pr: "4", round: "2" })];
 
@@ -55,13 +55,13 @@ export const CASES = [
   { name: "two-repos-16x9", repos: ["api", "web"], stage: { w: 1296, h: 738 }, crew: CREW, typing: true, expect: expectFor(CREW, BASE_STATES) },
   { name: "two-repos-narrow", repos: ["api", "web"], stage: { w: 520, h: 900 }, crew: CREW, typing: true, expect: expectFor(CREW, BASE_STATES) },
   { name: "six-repos", repos: ["api", "web", "app", "docs", "infra", "tools"], stage: { w: 1700, h: 800 }, crew: CREW.map((a) => (a.repo === "web" ? { ...a, repo: "docs" } : a)), typing: true, expect: expectFor(CREW, BASE_STATES) },
-  base("seated-after-turn", TURN_ENDED, { scofield: "desk", amy: "desk", yoda: "meeting", sara: "meeting", sucre: "working", whip: "working", Zed1: "working" }, { advance: 60000 }),
-  base("idle-3-minutes", TURN_ENDED, { scofield: "lounge", amy: "lounge", yoda: "lounge", sara: "lounge", sucre: "working", whip: "working", Zed1: "lounge" }, { advance: 190000 }),
+  base("seated-after-turn", TURN_ENDED, { scofield: "desk", amy: "desk", yoda: "meeting", sara: "meeting", sucre: "working", whip: "working", Zed1: "working", maya: "working", opemipo: "desk" }, { advance: 60000 }),
+  base("idle-3-minutes", TURN_ENDED, { scofield: "lounge", amy: "lounge", yoda: "lounge", sara: "lounge", sucre: "working", whip: "working", Zed1: "lounge", maya: "working", opemipo: "desk" }, { advance: 190000 }),
   base("waiting-on-review", WAITING, { sucre: "waitReview", whip: "waitReview" }, { advance: 5000 }),
   base("ping-pong-after-15s", WAITING, { sucre: "pingpong", whip: "pingpong" }, { advance: 20000 }),
-  base("escalated-to-matt", [S("sheba", "idle", { repo: "web", pr: "5", round: "5" }), S("sucre", "done", { repo: "api", pr: "3", round: "1" })], { sheba: "escalated", sucre: "waitReview" }),
-  base("rest-room-and-away", [S("sheba", "working", { repo: "web", ctx: "compact" }), S("mahone", "idle", { repo: "api", pr: "6", round: "1", ctx: "clear" }), S("sucre", "working", { repo: "api" })],
-    { sheba: "resting", mahone: "lounge", sucre: "working", matt: "away" }, { typing: false, advance: 6000 }),
+  base("escalated-to-matt", [S("sheba", "idle", { repo: "web", pr: "5", note: "escalation:stuck" }), S("sucre", "done", { repo: "api", pr: "3", round: "1" })], { sheba: "escalated", sucre: "waitReview" }),
+  base("rest-room-and-away", [S("sheba", "working", { repo: "web", ctx: "compact" }), S("mahone", "idle", { repo: "api", pr: "6", round: "1", ctx: "clear" }), S("sucre", "working", { repo: "api" }), S("whip", "working", { repo: "web" }), S("yoda", "idle", { role: "advisor" }), S("sara", "idle", { role: "teacher" })],
+    { sheba: "resting", mahone: "lounge", sucre: "working", whip: "working", yoda: "meeting", sara: "meeting", matt: "away" }, { typing: false, advance: 6000 }),
 ];
 
 // The walk checked on cases with `route`: from a kitchen spot to the leads room's desk seat.
@@ -80,4 +80,11 @@ export const KNOWN = [
   ...known("two-repos-16x9", [["x:t13", "y", 1.29]]),
   ...known("two-repos-narrow", [["x:t10", "y", 1.11], ["x:t11", "y", 1.48], ["x:t17", "y", 1.11], ["x:t13", "y", 35.21]]),
   ...known("six-repos", [["sara", "x", 1.12], ["x:t11", "y", 13.87], ["x:t13", "y", 53.87]]),
+  // The seating cases: the same tag stacking and clamping differences, in the rooms they stand in.
+  ...known("seated-after-turn", [["x:t6", "y", -2], ["sara", "x", 2], ["dog", "y", 3]]),
+  ...known("idle-3-minutes", [["mahone", "y", -29.2], ["sheba", "y", -29.4], ["x:t6", "y", -33.61], ["amy", "y", -6.82], ["dog", "y", 3]]),
+  ...known("waiting-on-review", [["dog", "y", 15.01]]),
+  ...known("ping-pong-after-15s", [["amy", "y", -32.2], ["dog", "y", 15.01]]),
+  ...known("escalated-to-matt", [["dog", "y", 15.01]]),
+  ...known("rest-room-and-away", [["sara", "x", 2], ["matt", "y", 17.8], ["scofield", "y", -18.4], ["maya", "y", -18.6], ["dog", "y", 3]]),
 ];

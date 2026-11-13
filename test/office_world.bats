@@ -89,7 +89,7 @@ console.log(a.place, a.desk, a.agent.step, a.face, b.place, b.state, b.kind, inR
 
 @test "a done coder with a PR is in the kitchen, one escalated is at ping pong, one with a task and no PR is at its desk" {
   run crew_js "$HELPERS"'
-const L = lay([T("sucre", "done", {role: "coder", task: "api#1", pr: "3", round: "1"}), T("mahone", "idle", {role: "coder", task: "api#2"}), T("sheba", "idle", {role: "coder", task: "web#3", pr: "4", round: "5"}), T("whip", "idle", {role: "coder"})], ["api", "web"]);
+const L = lay([T("sucre", "done", {role: "coder", task: "api#1", pr: "3", round: "1"}), T("mahone", "idle", {role: "coder", task: "api#2"}), T("sheba", "idle", {role: "coder", task: "web#3", pr: "4", note: "escalation:stuck"}), T("whip", "idle", {role: "coder"})], ["api", "web"]);
 console.log(["sucre", "mahone", "sheba", "whip"].map((id) => P(L, id).place).join(" "), L.rally);'
   [ "$status" -eq 0 ]
   [ "$output" = "kitchen desk pong desk false" ]
@@ -97,7 +97,7 @@ console.log(["sucre", "mahone", "sheba", "whip"].map((id) => P(L, id).place).joi
 
 @test "no rally when only one coder is at ping pong" {
   run crew_js "$HELPERS"'
-const L = lay([T("mahone", "idle", {role: "coder", task: "api#2", pr: "4", round: "5"})], ["api"]);
+const L = lay([T("mahone", "idle", {role: "coder", task: "api#2", pr: "4", note: "escalation:stuck"})], ["api"]);
 console.log(P(L, "mahone").place, L.rally);'
   [ "$status" -eq 0 ]
   [ "$output" = "pong false" ]

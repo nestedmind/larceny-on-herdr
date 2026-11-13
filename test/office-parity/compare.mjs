@@ -274,8 +274,6 @@ function distToSegment(p, a, b) {
 export async function compareCase(ctx) {
   const f = new Findings(ctx.r.k);
   for (const [name, check] of Object.entries(CHECKS)) {
-    // A case may leave a check out (`skip`): the seating cases leave out the name tags, whose stacking is #29's to fix and is checked in the first four cases.
-    if (((ctx.c && ctx.c.skip) || []).includes(name)) continue;
     const before = f.list.length;
     await check(f, ctx);
     for (let i = before; i < f.list.length; i++) f.list[i].group = f.list[i].check || name;

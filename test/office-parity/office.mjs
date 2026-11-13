@@ -83,7 +83,7 @@ const v = (n, key) => (n.props[key] ? n.props[key][0] : undefined);
 export async function drawOffice({ Office, crew, draw }, { agents, repos, stage, typing = false, advance = 0 }) {
   globalThis.TERMS = agents.map((a, i) => ({
     address: "t" + i, name: a.name, state: "live", agent: "claude", status: a.kind ? { state: a.status, kind: a.kind } : a.status || "idle",
-    labels: { crew: "parity", role: a.role || "coder", task: a.repo ? a.repo + "#" + (a.ticket || 1) : "", step: a.step || "", pr: a.pr || "", round: a.round || "", ctx: a.ctx || "" },
+    labels: { crew: "parity", role: a.role || "coder", task: a.repo ? a.repo + "#" + (a.ticket || 1) : "", step: a.step || "", pr: a.pr || "", round: a.round || "", note: a.note || "", ctx: a.ctx || "" },
   }));
   const realNow = Date.now;
   let clock = 1e12;

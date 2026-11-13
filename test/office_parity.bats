@@ -111,7 +111,7 @@ copy_mod() {
 
 @test "seating: Matt at his desk when he is not typing is reported" {
   copy_mod
-  sed -i 's/mattTyping: mattTypingAt(now, this.mattUntil, focus \&\& focus.terminal, this.openTerminals()),/mattTyping: true,/' "$MOD/main.js"
+  sed -i 's/mattTyping: mattTypingAt(now, this.mattUntil),/mattTyping: true,/' "$MOD/main.js"
   run node "$TOOL/run.mjs" --mod "$MOD" --case rest-room-and-away
   [ "$status" -eq 1 ]
   [[ "$output" == *"matt place"* ]]
@@ -252,12 +252,12 @@ use_fakes() {
   [[ "$output" == *" y: office"* ]]
 }
 
-@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases" {
+@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases, and 3, 5, 1, 2, 1 and 5 in the six seating cases" {
   run node "$TOOL/run.mjs"
   [ "$status" -eq 0 ]
   [[ "$output" == *"two-repos-native"*"8 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
   [[ "$output" == *"two-repos-narrow"*"4 known"* && "$output" == *"six-repos"*"3 known"* ]]
-  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 16 ]
+  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 33 ]
 }
 
 # The tool in a temp dir, so a test can change its list of known differences.

@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -102,6 +102,7 @@ export default class CrewOffice extends View {
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
     this.mem = newMemory();
     this.mattUntil = 0;
+    this.lastFocus = null;
     // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
     this.wake = null;
     // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
@@ -555,6 +556,7 @@ export default class CrewOffice extends View {
   // What a click on a person does, from the figure or from the name tag: someone running opens their
   // chat panel (and moves the open chat to them), someone not running who can be started gets the offer.
   pick(p, cx) {
+    this.typed(null); // a click is Matt at work, as in the prototype
     if (p.agent) { this.panel.select(p.agent, cx); if (this.chat) this.open(p.agent, cx); }
     else if (!p.running && p.id !== "matt" && p.id !== "dog") this.offerStart(p, cx);
   }
@@ -656,10 +658,15 @@ export default class CrewOffice extends View {
     const now = Date.now();
     let focus = null;
     try { focus = focused(); } catch (_) { /* no focus information: only the message box counts */ }
+    // Focus arriving on a terminal he opened from the office counts as Matt at work for TYPING_HOLD, like a key in the message
+    // box; focus that stays there does not renew it (herdr shows no keys typed in a terminal).
+    const here = focus && focus.terminal ? focus.terminal : null;
+    if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattUntil = now + TYPING_HOLD;
+    this.lastFocus = here;
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
       mem: this.mem, now,
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
-      mattTyping: mattTypingAt(now, this.mattUntil, focus && focus.terminal, this.openTerminals()),
+      mattTyping: mattTypingAt(now, this.mattUntil),
     });
     this.layoutNow = L;
     // Time alone ends some things: ask for a render then. Matt's typing hold is one of them.

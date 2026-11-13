@@ -760,7 +760,7 @@ console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k
 # Scofield's turn ends; nothing in herdr changes after that, so a timer has to bring the office back for the idle time to end.
 @test "Scofield stays at his desk after his turn ends and goes to the lounge when the idle time is over, brought back by a timer" {
   run office_js '
-const place = () => office.layoutNow.people.find((p) => p.id === "scofield").place;
+const place = () => { const q = office.layoutNow.people.find((p) => p.id === "scofield").place; return q === "kitchen" || q === "lounge" ? "away" : q; };
 render();
 terms()[0].status = "done";
 render();
@@ -771,13 +771,13 @@ const before = place();
 later(1000); render();
 console.log(at0, wake.length, wake[0] > 179000 && wake[0] < 181000, before, place());'
   [ "$status" -eq 0 ]
-  [ "$output" = "desk 1 true desk lounge" ]
+  [ "$output" = "desk 1 true desk away" ]
 }
 
 @test "the idleMinutes prop sets the idle time, and the workspace's setting is used without it" {
   run office_js '
 globalThis.PROPS = { crew: "sandbox", idleMinutes: 1 };
-const place = () => office.layoutNow.people.find((p) => p.id === "scofield").place;
+const place = () => { const q = office.layoutNow.people.find((p) => p.id === "scofield").place; return q === "kitchen" || q === "lounge" ? "away" : q; };
 render();
 terms()[0].status = "idle";
 render();
@@ -790,7 +790,7 @@ const settingHolds = place();
 later(300000); render();
 console.log(withProp, settingHolds, place());'
   [ "$status" -eq 0 ]
-  [ "$output" = "lounge desk lounge" ]
+  [ "$output" = "away desk away" ]
 }
 
 @test "Matt is away until he types in the message box, at his desk for 20 s after, and away again, brought back by a timer" {
@@ -810,17 +810,20 @@ console.log(away, typing, still, matt().place, wake.some((m) => m > 19000 && m <
   [ "$output" = "lounge matt matt lounge true" ]
 }
 
-@test "Matt is at his desk while an office-opened terminal of an agent has the keyboard, and away when focus is elsewhere" {
+@test "Matt is at his desk for 20 s after focus arrives on a terminal opened from the office, and goes away though it stays focused" {
   run office_js '
 const matt = () => office.layoutNow.people.find((p) => p.id === "matt").place;
 office.chat = { pane: "p1", office: "p1", address: "tsheba", name: "sheba", agent: {} };
 globalThis.FOCUS = { terminal: "tsheba" };
 render();
 const focused = matt();
-globalThis.FOCUS = { terminal: "tscofield" };
-render();
-const elsewhere = matt();
-console.log(focused, elsewhere);'
+later(19000); render();
+const still = matt();
+later(2000); render();
+const stays = matt();
+globalThis.FOCUS = { terminal: "tscofield" }; render();
+globalThis.FOCUS = { terminal: "tsheba" }; render();
+console.log(focused, still, stays, matt());'
   [ "$status" -eq 0 ]
-  [ "$output" = "matt lounge" ]
+  [ "$output" = "matt matt lounge matt" ]
 }
