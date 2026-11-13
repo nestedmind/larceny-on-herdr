@@ -29,7 +29,7 @@ function el() {
   return p;
 }
 export const div = el;
-export const View = class {};
+export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
 export const PathBuilder = { fill: mk, stroke: mk };
@@ -63,7 +63,8 @@ EOF
   cat > "$d/run.mjs" <<EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
-const cx = { focus_handle: () => ({ focus() {}, is_focused: () => true }), timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
+// A retained nested view: its node is what its render gives, so a walk of the office's tree goes into it as into any element.
+const cx = { focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
 let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
 const fresh = () => { office = new Office({}, cx); office.init({}, cx); office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
@@ -581,4 +582,57 @@ o.enterFullscreen({ mine: "p1", zoomed: false }, cx);
 console.log(globalThis.NOTES.map((n) => n.body).join("|"));'
   [ "$status" -eq 0 ]
   [ "$output" = "An office is in full screen. Click this office to take it back, or close the other office pane." ]
+}
+
+# the floor is a retained view of its own: herdr runs its render when it is told to, not with every render of the office
+
+@test "the office's own render holds no floor shapes: they are in a retained view of their own" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const root = render();
+const isEnt = (k) => k && typeof k.inst === "object";
+const raw = (n, out = []) => { out.push(n); for (const k of n.kids) if (k && k.node && !isEnt(k)) raw(k.node, out); return out; };
+const mine = raw(root.node);
+const entity = mine.flatMap((n) => n.kids).filter(isEnt);
+const floorNode = entity[0] && entity[0].node;
+console.log(entity.length, Math.max(...mine.map((n) => n.kids.length)) < 100, floorNode.kids.length > 100, floorNode.props.size_full !== undefined);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true true true" ]
+}
+
+@test "the floor view fills the floor box with percentage paths, so a new scale needs no new render of it" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const a = office.floorView.inst.render().node;
+console.log(JSON.stringify(a.props.left), JSON.stringify(a.props.top), a.props.w, a.props.h);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[0] [0] undefined undefined" ]
+}
+
+@test "steady renders do not ask the floor view to render again" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+all(find(render(), "stage"));
+const notified = [];
+timers.length = 0;
+for (let i = 0; i < 6; i++) render();
+for (const t of timers.splice(0)) t.fn({ notify: (x) => notified.push(x) });
+console.log(notified.includes(office.floorView));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "a finished new plan is handed to the floor view, which is asked to render once" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+all(find(render(), "stage"));
+const first = office.floorView.inst.layer;
+office.size = { width: 1630, height: 1000 };
+for (let i = 0; i < 16; i++) render();
+const notified = [];
+for (const t of timers.splice(0)) t.fn({ notify: (x) => notified.push(x) });
+office.floorView.inst.render();
+console.log(first !== undefined, office.floorView.inst.layer === office.shown.layer, office.shown.layer !== first, notified.filter((x) => x === office.floorView).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true 1" ]
 }

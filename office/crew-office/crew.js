@@ -185,6 +185,7 @@ export function restoreSteps(plan) {
  * What a copy of the office does at startup with a full-screen plan saved by an earlier one
  * ({ plan, pane }): "adopt" it when it is this copy's own pane (a reload), "undo" it when its pane
  * no longer exists (a crash or a restart), "leave" it when another live pane owns it, else "none".
+ * A saved plan with no pane at all is "adopt"ed too: it belongs to an office run as a layout block, which has no pane.
  */
 export function recoveryFor(saved, paneIds, ownPane, officeIds = []) {
   if (!saved || !saved.plan) return "none";
@@ -566,7 +567,7 @@ export function fullTerminalOverlay(agent, loh, termId) {
 
 /**
  * Who holds an agent's with-Matt lock: the docked chat and a full-terminal window, each by an id. The first
- * holder sets the lock and the last one to go releases it. `state` is { address: [ids] }, kept in shared state.
+ * holder sets the lock and the last one to go releases it. `state` is { address: [ids] }, kept in module state (main.js holds it), shared by every copy of this source.
  */
 const idsOf = (state, address) => {
   const v = state && typeof state === "object" ? state[address] : null;

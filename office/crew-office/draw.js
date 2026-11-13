@@ -211,6 +211,15 @@ export class Layer {
     return div().absolute().left(this.x * this.k).top(this.y * this.k).w(w).h(h)
       .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
   }
+  /**
+   * A finished percentage layer as an element that fills whatever box it is put in, so it is the same
+   * element at every scale. Its paths are all built (`done`); the floor's own view returns it.
+   */
+  fillEl() {
+    if (!this.pct || !this.done) throw new Error("fillEl needs a percentage layer whose paths are all built");
+    return div().absolute().left(0).top(0).size_full()
+      .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
+  }
 }
 
 // ---------- the floor ----------

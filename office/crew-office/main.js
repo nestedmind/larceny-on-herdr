@@ -53,6 +53,27 @@ function unhold(a, loh, id) {
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 
+// The floor is a retained nested view of its own. herdr runs a view's render() when that view is
+// invalidated, not with every render of the office, so the floor's thousands of path commands are
+// described once per plan and not on every render of everything else. The office puts the finished
+// floor here ({ layer }), under the id it gave its view, and asks the view to render again when
+// the plan changes. (Plain module state: props cross herdr's view bridge as data.)
+const FLOORS = new Map();
+let floorSeq = 0;
+
+class Floor extends View {
+  init(props) { this.id = props && props.id; }
+  update(props) { this.id = props && props.id; }
+  render() {
+    const s = FLOORS.get(this.id);
+    if (!s || !s.layer) return div();
+    // What this view last drew, so the office knows whether a newly finished floor needs another render.
+    s.drawn = s.layer;
+    this.layer = s.layer;
+    return s.layer.fillEl();
+  }
+}
+
 export default class CrewOffice extends View {
   init(_props, cx) {
     // The slim bar of a full-terminal window: nothing else of the office runs there.
@@ -79,6 +100,9 @@ export default class CrewOffice extends View {
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
     this.floors = new Map();
+    this.floorId = `floor-${++floorSeq}`;
+    FLOORS.set(this.floorId, { layer: null, drawn: null });
+    this.floorView = cx.new(Floor, { id: this.floorId });
     // The last floor that was finished, drawn while a new plan builds, and the two most recent finished plans' keys (kept in the cache).
     this.shown = null;
     this.pinned = [];
@@ -318,6 +342,7 @@ export default class CrewOffice extends View {
       if (p.agent && p.agent.address && p.termId) { try { await unhold(p.agent, p.loh, p.termId); } catch (_) { /* nothing to undo */ } }
       return;
     }
+    FLOORS.delete(this.floorId);
     const f = this.fs;
     if (!f) return;
     this.fs = null;
@@ -598,17 +623,26 @@ export default class CrewOffice extends View {
     // (A first render after a reload also has the whole crew to draw, so with no floor yet the drawing list waits for the second.)
     if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k);
     this.floor.waited = true;
-    let floorEl = null;
     let building = true;
     if (this.floor.layer) {
       const layer = this.floor.layer.at(k);
-      if (layer.done) { floorEl = layer.el(); building = false; }
-      else if (this.shown && this.shown !== this.floor) { layer.build(BUILD_MS); building = !layer.done; }
-      else { floorEl = layer.el(BUILD_MS); building = !layer.done; }
+      if (!layer.done) layer.build(BUILD_MS);
+      building = !layer.done;
       if (layer.done) { this.shown = this.floor; this.pinned = [key, ...this.pinned.filter((x) => x !== key)].slice(0, 2); }
     }
-    if (!floorEl && this.shown) floorEl = this.shown.layer.at(k).el(undefined, { w: u(L.W), h: u(L.H) });
     if (!this.shown) { this.keepBuilding(); return this.frame(t, L, view, stageColour, true, waiting(), showPanel, F, cx); }
+    // The floor view draws the last finished floor (stretched over a new plan's box until that is finished, as its
+    // paths are percentages). A plan that finished since it last drew is handed over, and the view is asked, one tick on,
+    // to render once more. The view's first render, when it is first mounted, draws what is handed over by then.
+    const handed = FLOORS.get(this.floorId);
+    handed.layer = this.shown.layer;
+    if (handed.drawn && handed.drawn !== handed.layer && !this.floorAsked) {
+      this.floorAsked = true;
+      this.acx.timer.after(1, (c) => {
+        this.floorAsked = false;
+        try { c.notify(this.floorView); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
@@ -686,7 +720,7 @@ export default class CrewOffice extends View {
     if (building) this.keepBuilding();
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
-      .when(!!floorEl, (el) => el.child(floorEl)).children(glows).child(plaque.el())
+      .child(this.floorView).children(glows).child(plaque.el())
       .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
