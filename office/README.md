@@ -1,6 +1,6 @@
 # Crew office
 
-`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own beyond which chat is open, and animates with `.frames()`, `.loop()` and `.transition()`, never timers.
+`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own beyond which chat is open, and animates with `.loop()` and `.transition()`, with no repeating timer.
 
 ## Install
 
@@ -29,24 +29,39 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 |---|---|
 | `crew` | Workspace to show. Default: the `crew` label with the most live terminals |
 | `loh` | Path of the `loh` command to run on click and to list repos. Default: `loh` on herdr-app's PATH |
+| `dir` | A folder inside the workspace, used to find it (repo list, `loh up`) when no agent is running |
 
 ## What it shows
 
-- **Agents only.** Only agent terminals are drawn. A terminal labelled `role=watch` (the `loh-watch` notifier) or one that runs another program (a shell, `loh`) is left out.
-- **Repo rooms.** One room per repo in the workspace manifest, with four desks each, even when no coder is working. The office gets the list from `loh status --repos`, run in an agent's folder, so the manifest is read in one place only. A coder whose `task` names a repo that is not in the manifest still gets a room, after the others. A fifth coder in a repo waits in the lounge. If `loh` fails, the rooms from coders' `task` labels still show.
-- **Leads room.** The coordinator and the reviewer, at their own desks.
-- **Kitchen.** A coder whose status is `done` walks to the kitchen for a coffee, and back to its desk when it is working again. Four spots; when they are full, a done coder stays at its desk. A coder in the kitchen keeps its desk reserved, so the others do not move.
-- **Lounge.** Coders with no task, and anyone with a role the office does not know. Waffles the dog sleeps on her bed here (decoration, not an agent).
-- **People.** Seen from above, with hair, a face turned the way they look (desks face their screens), and both hands on the keyboard while `working`. Each person and name tag slides to the new place when an agent's state or task changes (a native transition on `left`/`top`, no timer). A change of scale or floor width (a resize, the chat opening, the repo list arriving) does not slide anyone: only a change of place does.
-- **Meeting room.** The advisor and the teacher sit at the table; the wall screen shows how many agents the crew has.
-- **No dead space.** The floor is exactly as wide as its rooms and is scaled to fit the pane (smaller than life when the pane is narrow), and centred while it fits.
-- **Top bar.** Totals of working, blocked, done and idle agents.
-- **Name tag.** Name, then `repo#ticket`, `PR <n>` and `r<round>`, then the step (or note). A "with Matt" pill shows when `with_matt=1`.
+- **The whole cast, always.** Scofield, Sucre, Mahone, Sheba, Whip, Amy, Maya, Opemipo, Yoda, Sara, Matt and the dog Waffles are drawn whether or not they have a terminal. A terminal is matched to a person by its name, or by its `role` label (`coordinator` is Scofield, `reviewer` Amy, `advisor` Yoda, `teacher` Sara). A running agent that matches nobody is drawn as an extra person.
+- **Agents only.** Only agent terminals count. A terminal labelled `role=watch` (the `loh-watch` notifier) or one that runs another program (a shell, `loh`) is left out.
+- **Floor plan.** The design prototype's, in its units (288 high, at least 480 wide). One repo room per repo in the workspace manifest, each with a pod of four desks, then the leads room (Scofield and Amy) and the meeting room; a corridor; then Matt's room, the kitchen, the lounge, ping pong and the rest room. The office gets the repo list from `loh status --repos`, run in an agent's folder (or the `dir` prop when none runs). A coder whose `task` names a repo that is not in the manifest still gets a room, after the others. The floor is measured in its own stage under the bar, so it takes all the room there. A third repo widens the floor: the lounge takes the extra width. Fewer than two repos leaves bare wall at the end of the top row.
+- **Where people stand.**
+  - A coder that is `working` or `blocked` is at its desk, never in the lounge while any desk is free: in its task's repo room, else a free desk in another room. `done` goes to the kitchen, `idle` with a task to ping pong (two of them rally), and an idle coder with no task or no terminal to the lounge. A coder's desk stays its own while it is away, so the others do not move. A coder waits in the lounge only when every desk is taken.
+  - Maya and Opemipo are at a home desk in the repo rooms while running (Maya the third desk of the second repo room, Opemipo the fourth of the first). A home desk is held only while its helper runs.
+  - Scofield and Amy sit at their desks while `working` or `blocked`; idle or done they go to the lounge or kitchen like everyone else. Yoda and Sara sit at the meeting table while running.
+  - Anyone not running is in the lounge, then the kitchen and the rest room when it is full.
+  - Matt is at his desk. Waffles sleeps on her bed, and walks to sit beside Matt while any agent is blocked and needs him.
+- **People.** Seen from above: hair (long where the prototype has it), a face turned the way they look, Matt's headset, a ring in the state colour, hands on the keyboard while working, a raised hand and a bubble (`allow?` or `?`) for a permission or question, the prototype's flag (pole and blinking pink pennant) for any other block, a coffee mug in the kitchen and lounge, `zz` in the rest room, paddles and a ball at ping pong. Someone with no terminal is drawn faded.
+- **Walking.** When a person's place changes they walk door to door through the corridor (the prototype's paths, each person in a slightly different lane), at the prototype's speed, with swinging arms and a bob. Each leg is a native `left`/`top` transition; a one-shot timer ends each leg so the next starts and the gait stops (at most a handful per walk, never a repeating one). Typing, the ball, screens and the dog use `.loop()`. A change of scale or floor width (a resize, the chat opening, the repo list arriving) does not walk anyone.
+- **Lights.** The floor palette is the prototype's. When the app is in dark mode the floor gets the prototype's night shading: dimmed, with each lit screen pooling light on its desk.
+- **Screens.** A desk's monitor shows green for a working agent, a blinking amber, blue or pink for a blocked one (permission, question, other), and dim for an owner who is away.
+- **Starting someone.** Clicking the name chip of someone with no terminal asks before it starts anything. Scofield and Amy: the bar offers `loh up` with Start and Cancel. A coder: a form with a repo from the manifest and a ticket number (digits; type them, Enter starts, Esc cancels) that runs `loh spawn <coder> <repo> <ticket>` on Start. loh has no command for anyone else, and the bar says so. Clicking someone running keeps the chat behaviour below. loh runs in the `dir` prop folder if set, else a running agent's folder, else a pane's folder in this tab. The Start prompt names the folder.
+- **No dead space.** The floor is scaled to fit the pane (smaller than life when the pane is narrow), and centred while it fits.
+- **Top bar.** Totals of working, blocked, done and idle agents, over the ten agents (one with no terminal counts as idle, as in the prototype).
+- **Name tag.** Name, then `repo#ticket`, `PR <n>` and `r<round>`, then the step (or note). A "with Matt" pill shows when `with_matt=1`. Tags are stacked so they do not cover each other.
+
+### What herdr-app cannot do
+
+- No radial gradient (`Background` has solid, linear, slash and checkerboard only), so a screen's night glow is stacked translucent discs.
+- No per-frame callback and no stepped easing: the arm swing, bob, typing taps and ball are `.loop()` between two values (smooth, not the prototype's square wave). The screen cursor steps with `.frames()` as a text glyph. A walker's facing changes at each leg, not smoothly.
+- A stroke has no line-cap setting, so the arms' ends are square.
+- No visibility event: motion stops when the tab is hidden because native loops and transitions stop when not drawn.
 
 | Agent status | How it shows |
 |---|---|
-| `working` | Green dots animate beside the person |
-| `blocked` | A raised hand and a bubble: amber `allow?` for a permission prompt, blue `?` for a question, pink `!` for anything else |
+| `working` | Green ring, hands tapping the keyboard, a green monitor |
+| `blocked` | A ring and a blinking monitor. Permission or question: a raised hand and a bubble (amber `allow?`, blue `?`). Anything else: a flag with a blinking pink pennant |
 | `done` | A green tick |
 | `idle` | Plain, at the desk |
 
