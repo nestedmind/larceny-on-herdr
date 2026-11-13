@@ -172,7 +172,19 @@ console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Sco
 
 @test "panel: a loh that cannot start says so and restores the text" {
   grep -q "could not run loh" "$(mod_dir)/panel.js"
-  run grep -A9 "}).catch((e) => {" "$(mod_dir)/panel.js"
+  run grep -A14 "}).catch((e) => {" "$(mod_dir)/panel.js"
+  [[ "$output" == *'rejectOutcome(Date.now() - began) === "failed"'* ]]
   [[ "$output" == *'st.set_value(text)'* ]]
-  [[ "$output" != *'unknown()'* ]]
+  [[ "$output" == *'unknown();'* ]]
+}
+
+@test "panel: a quick rejection is a start failure, a late one may be a timeout" {
+  run chat_js '
+console.log(chat.rejectOutcome(0), chat.rejectOutcome(40), chat.rejectOutcome(4999));
+console.log(chat.rejectOutcome(5000), chat.rejectOutcome(75000), chat.rejectOutcome(undefined), chat.rejectOutcome(-1));
+console.log(chat.REJECT_QUICK_MS < chat.TELL_TIMEOUT);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "failed failed failed" ]
+  [ "${lines[1]}" = "unknown unknown unknown unknown" ]
+  [ "${lines[2]}" = "true" ]
 }

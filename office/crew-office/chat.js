@@ -49,6 +49,17 @@ export function withPending(turns, pending) {
 }
 
 /**
+ * What a rejected exec means. herdr.d.ts says exec rejects when the program cannot start, and says
+ * nothing about a timeout, which might reject too. A rejection within REJECT_QUICK_MS is a start
+ * failure (nothing ran: "failed"); a later one may be a timeout with the send still going out
+ * ("unknown").
+ */
+export const REJECT_QUICK_MS = 5000;
+export function rejectOutcome(elapsedMs) {
+  return typeof elapsedMs === "number" && elapsedMs >= 0 && elapsedMs < REJECT_QUICK_MS ? "failed" : "unknown";
+}
+
+/**
  * What happened to a `loh tell` call that returned: "sent", "failed" (loh said no, and said why: nothing
  * was sent) or "unknown" (killed or cut off with no word from loh: the message may still go out).
  */

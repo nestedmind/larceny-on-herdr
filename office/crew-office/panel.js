@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, speaker, tellCall, tellError, tellOutcome, transcriptCall, withPending } from "./chat.js";
+import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, withPending } from "./chat.js";
 
 export const PANEL_W = 360;
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -114,6 +114,7 @@ export class Panel {
       entry.unsure = true;
       this.error = `Not sure ${a.name} got it: the send did not report back and may still go out. Check the log before sending again.`;
     };
+    const began = Date.now();
     exec(c.cmd, c.args, c.options).then((r) => {
       this.sending = false;
       const outcome = tellOutcome(r);
@@ -127,12 +128,17 @@ export class Panel {
       this.fetchedKey = null;
       cx.notify();
     }).catch((e) => {
-      // herdr's exec rejects when the program could not be started (loh missing, folder gone):
-      // nothing ran, so nothing was sent and the text goes back in the box.
+      // exec rejects when the program could not be started (loh missing, folder gone): nothing ran,
+      // and the text goes back in the box. A rejection that came late may be a timeout with the
+      // send still going out: treat that as unconfirmed (rejectOutcome).
       this.sending = false;
-      this.pending = this.pending.filter((p) => p !== entry);
-      this.error = `could not run loh: ${String((e && e.message) || e || "").slice(0, 160)}`.trim();
-      st.set_value(text);
+      if (rejectOutcome(Date.now() - began) === "failed") {
+        this.pending = this.pending.filter((p) => p !== entry);
+        this.error = `could not run loh: ${String((e && e.message) || e || "").slice(0, 160)}`.trim();
+        st.set_value(text);
+      } else {
+        unknown();
+      }
       this.fetchedKey = null;
       cx.notify();
     });
