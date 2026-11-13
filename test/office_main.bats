@@ -70,7 +70,7 @@ let office;
 // herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
 // calls a test makes: its functions, and those of its timer, throw once alive is false, so a view that keeps a cx and
 // uses it later fails here. Each render below gets one and ends it when it returns. The cx of init is an AsyncContext in herdr (it may be held), so init gets the plain one.
-const strict = () => {
+const strictCx = () => {
   const s = { alive: true };
   const guard = (o, name) => new Proxy(o, { get: (t, k) => {
     const v = t[k], n = name + "." + String(k);
@@ -81,7 +81,7 @@ const strict = () => {
   return s;
 };
 const fresh = () => { office = new Office({}, cx); office.init({}, cx); office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
-const render = () => { const s = strict(); try { return office.render(s.cx); } finally { s.alive = false; } };
+const render = () => { const s = strictCx(); try { return office.render(s.cx); } finally { s.alive = false; } };
 // A clock a test moves by hand: the hold before a walk and the time a walk has run are read from Date.now.
 let clock = 1e12;
 Date.now = () => clock;
@@ -389,10 +389,10 @@ terms()[1].status = "working";
 later(500); render();
 later(4000); const mid = sig(render());
 const same = mid === first && walk().legs === legs;
-// the walk ends: the timers run, and a render after sees the old place wanted again, held long enough
+// the walk ends: the timers run, one render at rest follows, and the next sees the old place wanted again, held long enough
 later(60000);
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
-render();
+render(); later(60); timers.filter((t) => !t.cancelled).forEach((t) => t.fn({ notify() {} })); render();
 const back = walk();
 console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y === home.y, back.from.x !== home.x || back.from.y !== home.y);'
   [ "$status" -eq 0 ]
@@ -410,6 +410,28 @@ render();
 console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goal === office.walks.get("sheba").at || office.walks.get("sheba").goal.x === office.walks.get("sheba").at.x);'
   [ "$status" -eq 0 ]
   [ "$output" = "0 true" ]
+}
+
+@test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
+  run office_js '
+const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
+const going = (l) => l.some((x) => x[2] > 1);
+const rest = (l) => l.every((x) => x[0] === 0 && x[1] === 0);
+let prev = null, walks = 0, bad = 0;
+const R = () => { const l = links(render()); if (going(l) && !(prev && going(prev) && JSON.stringify(l) === JSON.stringify(prev))) { walks++; if (!(prev && rest(prev))) bad++; } prev = l; };
+const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
+R();
+// out to the desk, and back to the kitchen while still on the way
+terms()[1].status = "done"; R(); later(3000); R();
+later(1000); terms()[1].status = "working"; R();
+later(60000); fire(); R(); later(60); fire(); R();
+// the walk back, and out again as soon as it has begun
+terms()[1].status = "done"; R();
+later(60000); fire(); R(); later(60); fire(); R();
+later(60000); fire(); R(); later(60); fire(); R();
+console.log(walks, bad);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3 0" ]
 }
 
 @test "while a new plan builds, the last finished floor stays on screen" {

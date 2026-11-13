@@ -18,6 +18,8 @@ import { Panel } from "./panel.js";
 const BUILD_MS = 12;
 // A walk's end is taken this long after its last leg should have ended, so the clock never ends it early.
 const ARRIVE_SLACK = 60;
+// How long a walker stands at rest, movers put back, between the end of one walk and the start of the next.
+const SETTLE_MS = 50;
 // The name tag's own slide, for when the tags restack at rest.
 const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
@@ -367,7 +369,8 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.pending = null; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (snap) { this.stopWalk(w); w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
@@ -381,6 +384,17 @@ export default class CrewOffice extends View {
   stopWalk(w) {
     for (const t of w.tasks) { try { t.cancel(); } catch (_) { /* already done */ } }
     w.tasks = [];
+  }
+
+  // The render after a walk ends draws the person at rest, with every mover put back to zero, and asks for one
+  // more render a moment on: a walk is never handed over in the render that ends the one before it. The movers
+  // of the walk that ended still hold its offsets, and a new walk's offsets with their delays would be drawn
+  // from there, a whole walk away, each leg sliding the wrong way in a leg's time.
+  settle(w) {
+    w.settling = false;
+    w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    }));
   }
 
   // A new place for someone is acted on only once it has held for a moment, and never while they walk
@@ -418,7 +432,7 @@ export default class CrewOffice extends View {
       const last = i === legs.length - 1;
       w.tasks.push(this.acx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
         if (w.legs !== legs) return;
-        if (last) { w.at = goal; w.legs = []; w.i = 0; } else w.i = i + 1;
+        if (last) { w.at = goal; w.legs = []; w.i = 0; w.settling = true; } else w.i = i + 1;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
       }));
     });
