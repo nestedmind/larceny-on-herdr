@@ -189,3 +189,43 @@ console.log(JSON.stringify(crew.restoreSteps(plan)), JSON.stringify(crew.restore
   [ "$status" -eq 0 ]
   [ "$output" = '[{"window":true},{"show":"status"},{"show":"sidebar"},{"zoom":true}] []' ]
 }
+
+@test "the floor cache key changes when only the height changes" {
+  run crew_js '
+const a = crew.layoutCrew([], ["api", "web"], 1.2), b = crew.layoutCrew([], ["api", "web"], 1.1);
+const k = 1.5;
+console.log(a.W === b.W, a.H !== b.H, crew.floorKey(a, k) !== crew.floorKey(b, k), crew.floorKey(a, k) === crew.floorKey(a, k), crew.floorKey(a, k) !== crew.floorKey(a, 1.6));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true true" ]
+}
+
+@test "the entrance mat, its light and the gap in the outer wall share the corridor's middle at every aspect" {
+  run crew_js "$HELPERS"'
+const bad = [];
+for (const a of [9 / 16, 1, 4 / 3, 16 / 9, 32 / 9]) {
+  const L = crew.layoutCrew([], ["api", "web"], a);
+  const e = L.entrance, mid = L.corr.y + L.corr.h / 2;
+  if (Math.abs(e.y + e.h / 2 - mid) > 1e-6) bad.push([a, "mat"]);
+  if (Math.abs(e.light.y + e.light.h / 2 - mid) > 1e-6) bad.push([a, "light"]);
+  if (Math.abs(e.gap.y0 - (e.y - 2)) > 1e-6 || Math.abs(e.gap.y1 - (e.y + e.h + 2)) > 1e-6) bad.push([a, "gap"]);
+}
+console.log(JSON.stringify(bad), JSON.stringify(crew.layoutCrew([], ["a", "b"]).entrance));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[] {"y":128,"h":24,"light":{"y":136,"h":8},"gap":{"y0":126,"y1":154}}' ]
+}
+
+@test "startup recovery: adopt your own pane's plan, undo one whose pane is gone, leave a live one alone" {
+  run crew_js '
+const saved = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
+const r = (s, panes, own) => crew.recoveryFor(s, panes, own);
+console.log([r(saved, ["p1", "p2"], "p1"), r(saved, ["p1", "p2"], "p2"), r(saved, ["p2"], "p2"), r(saved, [], null), r(null, ["p1"], "p1"), r({ pane: "p1" }, ["p1"], "p1")].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "adopt leave undo undo none none" ]
+}
+
+@test "full-screen restore as herdr-app commands, for use when the app quits" {
+  run crew_js '
+console.log(JSON.stringify(crew.doArgs({ show: "sidebar" }, "p1")), JSON.stringify(crew.doArgs({ zoom: true }, "p1")), JSON.stringify(crew.doArgs({ window: true }, "p1")));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["do","layout.show","--id","sidebar"] ["do","pane.zoom","--pane","p1"] null' ]
+}

@@ -181,6 +181,29 @@ export function restoreSteps(plan) {
   return out;
 }
 
+/**
+ * What a copy of the office does at startup with a full-screen plan saved by an earlier one
+ * ({ plan, pane }): "adopt" it when it is this copy's own pane (a reload), "undo" it when its pane
+ * no longer exists (a crash or a restart), "leave" it when another live pane owns it, else "none".
+ */
+export function recoveryFor(saved, paneIds, ownPane) {
+  if (!saved || !saved.plan || !saved.pane) return "none";
+  if (saved.pane === ownPane) return "adopt";
+  return (paneIds || []).includes(saved.pane) ? "leave" : "undo";
+}
+
+/** A restore step as the arguments of `herdr-app do`, or null for one with no command (the window). */
+export function doArgs(step, pane) {
+  if (step.show) return ["do", "layout.show", "--id", step.show];
+  if (step.zoom && pane) return ["do", "pane.zoom", "--pane", pane];
+  return null;
+}
+
+/** Everything the cached floor drawing depends on: change any of these and it is drawn again. */
+export function floorKey(L, k) {
+  return `${k}|${L.W}|${L.H}|${L.pods.map((p) => p.repo).join(",")}`;
+}
+
 /** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
 export function officePane(panes, props) {
   if (props && props.pane) return props.pane;
@@ -378,6 +401,9 @@ export function worldFor(repoNames = [], aspect = 0) {
   return {
     W, H, rooms, desks, mattDesk, spots,
     corr: { y: topH, h: corrH },
+    // The entrance in the outer left wall: its mat, the light over it and the gap in the wall,
+    // all centred on the corridor.
+    entrance: { y: topH + (corrH - 24) / 2, h: 24, light: { y: topH + corrH / 2 - 4, h: 8 }, gap: { y0: topH + (corrH - 24) / 2 - 2, y1: topH + (corrH + 24) / 2 + 2 } },
     bed: at(room("lounge"), 196 + 88, 270),
     meetSeats: { yoda: seat("yoda", 20, "e"), sara: seat("sara", 70, "w") },
     pods: rooms.filter((r) => r.kind === "repo").map((r) => ({ repo: r.label, px: r.x + r.w / 2 })),

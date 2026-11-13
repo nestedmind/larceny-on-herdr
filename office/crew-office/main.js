@@ -8,7 +8,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, window as appWindow } from "herdr";
-import { PAD, aspectOf, findNode as findNodeById, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
+import { PAD, aspectOf, doArgs, findNode as findNodeById, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, repoNames, reposCall, stackTags, startCall, startPlan, unlockCall, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, ball, dogEls, floorLayer, glow, labels, night, personEls, wrapper, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -38,8 +38,15 @@ export default class CrewOffice extends View {
     // The chat panel beside the office; its Terminal button docks the real terminal (open below).
     // Full-screen mode that is on: { plan, pane } (what it did, so Esc undoes exactly that) or null.
     this.fs = null;
-    // A reload or a crash left full screen on: this copy of the office puts the chrome back.
-    try { const left = shared(FS_KEY); if (left && left.plan) { this.undo(left.plan, left.pane); setShared(FS_KEY, null); } } catch (_) { /* nothing to undo */ }
+    // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
+    // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
+    try {
+      const left = shared(FS_KEY);
+      const now = panes();
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()));
+      if (what === "adopt") this.fs = left;
+      else if (what === "undo") this.recover(left);
+    } catch (_) { /* nothing to recover */ }
     this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx) });
   }
 
@@ -147,14 +154,40 @@ export default class CrewOffice extends View {
   }
 
   // Undo a plan, last step first. Each step first checks that it still has something to undo, so
-  // one the person already took back by hand (F11, Ctrl+Shift+B) is left alone.
+  // one the person already took back by hand (F11, Ctrl+Shift+B) is left alone: a node is shown
+  // only if it is still hidden, the window leaves full screen only if the plan turned it on.
   undo(plan, pane) {
     const step = (fn) => { try { fn(); } catch (_) { /* carry on */ } };
     for (const s of restoreSteps(plan)) {
       if (s.window) step(() => { if ((appWindow() || {}).fullscreen) window.toggle_fullscreen(); });
-      else if (s.show) step(() => { const n = findNodeById(layout(), s.show); if (!n || n.hidden) run("layout.show", { id: s.show }); });
+      else if (s.show) step(() => { const n = findNodeById(layout(), s.show); if (n && n.hidden) run("layout.show", { id: s.show }); });
       else if (s.zoom && pane) step(() => { if ((panes().find((p) => p.pane === pane) || {}).zoomed) run("pane.zoom", { pane }); });
     }
+  }
+
+  // The same undo, through `herdr-app do` with exec: on app quit only exec goes out, other commands
+  // may be dropped. Resolves true only when every step that was needed succeeded. The window's full
+  // screen has no command, so it is a best-effort toggle that does not count.
+  async undoByExec(plan, pane) {
+    let ok = true;
+    for (const s of restoreSteps(plan)) {
+      try {
+        if (s.window) { if ((appWindow() || {}).fullscreen) window.toggle_fullscreen(); continue; }
+        if (s.show) { const n = findNodeById(layout(), s.show); if (!(n && n.hidden)) continue; }
+        if (s.zoom) { if (!((panes().find((p) => p.pane === pane) || {}).zoomed)) continue; }
+        const args = doArgs(s, pane);
+        if (!args) continue;
+        const r = await exec("herdr-app", args, { timeout: 5000 });
+        if (r.code !== 0) ok = false;
+      } catch (_) { ok = false; }
+    }
+    return ok;
+  }
+
+  // Put back what a plan left undone, and forget the plan only once that worked: otherwise it stays
+  // saved and the next start tries again.
+  recover(saved) {
+    this.undoByExec(saved.plan, saved.pane).then((ok) => { if (ok) setShared(FS_KEY, null); }).catch(() => {});
   }
 
   leaveFullscreen(cx) {
@@ -167,9 +200,14 @@ export default class CrewOffice extends View {
     if (cx) cx.notify();
   }
 
-  // herdr calls this when the office is closed or reloaded: give the chrome back first.
+  // herdr calls this when the office is closed or reloaded, and on app quit (where only exec is
+  // sure to go out). The chrome is put back with exec; the saved plan is cleared only when that
+  // worked, so a quit that dropped it is finished by the next office to start.
   async close(_cx) {
-    if (this.fs) this.leaveFullscreen(null);
+    const f = this.fs;
+    if (!f) return;
+    this.fs = null;
+    if (await this.undoByExec(f.plan, f.pane)) { try { setShared(FS_KEY, null); } catch (_) { /* nothing to clear */ } }
   }
 
   // Where each person is drawn this render. A person whose place changed walks there door to door:
@@ -360,15 +398,15 @@ export default class CrewOffice extends View {
     // Walk only when someone's place changed. A new scale (resize, the chat opening) or floor
     // width (the repo list arriving) moves every position at once, so draw those frames without
     // the transition and everything jumps with the rooms and desks.
-    const sig = `${k}|${L.W}`;
+    const sig = `${k}|${L.W}|${L.H}`;
     this.anim = sig === this.sig;
     this.sig = sig;
     const u = (n) => n * k;
     const mo = this.motion(L, !this.anim);
 
     // The floor does not change with the crew, only with the plan and the scale.
-    const floorKey = `${k}|${L.W}|${L.pods.map((p) => p.repo).join(",")}`;
-    if (!this.floor || this.floor.key !== floorKey) this.floor = { key: floorKey, layer: floorLayer(L, k) };
+    const key = floorKey(L, k);
+    if (!this.floor || this.floor.key !== key) this.floor = { key, layer: floorLayer(L, k) };
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];

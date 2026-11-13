@@ -184,7 +184,7 @@ export function floorLayer(world, k) {
   // walls
   const T = 4, t = 2.4;
   g.rect(0, 0, W, T, PAL.wall); g.rect(0, H - T, W, T, PAL.wall); g.rect(W - T, 0, T, H, PAL.wall);
-  g.rect(0, 0, T, corr.y + 6, PAL.wall); g.rect(0, botY - 6, T, H - botY + 6, PAL.wall);
+  g.rect(0, 0, T, world.entrance.gap.y0, PAL.wall); g.rect(0, world.entrance.gap.y1, T, H - world.entrance.gap.y1, PAL.wall);
   [[[...repos, leads, meet], topH - 1.2], [[matt, kitchen, lounge, pong, rest], botY - 2.2]].forEach(([row, wy]) => {
     row.forEach((r) => {
       g.rect(r.x, wy, r.door - 9 - r.x, t, PAL.wall);
@@ -197,7 +197,7 @@ export function floorLayer(world, k) {
   [matt, kitchen, lounge, pong, rest].forEach((r) => g.rect(r.x + 14, H - 2.8, r.w - 28, 1.6, PAL.window));
   g.rect(W - 2.8, 14, 1.6, topH - 30, PAL.window); g.rect(W - 2.8, botY + 16, 1.6, H - botY - 32, PAL.window);
   g.rect(1.2, 14, 1.6, topH - 30, PAL.window); g.rect(1.2, botY + 16, 1.6, H - botY - 32, PAL.window);
-  g.rr(0, corr.y + (corr.h - 24) / 2, 10, 24, 2, PAL.runnerEdge); // entrance
+  g.rr(0, world.entrance.y, 10, world.entrance.h, 2, PAL.runnerEdge); // entrance
   // repo rooms: a pod mat under four desks, plants and shelves
   repos.forEach((r, i) => {
     mid(r, () => g.rr(r.x0 + 75 - 44, 18, 88, 80, 10, PAL.mats[i % PAL.mats.length]));
@@ -473,7 +473,7 @@ export function night(world, k, lit) {
   const ws = wallScreen(world);
   [[18, "0c"], [12, "18"], [7, "28"]].forEach(([r, al]) => pools.circ(ws.x + 19, ws.y + 5, r, PAL.screenInk + al));
   out.push(pools.el());
-  const keep = new Layer(k, 0, 0, world.W, world.H).rr(ws.x, ws.y, ws.w, ws.h, 2, PAL.screen).rr(1, world.corr.y + 16, 7, 8, 1, PAL.work);
+  const keep = new Layer(k, 0, 0, world.W, world.H).rr(ws.x, ws.y, ws.w, ws.h, 2, PAL.screen).rr(1, world.entrance.light.y, 7, world.entrance.light.h, 1, PAL.work);
   out.push(keep.el());
   return out;
 }
