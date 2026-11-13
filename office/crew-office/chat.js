@@ -29,13 +29,12 @@ export function parseTranscript(text) {
   try { list = JSON.parse(text); } catch { return []; }
   if (!Array.isArray(list)) return [];
   const out = [];
-  let firstUser = true;
   for (const m of list) {
     if (!m || (m.role !== "user" && m.role !== "assistant" && m.role !== "agent") || typeof m.text !== "string" || m.text === "") continue;
     // role "agent" is another agent's message into this session; `from` is its sender.
-    // The first user turn of a session is the launch prompt loh sent, wrapped in <pasted_content>: not Matt's words.
-    const launch = m.role === "user" && firstUser && /^\s*<pasted_content\b/.test(m.text);
-    if (m.role === "user") firstUser = false;
+    // `loh transcript` reads the whole session and flags its first user turn when that is the launch prompt
+    // (wrapped in <pasted_content>). The window shown here may start later, so only that flag counts: a paste of Matt's is his.
+    const launch = m.role === "user" && m.launch === true;
     out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch });
   }
   return out;
@@ -65,7 +64,8 @@ export function rejectOutcome(elapsedMs) {
 
 /**
  * What happened to a `loh tell` call that returned: "sent", "failed" (loh said no, and said why: nothing
- * was sent) or "unknown" (killed or cut off with no word from loh: the message may still go out).
+ * was sent) or "unknown" (killed or cut off with no word from loh, or exit 12: `hc send` failed after it
+ * may have typed, so the message may still go out).
  */
 export function tellOutcome(result) {
   if (!result || typeof result.code !== "number") return "unknown";

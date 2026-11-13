@@ -10,6 +10,7 @@
 #   blocked  refused, exit 9: the agent is waiting on a permission prompt or a
 #            question, and a typed line would answer it
 #   other    refused, exit 10
+# Exit 12: hc send failed in some other way, so the message may or may not have gone out.
 # It never uses --force and never waits or retries. A target labelled
 # with_matt=1 is allowed (that is the point); `loh say`, which agents use among
 # themselves, still refuses it. A finished terminal is exit 11.
@@ -87,5 +88,10 @@ case "$rc" in
     echo "loh: $to has finished" >&2
     exit 11
     ;;
-  *) die "hc send $to failed (exit $rc): $out" ;;
+  *)
+    # hc may have typed the message before it failed: say so with its own exit code, which the
+    # office panel treats as "not sure" (the text stays out of the box; check the log).
+    echo "loh: hc send $to failed (exit $rc): $out; the message may still have gone out" >&2
+    exit 12
+    ;;
 esac

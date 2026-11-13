@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
-# panel.js under node, with gpui-kit, gpui-base and herdr replaced by stubs. The cx stub is strict, as
-# herdr's is: a cx from an event handler is dead once the handler returns, and a cx from cx.spawn is
-# dead once its task ends. Using a dead cx throws, so a panel that keeps a cx and uses it after an
-# await fails here.
+# panel.js under node, with gpui-kit, gpui-base and herdr replaced by stubs. The cx stub is stricter
+# than herdr: a cx from an event handler is dead once the handler returns (as in herdr), and a cx from
+# cx.spawn is also dead once its task ends (herdr hands the task an AsyncContext that may be held). Using
+# a dead cx throws, so a panel that keeps a handler's cx and uses it after an await fails here.
 
 bats_require_minimum_version 1.5.0
 load test_helper
@@ -112,4 +112,44 @@ await settle();
 console.log(JSON.stringify([panel.turns.length, panel.fetchedKey, panel.fetching, taskErrors, deadUses]));'
   [ "$status" -eq 0 ]
   [ "$output" = '[1,"k1",false,[],[]]' ]
+}
+
+@test "send: a rejection that comes after 6 s may be a timeout: the text stays out of the box and the message shows as unconfirmed" {
+  run panel_js '
+let now = 1000000; Date.now = () => now;
+input.text = "Hey Scofield";
+click((cx) => panel.send(cx));
+now += 6000;
+calls()[0].reject(new Error("timed out"));
+await settle();
+console.log(JSON.stringify([input.text, input.sets, panel.pending.length, panel.pending[0] && panel.pending[0].unsure, panel.error.startsWith("Not sure Scofield got it"), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["",[""],1,true,true,[],[]]' ]
+}
+
+@test "send: a call cut off with no word from loh (no exit code) is unconfirmed, not restored" {
+  run panel_js '
+input.text = "Hey Scofield";
+click((cx) => panel.send(cx));
+calls()[0].resolve({ code: null, stdout: "", stderr: "" });
+await settle();
+console.log(JSON.stringify([input.text, input.sets, panel.pending.length, panel.pending[0] && panel.pending[0].unsure, panel.error.startsWith("Not sure Scofield got it"), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["",[""],1,true,true,[],[]]' ]
+}
+
+@test "send: a refusal code with no stderr is unconfirmed, and so is hc send failing (exit 12)" {
+  run panel_js '
+input.text = "a";
+click((cx) => panel.send(cx));
+calls()[0].resolve({ code: 9, stdout: "", stderr: "" });
+await settle();
+const first = [input.text, panel.pending[0].unsure];
+panel.pending = []; panel.error = ""; input.text = "b";
+click((cx) => panel.send(cx));
+calls()[1].resolve({ code: 12, stdout: "", stderr: "loh: hc send scofield failed (exit 3): x; the message may still have gone out\n" });
+await settle();
+console.log(JSON.stringify([first, input.text, panel.pending[0].unsure, panel.error.startsWith("Not sure")]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["",true],"",true,true]' ]
 }

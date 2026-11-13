@@ -130,9 +130,10 @@ console.log(JSON.stringify(chat.cardRows({ role: "coder", status: "blocked", kin
   run chat_js '
 console.log(chat.tellOutcome({ code: 0, stderr: "" }));
 console.log(chat.tellOutcome({ code: 9, stderr: "loh: amy is blocked\n" }));
-console.log(chat.tellOutcome({ code: 1, stderr: "loh: hc send amy failed" }));
+console.log(chat.tellOutcome({ code: 1, stderr: "loh: cannot look up amy" }));
 console.log(chat.tellOutcome({ code: 124, stderr: "" }), chat.tellOutcome({ code: 137, stderr: "" }), chat.tellOutcome({ code: null }), chat.tellOutcome(undefined));
-console.log(chat.tellOutcome({ code: 10, stderr: "" }));'
+console.log(chat.tellOutcome({ code: 10, stderr: "" }));
+console.log(chat.tellOutcome({ code: 12, stderr: "loh: hc send amy failed (exit 3): x; the message may still have gone out" }));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "sent" ]
   [ "${lines[1]}" = "failed" ]
@@ -181,19 +182,23 @@ console.log(chat.REJECT_QUICK_MS < chat.TELL_TIMEOUT);'
   [ "${lines[2]}" = "true" ]
 }
 
-@test "panel: the agent's launch prompt is marked, labelled and cut to one line, not shown as Matt" {
+@test "panel: only the turn loh flagged is the launch prompt, so a pasted turn of Matt's at the start of the window stays his" {
   run chat_js '
 const wrapped = "<pasted_content id=\"fbdb\">\nYou are running in a herdr terminal.\n\nLoad these skills first.\n</pasted_content id=\"fbdb\">";
-const t = chat.parseTranscript(JSON.stringify([
-  { role: "user", text: wrapped }, { role: "assistant", text: "ok" },
-  { role: "user", text: wrapped }, { role: "user", text: "Hey" }]));
-console.log(t.map((m) => !!m.launch).join(","));
-console.log(chat.speaker(t[0], "Scofield"), "|", chat.speaker(t[3], "Scofield"));
-console.log(chat.shownText(t[0]));
-console.log(chat.shownText(t[3]));'
+const flagged = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: wrapped, launch: true }, { role: "assistant", text: "ok" }, { role: "user", text: "Hey" }]));
+console.log(flagged.map((m) => !!m.launch).join(","));
+console.log(chat.speaker(flagged[0], "Scofield"), "|", chat.speaker(flagged[2], "Scofield"));
+console.log(chat.shownText(flagged[0]));
+console.log(chat.shownText(flagged[2]));
+// The window starts after the launch prompt, with a long paste of Matt'"'"'s: no flag, so it is his.
+const late = chat.parseTranscript(JSON.stringify([
+  { role: "user", text: "<pasted_content id=\"x\">my notes</pasted_content id=\"x\">" }, { role: "assistant", text: "ok" }]));
+console.log(late[0].launch, chat.speaker(late[0], "Scofield"), chat.shownText(late[0]));'
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "true,false,false,false" ]
+  [ "${lines[0]}" = "true,false,false" ]
   [ "${lines[1]}" = "launch prompt | Matt" ]
   [ "${lines[2]}" = "You are running in a herdr terminal. Load these skills first." ]
   [ "${lines[3]}" = "Hey" ]
+  [ "${lines[4]}" = 'false Matt <pasted_content id="x">my notes</pasted_content id="x">' ]
 }

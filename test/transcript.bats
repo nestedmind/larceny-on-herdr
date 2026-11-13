@@ -132,3 +132,37 @@ fixture() { cp "$REPO_ROOT/test/fixtures/transcripts/$1.jsonl" "$PROJ/$2.jsonl";
   [ "$status" -eq 0 ]
   [ "$(jq -r '.[0].text' <<<"$output")" = "Hello coordinator, what is open?" ]
 }
+
+# A session whose first user turn is a launch prompt, then four more turns, one of them a paste of Matt's.
+launch_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<pasted_content id=\"a\">\nYou are running.\n</pasted_content id=\"a\">"},"timestamp":"2026-11-13T02:00:00.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ready"}]},"timestamp":"2026-11-13T02:00:01.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<pasted_content id=\"b\">\nmy notes\n</pasted_content id=\"b\">"},"timestamp":"2026-11-13T02:00:02.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"read them"}]},"timestamp":"2026-11-13T02:00:03.000Z"}'
+  } >"$PROJ/l1.jsonl"
+}
+
+@test "transcript flags the session's first user turn as the launch prompt, and no other" {
+  launch_session
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[true,false,false,false]' ]
+}
+
+@test "transcript keeps the launch flag only on the launch prompt: a window that starts after it flags nothing" {
+  launch_session
+  run "$LOH" transcript scofield --last 2
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false]' ]
+  run "$LOH" transcript scofield --last 3
+  [ "$(jq -r '.[0].text' <<<"$output")" = "ready" ]
+  [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false,false]' ]
+}
+
+@test "transcript does not flag a first user turn that is not a pasted launch prompt" {
+  fixture coordinator c1
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false,false,false,false]' ]
+}
