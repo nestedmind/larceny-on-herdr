@@ -123,6 +123,36 @@ export function lockCall(agent, loh) {
   return { cmd: loh || "loh", args: ["lock", agent.rawName], options: { cwd: agent.cwd || undefined, timeout: 5000 } };
 }
 
+/** The command that releases the lock when the chat closes. Same folder and name rules as lockCall. */
+export function unlockCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["unlock", agent.rawName], options: { cwd: agent.cwd || undefined, timeout: 5000 } };
+}
+
+const MIN_SCALE = 0.2;
+
+/**
+ * Scale that fits the floor into the pane (the top bar and padding take about 48px high, 16px wide).
+ * It may drop below 1, so a narrow pane (the chat takes half the tab) shrinks the floor instead of
+ * cutting it. `fits` is false only when even the smallest scale overflows: main.js then stops centring.
+ */
+export function fitScale(size, floor) {
+  const raw = Math.min((size.width - 16) / floor.W, (size.height - 48) / floor.H);
+  const k = Math.min(4, Math.max(MIN_SCALE, raw));
+  return { k, fits: floor.W * k <= size.width - 16 + 0.5 };
+}
+
+/** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
+export function officePane(panes, props) {
+  if (props && props.pane) return props.pane;
+  const mine = (panes || []).find((p) => p.mod === "crew-office" && p.focused);
+  return mine ? mine.pane : null;
+}
+
+/** True when an open chat's pane has gone (the person closed it): the lock must be released. */
+export function chatGone(panes, chat) {
+  return !!chat && !(panes || []).some((p) => p.pane === chat.pane);
+}
+
 export function totals(crew) {
   const n = { working: 0, blocked: 0, done: 0, idle: 0 };
   for (const a of crew) n[STATES.includes(a.status) ? a.status : "idle"] += 1;

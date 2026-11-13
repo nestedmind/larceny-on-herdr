@@ -1,6 +1,6 @@
 # Crew office
 
-`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own, and animates with `.frames()` and `.loop()`, never timers.
+`crew-office/` is a herdr-app mod that draws one crew as people at desks, top-down. It reads only `hc` state (terminal labels and status). It keeps no state of its own beyond which chat is open, and animates with `.frames()` and `.loop()`, never timers.
 
 ## Install
 
@@ -37,7 +37,7 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 - **Leads room.** The coordinator and the reviewer, at their own desks.
 - **Meeting room.** The advisor and the teacher.
 - **Lounge.** Coders with no task, and anyone with a role the office does not know.
-- **No dead space.** The floor is exactly as wide as its rooms and is scaled to fit the pane, centred.
+- **No dead space.** The floor is exactly as wide as its rooms and is scaled to fit the pane (smaller than life when the pane is narrow), and centred while it fits.
 - **Top bar.** Totals of working, blocked, done and idle agents.
 - **Name tag.** Name, then `repo#ticket`, `PR <n>` and `r<round>`, then the step (or note). A "with Matt" pill shows when `with_matt=1`.
 
@@ -64,14 +64,18 @@ Set by `loh`, the status-card hooks and the lock. The office shows what is there
 
 Status comes from the terminal itself (`idle`, `working`, `blocked`, `done`). For a blocked agent the kind (`permission` or `question`) is read from the terminal's report; if herdr-app does not expose it, the bubble shows `!`.
 
-## Click
+## Chat
 
-Clicking a name tag focuses that agent: `agent.focus` if the terminal already has a pane, otherwise `terminal.keep` to give it one. It then runs `loh lock <name>` in that terminal's own folder (loh finds the workspace by walking up from there; herdr-app itself runs outside any workspace), using the terminal's real name. If the command exits non-zero, the office posts a warning notification with loh's message.
+Clicking a name tag opens a chat with that agent beside the office, in the same tab. The mod splits its own pane to the right (`pane.split`) and shows the agent's live terminal in the new pane (`terminal.show`), so you type straight to the agent and see what it does. It does not switch to the agent's own tab. Clicking another name swaps the terminal in the same split.
 
-Mods can run commands (`exec` in `herdr.d.ts`), so this works. Limits:
+The click then runs `loh lock <name>` in that terminal's own folder (loh finds the workspace by walking up from there; herdr-app itself runs outside any workspace), using the terminal's real name. If the command exits non-zero, the office posts a warning notification with loh's message.
 
-- When `loh` is not on herdr-app's PATH, the command fails, you get the warning, and the click has only focused.
-- The mod cannot tell when you leave the agent's pane, so it never unlocks. Run `loh close <name>` (or `loh unlock <name>`) when you are done.
+Closing releases the lock with `loh unlock <name>`. "Close chat" puts the split's own terminal back, closes the split only if that worked, and unlocks. If you close the split yourself, the office sees the pane is gone on its next render and unlocks then. Closing a split or tab never ends a terminal shown in it with `terminal.show`.
+
+- **Full screen** (top bar) zooms the office pane (`pane.zoom`) so only the office shows. The button becomes "Show chat (Esc)", and Esc zooms back out while the office has the keyboard.
+- When `loh` is not on herdr-app's PATH, the lock command fails and you get the warning, and the chat still opens.
+- The office keeps the open chat (which agent, which pane) in memory only. After a reload it forgets it, and an agent still locked can be released with `loh close <name>`.
+- A narrow office pane shrinks the floor (the scale can drop below 1) instead of cutting it off.
 
 ## Check
 

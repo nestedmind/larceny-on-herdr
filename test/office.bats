@@ -194,3 +194,58 @@ console.log(crew.repoNames(JSON.stringify([{name:"api"},{name:"web"},{name:""},{
   grep -q 'reposCall(' "$(mod_dir)/main.js"
   ! grep -q 'workspace.md' "$(mod_dir)/main.js" "$(mod_dir)/crew.js"
 }
+
+@test "the unlock call mirrors the lock call: raw name, agent's folder, props loh" {
+  run crew_js '
+const a = crew.crewOf([{address:"t1",name:"scofield",cwd:"/ws/lead",state:"live",status:"idle",labels:{crew:"w"}}], "w")[0];
+const c = crew.unlockCall(a, "/opt/loh");
+console.log(c.cmd, c.args.join(" "), c.options.cwd, c.options.timeout);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "/opt/loh unlock scofield /ws/lead 5000" ]
+}
+
+@test "the scale drops below 1 when the floor is wider than the pane" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api", "web"]);
+const wide = crew.fitScale({ width: 1000, height: 800 }, L);
+const narrow = crew.fitScale({ width: 216, height: 800 }, L);
+console.log(wide.fits, narrow.k < 1, narrow.fits, Math.round(narrow.k * L.W) <= 200);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true" ]
+}
+
+@test "a floor that cannot fit even at the smallest scale is reported as not fitting" {
+  run crew_js '
+const L = crew.layoutCrew([], ["api", "web"]);
+const s = crew.fitScale({ width: 20, height: 20 }, L);
+console.log(s.fits, s.k > 0);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false true" ]
+}
+
+@test "the chat is gone when its pane is no longer in the pane list" {
+  run crew_js '
+const chat = { pane: "p9", name: "scofield" };
+console.log(crew.chatGone([{pane:"p1"},{pane:"p9"}], chat), crew.chatGone([{pane:"p1"}], chat), crew.chatGone([], null));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false true false" ]
+}
+
+@test "the office pane is the one named by props, else the focused crew-office pane" {
+  run crew_js '
+const ps = [{pane:"p1",mod:"crew-office",focused:false},{pane:"p2",mod:"crew-office",focused:true},{pane:"p3",terminal:"t1"}];
+console.log(crew.officePane(ps, {pane:"p1"}), crew.officePane(ps, {}), crew.officePane([{pane:"p3",terminal:"t1"}], {}));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "p1 p2 null" ]
+}
+
+@test "main.js docks the agent's terminal in a split, unlocks on close, and never calls agent.focus" {
+  grep -q 'pane.split' "$(mod_dir)/main.js"
+  grep -q 'terminal.show' "$(mod_dir)/main.js"
+  grep -q 'unlockCall(' "$(mod_dir)/main.js"
+  grep -q 'pane.zoom' "$(mod_dir)/main.js"
+  grep -q 'closeChat(' "$(mod_dir)/main.js"
+  ! grep -qE '^  close\(' "$(mod_dir)/main.js"
+  ! grep -q 'agent.focus' "$(mod_dir)/main.js"
+  ! grep -q 'terminal.keep' "$(mod_dir)/main.js"
+}

@@ -1,12 +1,13 @@
 // Crew office: one crew's agents at their desks, drawn from `hc` state only.
 // Reads terminals() labels (crew, role, task, step, pr, round, note, with_matt)
-// and each terminal's status. Keeps no state of its own beyond the pane size.
+// and each terminal's status. Keeps no state of its own beyond the pane size and the open chat
+// (which agent, in which pane). Clicking an agent docks its live terminal in a split beside the office.
 // Animation uses .frames() and .loop(), never timers.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings } from "herdr";
-import { crewOf, layoutCrew, lockCall, pickWorkspace, repoNames, reposCall, ROOM_H, DESK_H } from "./crew.js";
+import { chatGone, crewOf, fitScale, layoutCrew, lockCall, officePane, pickWorkspace, repoNames, reposCall, unlockCall, ROOM_H, DESK_H } from "./crew.js";
 
 const BLOCKED = { permission: ["#e7a43a", "allow?"], question: ["#4f8ff0", "?"], other: ["#d0509f", "!"] };
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -32,8 +33,11 @@ function people(name) {
 }
 
 export default class CrewOffice extends View {
-  init(_props, _cx) {
+  init(_props, cx) {
     this.size = { width: 640, height: 480 };
+    // The open chat: { pane, address, name, agent } or null. The pane is a split beside this one.
+    this.chat = null;
+    this.handle = cx.focus_handle();
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -55,15 +59,75 @@ export default class CrewOffice extends View {
     }).catch(() => {});
   }
 
-  // Click: focus the agent (a terminal with no pane gets one first), then lock it with loh.
-  open(a) {
-    const has = panes().some((p) => p.terminal === a.address);
-    run(has ? "agent.focus" : "terminal.keep", { terminal: a.address });
-    // Mods can run commands, so set the with-Matt lock. It exits non-zero when loh or
-    // the lock command is missing or no workspace is found: say so instead of failing silently.
-    const c = lockCall(a, (props() || {}).loh);
-    const warn = (why) => notify({ title: `Could not lock ${a.name}`, body: String(why || "").slice(0, 200), level: "warning" });
+  // Run loh lock / unlock in the agent's own folder. It exits non-zero when loh or the command
+  // is missing or no workspace is found: say so instead of failing silently.
+  runLoh(c, a, what) {
+    const warn = (why) => notify({ title: `Could not ${what} ${a.name}`, body: String(why || "").slice(0, 200), level: "warning" });
     exec(c.cmd, c.args, c.options).then((r) => { if (r.code !== 0) warn(r.stderr || `loh exited ${r.code}`); }).catch((e) => warn(e && e.message));
+  }
+
+  fail(a, e) {
+    notify({ title: `Could not open a chat with ${a.name}`, body: String((e && e.message) || e || "").slice(0, 200), level: "warning" });
+  }
+
+  // Click: open the chat beside the office. The agent's own terminal is shown in a split of this
+  // tab (terminal.show), so the person types straight into it, and loh locks the agent.
+  // Clicking another agent swaps the terminal in the same split and moves the lock.
+  open(a, cx) {
+    const loh = (props() || {}).loh;
+    if (this.chat && this.chat.address === a.address) return;
+    if (this.chat) {
+      try { run("terminal.show", { terminal: a.address, pane: this.chat.pane }); } catch (e) { this.fail(a, e); return; }
+      this.runLoh(unlockCall(this.chat.agent, loh), this.chat.agent, "unlock");
+      this.chat = { ...this.chat, address: a.address, name: a.name, agent: a };
+    } else {
+      const mine = officePane(panes(), props());
+      if (!mine) { this.fail(a, new Error("the office pane was not found")); return; }
+      const before = new Set(panes().map((p) => p.pane));
+      const tab = (panes().find((p) => p.pane === mine) || {}).tab;
+      let pane = null;
+      try {
+        run("pane.split", { direction: "right", pane: mine });
+        const added = panes().find((p) => !before.has(p.pane) && (!tab || p.tab === tab));
+        pane = added ? added.pane : null;
+        if (!pane) throw new Error("the split did not open");
+        run("terminal.show", { terminal: a.address, pane });
+      } catch (e) {
+        // Show the split's own terminal back before closing it, and close only if that worked:
+        // pane.close "ends its terminal", and which one that means while another is shown is not documented.
+        if (pane) { try { run("terminal.show", { pane }); run("pane.close", { pane }); } catch (_) { /* leave the split */ } }
+        this.fail(a, e);
+        return;
+      }
+      this.chat = { pane, office: mine, address: a.address, name: a.name, agent: a };
+    }
+    this.runLoh(lockCall(a, loh), a, "lock");
+    try { run("pane.focus", { pane: this.chat.pane }); } catch (_) { /* focus is a nicety */ }
+    cx.notify();
+  }
+
+  // Close the chat: put the split's own terminal back first (so closing the pane never ends the
+  // agent), close the split only if that worked, release the lock. Not named `close`: herdr calls a
+  // View's close(cx) on unload, and this must run only when the person asks.
+  closeChat(cx) {
+    const c = this.chat;
+    if (!c) return;
+    this.chat = null;
+    try {
+      run("terminal.show", { pane: c.pane });
+      run("pane.close", { pane: c.pane });
+    } catch (e) {
+      // The pane may be gone already; if it is not, leave it rather than risk ending the agent.
+      if (panes().some((p) => p.pane === c.pane)) notify({ title: "Could not close the chat split", body: String((e && e.message) || e || "").slice(0, 200), level: "warning" });
+    }
+    this.runLoh(unlockCall(c.agent, (props() || {}).loh), c.agent, "unlock");
+    if (cx) cx.notify();
+  }
+
+  // Full screen: pane.zoom on the office pane hides the chat split; Esc zooms back out.
+  zoom(mine) {
+    run("pane.zoom", { pane: mine });
+    this.handle.focus();
   }
 
   person(a, x, y, face, k, F) {
@@ -92,25 +156,31 @@ export default class CrewOffice extends View {
     const ticket = a.repo ? `${a.repo}${a.ticket ? "#" + a.ticket : ""}` : "";
     const where = [ticket, a.pr ? `PR ${a.pr}` : "", a.round ? `r${a.round}` : ""].filter(Boolean).join(" · ");
     const step = a.step || a.note || WORDS[a.status];
-    const w = 100;
+    const w = Math.min(100, Math.max(64, 100 * k));
     return v_flex().id(`tag-${a.address}`).absolute().left(s.tag.x * k - w / 2).top(s.tag.y * k).w(w)
       .items_center().gap(1).px(4).py(2).rounded(5).bg(F.chip + "e6").cursor_pointer()
       .hover((e) => e.bg(F.chip))
-      .on_click(() => this.open(a))
+      .on_click((_e, cx) => this.open(a, cx))
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))
       .when(a.withMatt, (el) => el.child(div().px(4).rounded(4).bg(t.accent).text_size(9).font_semibold().text_color(t.accent_foreground).child("with Matt")));
   }
 
-  bar(t, n) {
+  bar(t, n, view) {
     const cell = (key, label) => h_flex().gap(4).items_center()
       .child(div().w(8).h(8).rounded_full().bg(t[key] ?? t.unknown))
       .child(div().text_size(12).text_color(t.foreground).child(`${n[key]} ${label}`));
+    const button = (id, label, onClick) => h_flex().id(id).px(8).py(2).rounded(5).border_1().border_color(t.border)
+      .text_size(12).text_color(t.foreground).cursor_pointer().hover((e) => e.bg(t.hover)).on_click(onClick).child(label);
     return h_flex().id("totals").px(12).py(6).gap(16).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .child(div().text_size(12).font_semibold().text_color(t.foreground).child("Crew office"))
       .child(cell("working", "working")).child(cell("blocked", "blocked"))
-      .child(cell("done", "done")).child(cell("idle", "idle"));
+      .child(cell("done", "done")).child(cell("idle", "idle"))
+      .child(div().flex_1())
+      .when(!!this.chat && !view.zoomed, (el) => el.child(div().text_size(12).text_color(t.muted).child(`Chat: ${this.chat.name}`)))
+      .when(!!this.chat && view.mine !== null, (el) => el.child(button("fullscreen", view.zoomed ? "Show chat (Esc)" : "Full screen", () => this.zoom(view.mine))))
+      .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
 
   render(cx) {
@@ -121,8 +191,20 @@ export default class CrewOffice extends View {
     const crew = crewOf(list, workspace);
     this.loadRepos(crew, workspace, cx);
     const L = layoutCrew(crew, this.repos);
-    // Fit the floor to the pane in both directions (the bar and padding take about 48px).
-    const k = Math.min(4, Math.max(1, Math.min((this.size.width - 16) / L.W, (this.size.height - 48) / L.H)));
+    const allPanes = panes();
+    // The person closed the chat's split by hand: release the lock the click set.
+    if (chatGone(allPanes, this.chat)) {
+      const c = this.chat;
+      this.chat = null;
+      this.runLoh(unlockCall(c.agent, (props() || {}).loh), c.agent, "unlock");
+    }
+    // While a chat is open, keep using the office pane found when it opened: the click moves focus
+    // to the chat, and officePane looks for the focused one.
+    const mine = (this.chat && this.chat.office) || officePane(allPanes, props());
+    const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
+    // Fit the floor to the pane in both directions. The scale may drop below 1 (the chat takes
+    // part of the tab); the floor is centred only while it fits, so it never spills off the left.
+    const { k, fits } = fitScale(this.size, L);
     const u = (n) => n * k;
 
     const rooms = L.rooms.map((r) => div().absolute().left(u(r.x) + 1).top(u(r.y) + 1).w(u(r.w) - 2).h(u(r.h) - 2).rounded(4)
@@ -140,9 +222,12 @@ export default class CrewOffice extends View {
       .child(div().absolute().left(0).top(u(ROOM_H)).w(u(L.W)).h(u(20)).bg(F.corr))
       .children(rooms).children(desks).children(table).children(figures).children(tags).children(empty);
 
-    return v_flex().id("root").size_full().bg(t.canvas)
+    return v_flex().id("root").size_full().bg(t.canvas).track_focus(this.handle)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
-      .child(this.bar(t, L.totals))
-      .child(h_flex().p(8).justify_center().child(floor));
+      .on_key_down((e, cx) => {
+        if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
+      })
+      .child(this.bar(t, L.totals, view))
+      .child(h_flex().p(8).when(fits, (el) => el.justify_center()).child(floor));
   }
 }
