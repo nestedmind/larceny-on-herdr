@@ -46,12 +46,14 @@ const mk = (n, status) => ({ address: "t" + n, name: n, state: "live", agent: "c
 globalThis.TERMS = [mk("scofield", "working"), mk("sheba", "working"), mk("sucre", "idle")];
 globalThis.SELECTED = [];
 export const terminals = () => globalThis.TERMS;
-export const panes = () => [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }];
-export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); }; export const exec = () => new Promise(() => {}); export const notify = () => {};
+export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
+export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
+export const exec = (c, a) => (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const notify = () => {};
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: !!globalThis.DARK });
-const SH = {};
+const SH = globalThis.SHARED = {};
 export const layout = () => ({}); export const shared = (k) => (k in SH ? SH[k] : null); export const setShared = (k, v) => { SH[k] = v; };
 export const openOverlay = (s) => { (globalThis.OVERLAYS ||= []).push(s); return "o1"; }; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
@@ -507,4 +509,52 @@ office.size = { width: 650, height: 800 };
 console.log(before, max());'
   [ "$status" -eq 0 ]
   [ "$output" = "600 600" ]
+}
+
+@test "after a restart a stale lock-holders value is ignored and cleared, and Full terminal works" {
+  run office_js '
+globalThis.SHARED["crew-office.lock-holders"] = { t2: ["term-old"], t3: "garbage" };
+const { default: Restarted } = await import("./main.mjs?restart");
+const o = new Restarted({}, cx); o.init({}, cx); office = o; o.size = { width: 1990, height: 1000 }; o.measured = true;
+const a = o.crewNow.length ? o.crewNow[0] : null;
+o.render(cx);
+const b = o.crewNow.find((c) => c.name === "sheba");
+o.panel.select(b, cx);
+o.fullTerminal(b, cx);
+console.log(o.termOpen, globalThis.SHARED["crew-office.lock-holders"] === null, globalThis.OVERLAYS.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 1" ]
+}
+
+@test "malformed shared data never throws in render, and counts as no window open" {
+  run office_js '
+globalThis.SHARED["crew-office.lock-holders"] = "nonsense";
+render();
+globalThis.SHARED["crew-office.lock-holders"] = { t2: 5, t3: null };
+render();
+console.log(office.termOpen);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "two office panes docking the same agent: the agent is unlocked only when both chats are closed" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.open(a, cx);
+const first = office.chat;
+const p1 = globalThis.PANES;
+globalThis.PANES = [{ pane: "p2", tab: "u", mod: "crew-office", focused: true }];
+const two = new Office({}, cx); two.init({}, cx); two.crewNow = office.crewNow;
+two.open(a, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+await tick();
+two.closeChat(cx);
+await tick();
+const mid = globalThis.EXECS.join(",");
+globalThis.PANES = p1;
+office.closeChat(cx);
+await tick();
+console.log(!!two.chat, !!first, mid, globalThis.EXECS.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false true lock lock,unlock" ]
 }

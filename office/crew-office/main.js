@@ -23,9 +23,13 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
-// Who holds each agent's with-Matt lock (the docked chat, a full-terminal window), kept in shared state so the
-// office and the full-terminal bar, which are separate copies, count the same holders.
+// Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
+// every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
+// LOCK_KEY is the old shared-state home of this count: an earlier version left values there, so the first office to
+// start clears it once and nothing reads it.
 const LOCK_KEY = "crew-office.lock-holders";
+let held = {};
+let legacyCleared = false;
 // loh lock and unlock for one agent go through one queue, so the last call sent is the last one run.
 const lohQueue = serialQueue();
 
@@ -35,19 +39,19 @@ function lohRun(c, a, what) {
 }
 
 function holders() {
-  try { return shared(LOCK_KEY) || {}; } catch (_) { return {}; }
+  return held;
 }
 
 // The agent is locked when its first holder arrives, and unlocked when the last one goes.
 function hold(a, loh, id) {
   const r = holdersAcquire(holders(), a.address, id);
-  try { setShared(LOCK_KEY, r.state); } catch (_) { /* the count is best effort */ }
+  held = r.state;
   return r.lock ? lohQueue(a.address, () => lohRun(lockCall(a, loh), a, "lock")) : Promise.resolve();
 }
 
 function unhold(a, loh, id) {
   const r = holdersRelease(holders(), a.address, id);
-  try { setShared(LOCK_KEY, r.state); } catch (_) { /* the count is best effort */ }
+  held = r.state;
   return r.unlock ? lohQueue(a.address, () => lohRun(unlockCall(a, loh), a, "unlock")) : Promise.resolve();
 }
 
@@ -58,6 +62,10 @@ export default class CrewOffice extends View {
     // The slim bar of a full-terminal window: nothing else of the office runs there.
     this.termBar = !!(props() || {}).terminalBar;
     if (this.termBar) return;
+    if (!legacyCleared) {
+      legacyCleared = true;
+      try { if (shared(LOCK_KEY) != null) setShared(LOCK_KEY, null); } catch (_) { /* nothing to clear */ }
+    }
     this.size = { width: 640, height: 480 };
     // The open chat: { pane, address, name, agent } or null. The pane is a split beside this one.
     this.chat = null;
@@ -118,7 +126,7 @@ export default class CrewOffice extends View {
     const loh = (props() || {}).loh;
     const focus = (address) => { try { run("pane.focus", { terminal: address }); } catch (_) { /* focus is a nicety */ } };
     // One window at a time: a second click only brings the keyboard back to it.
-    const open = Object.entries(holders()).find(([, ids]) => ids.some((i) => String(i).startsWith("term-")));
+    const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-")));
     if (open) { focus(open[0]); return; }
     const id = `term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     try { openOverlay(fullTerminalOverlay(a, loh, id)); } catch (e) { this.fail(a, e); return; }
@@ -180,7 +188,7 @@ export default class CrewOffice extends View {
     if (this.chat && this.chat.address === a.address) return;
     if (this.chat) {
       try { run("terminal.show", { terminal: a.address, pane: this.chat.pane }); } catch (e) { this.fail(a, e); return; }
-      unhold(this.chat.agent, loh, "chat");
+      unhold(this.chat.agent, loh, `chat-${this.chat.office}`);
       this.chat = { ...this.chat, address: a.address, name: a.name, agent: a };
     } else {
       const mine = officePane(panes(), props());
@@ -203,7 +211,7 @@ export default class CrewOffice extends View {
       }
       this.chat = { pane, office: mine, address: a.address, name: a.name, agent: a };
     }
-    hold(a, loh, "chat");
+    hold(a, loh, `chat-${this.chat.office}`);
     try { run("pane.focus", { pane: this.chat.pane }); } catch (_) { /* focus is a nicety */ }
     cx.notify();
   }
@@ -222,7 +230,7 @@ export default class CrewOffice extends View {
       // The pane may be gone already; if it is not, leave it rather than risk ending the agent.
       if (panes().some((p) => p.pane === c.pane)) notify({ title: "Could not close the chat split", body: String((e && e.message) || e || "").slice(0, 200), level: "warning" });
     }
-    unhold(c.agent, (props() || {}).loh, "chat");
+    unhold(c.agent, (props() || {}).loh, `chat-${c.office}`);
     if (cx) cx.notify();
   }
 
@@ -542,7 +550,7 @@ export default class CrewOffice extends View {
     if (chatGone(allPanes, this.chat)) {
       const c = this.chat;
       this.chat = null;
-      unhold(c.agent, (props() || {}).loh, "chat");
+      unhold(c.agent, (props() || {}).loh, `chat-${c.office}`);
     }
     // While a chat is open, keep using the office pane found when it opened: the click moves focus
     // to the chat, and officePane looks for the focused one.

@@ -566,13 +566,18 @@ export function fullTerminalOverlay(agent, loh, termId) {
  * Who holds an agent's with-Matt lock: the docked chat and a full-terminal window, each by an id. The first
  * holder sets the lock and the last one to go releases it. `state` is { address: [ids] }, kept in shared state.
  */
+const idsOf = (state, address) => {
+  const v = state && typeof state === "object" ? state[address] : null;
+  return Array.isArray(v) ? v : [];
+};
+
 export function holdersAcquire(state, address, id) {
-  const cur = (state && state[address]) || [];
+  const cur = idsOf(state, address);
   return { state: { ...(state || {}), [address]: cur.includes(id) ? cur : [...cur, id] }, lock: cur.length === 0 };
 }
 
 export function holdersRelease(state, address, id) {
-  const cur = (state && state[address]) || [];
+  const cur = idsOf(state, address);
   const next = cur.filter((x) => x !== id);
   const out = { ...(state || {}) };
   if (next.length) out[address] = next; else delete out[address];
@@ -581,8 +586,8 @@ export function holdersRelease(state, address, id) {
 
 /** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-". */
 export function termHeld(state, address) {
-  const lists = address ? [(state && state[address]) || []] : Object.values(state || {});
-  return lists.some((l) => l.some((i) => String(i).startsWith("term-")));
+  const lists = state && typeof state === "object" ? (address ? [state[address]] : Object.values(state)) : [];
+  return lists.some((l) => Array.isArray(l) && l.some((i) => String(i).startsWith("term-")));
 }
 
 /** One queue per key: each call starts when the one before it has finished, and a failure does not stop the ones after. */
