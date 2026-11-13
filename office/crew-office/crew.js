@@ -525,6 +525,43 @@ export function stageSize(size, measuredWith, showPanel, panelW) {
   return { width, height: size.height };
 }
 
+export const PANEL_DEFAULT = 360;
+export const PANEL_MIN = 260;
+
+/** A panel width kept inside its limits: PANEL_MIN up to half of `total` (the office pane's width). Anything that is not a number is the default. */
+export function clampPanelW(w, total) {
+  if (typeof w !== "number" || !Number.isFinite(w)) return PANEL_DEFAULT;
+  const max = Math.max(PANEL_MIN, Math.floor((total || 0) / 2));
+  return Math.min(max, Math.max(PANEL_MIN, Math.round(w)));
+}
+
+/** Where a crew's panel width is kept (shared state, so a reload keeps it). */
+export function panelWidthKey(crew) {
+  return `crew-office.panel-width.${crew || ""}`;
+}
+
+/**
+ * The window that shows an agent's own terminal over the whole herdr window: a slim bar from this
+ * mod (its Back button, and the unlock when the window goes) above the terminal block.
+ * Esc goes to the terminal, as herdr documents for windows with terminals, so the bar is the way back.
+ */
+export function fullTerminalOverlay(agent, loh) {
+  return {
+    kind: "window",
+    key: "crew-office-terminal",
+    width: 1,
+    height: 1,
+    at: { x: 0, y: 0 },
+    layout: {
+      type: "column",
+      children: [
+        { type: "block", size: { px: 34 }, content: { mod: "crew-office", props: { terminalBar: true, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
+        { type: "block", content: { terminal: agent.address } },
+      ],
+    },
+  };
+}
+
 // ---------- who stands where ----------
 
 const SLOT_HOME = { opemipo: { room: 0, slot: 3 }, maya: { room: 1, slot: 2 } };

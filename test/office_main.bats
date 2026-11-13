@@ -36,7 +36,7 @@ export const PathBuilder = { fill: mk, stroke: mk };
 EOF
   cat > "$d/node_modules/gpui-base/index.js" <<'EOF'
 import { div } from "gpui-kit";
-export const v_flex = div, h_flex = div;
+export const v_flex = div, h_flex = div, h_resizable = div, resizable_panel = div;
 export const InputState = { new: () => ({ set_value() {}, value: () => "", on() {}, focus() {} }) };
 export const Input = { new: () => div() };
 export const ScrollHandle = { new: () => ({}) };
@@ -52,6 +52,7 @@ export const props = () => ({ crew: "sandbox" });
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: !!globalThis.DARK });
 export const layout = () => ({}); export const shared = () => null; export const setShared = () => {};
+export const openOverlay = (s) => { (globalThis.OVERLAYS ||= []).push(s); return "o1"; }; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
 EOF
   echo '{"type":"module"}' > "$d/package.json"
@@ -412,4 +413,36 @@ for (let i = 0; i < 4; i++) wait.push(all(find(render(), "stage")).some((n) => n
 console.log(wait.join(","));'
   [ "$status" -eq 0 ]
   [ "$output" = "false,false,false,false" ]
+}
+
+@test "with the panel open the stage and panel sit in a resizable group, and a drag's end sets the width, within the limits" {
+  run office_js '
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+let root = render();
+const g = find(root, "panel");
+const split = all(root.node).find((n) => n.props.flex_1 && n.kids.length === 2 && n.props.on_resize);
+console.log(!!g, !!split, office.panelW);
+split.props.on_resize[0]([1600, 500], cx);
+console.log(office.panelW);
+split.props.on_resize[0]([1600, 5000], cx);
+console.log(office.panelW);
+split.props.on_resize[0]([1600, 40], cx);
+console.log(office.panelW);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true true 360" ]
+  [ "${lines[1]}" = "500" ]
+  [ "${lines[2]}" = "1245" ]
+  [ "${lines[3]}" = "260" ]
+}
+
+@test "the panel's Full terminal button opens the agent's own terminal in an overlay window and locks it" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+const btn = find(render(), "panel-full-terminal");
+btn.props.on_click[0]({}, cx);
+const o = globalThis.OVERLAYS[0];
+console.log(!!btn, o.kind, o.layout.children[1].content.terminal === a.address);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true window true" ]
 }

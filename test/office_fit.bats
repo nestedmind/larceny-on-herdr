@@ -247,3 +247,25 @@ console.log(JSON.stringify(crew.doArgs({ show: "sidebar" }, "p1")), JSON.stringi
   [ "$status" -eq 0 ]
   [ "$output" = '["do","layout.show","--id","sidebar"] ["do","pane.zoom","--pane","p1"] null' ]
 }
+
+@test "clampPanelW keeps the panel between its minimum and half the office, and falls back to 360" {
+  run crew_js '
+const f = (w, total) => crew.clampPanelW(w, total);
+console.log([f(100, 1600), f(500, 1600), f(900, 1600), f(undefined, 1600), f("x", 1600), f(null, 1600), f(399.6, 1600), f(300, 400), f(900, 1000)].join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "260 500 800 360 360 360 400 260 500" ]
+}
+
+@test "the panel width is saved per crew, and full terminal is a window with a bar over the agent's own terminal" {
+  run crew_js '
+console.log(crew.panelWidthKey("sandbox"), crew.panelWidthKey(undefined));
+const o = crew.fullTerminalOverlay({ address: "t7", name: "amy", rawName: "amy", cwd: "/w/amy" }, "/bin/loh");
+console.log(JSON.stringify(o));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "crew-office.panel-width.sandbox crew-office.panel-width." ]
+  [[ "${lines[1]}" == *'"kind":"window"'* ]]
+  [[ "${lines[1]}" == *'"width":1,"height":1'* ]]
+  [[ "${lines[1]}" == *'"content":{"terminal":"t7"}'* ]]
+  [[ "${lines[1]}" == *'"terminalBar":true'* ]]
+  [[ "${lines[1]}" == *'"rawName":"amy"'* ]]
+}

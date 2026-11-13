@@ -8,9 +8,8 @@ import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
 import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, withPending } from "./chat.js";
 
-export const PANEL_W = 360;
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
-const FEED_SHOWN = 6;
+const FEED_SHOWN = 3;
 
 export class Panel {
   // host: { loh: () => path or undefined, terminal: (agent, cx) => void }
@@ -167,7 +166,8 @@ export class Panel {
 
     const actions = h_flex().gap(8).items_center()
       .child(this.button("panel-terminal", "Terminal", (_e, c) => this.host.terminal(a, c), t))
-      .child(div().text_size(11).text_color(t.muted).child("Show the real terminal beside the office"));
+      .child(this.button("panel-full-terminal", "Full terminal", (_e, c) => this.host.fullTerminal(a, c), t))
+      .child(div().flex_1().text_size(11).text_color(t.muted).child("Beside the office, or full size"));
     const notice = why
       ? div().p(8).rounded(6).bg("#e7a43a33").border_1().border_color("#e7a43a").text_size(12).text_color(t.foreground).child(why)
       : null;
@@ -190,14 +190,14 @@ export class Panel {
     }
     // The turns are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest turn out of reach.
-    const chat = v_flex().id("panel-log").flex_1().min_h(80).gap(6).overflow_y_scroll().track_scroll(this.scroll)
+    const chat = v_flex().id("panel-log").flex_1().min_h(160).gap(6).overflow_y_scroll().track_scroll(this.scroll)
       .children(log.length ? log : [div().text_size(11).text_color(t.muted).child(`No messages from ${a.name} yet.`)]);
 
     const form = h_flex().gap(6).items_center()
       .child(div().flex_1().h(28).child(Input.new(this.inputs.get(a.address))))
       .child(this.button("panel-send", this.sending ? "Sending…" : "Send", (_e, c) => this.send(c), t).opacity(why || this.sending ? 0.5 : 1));
 
-    return v_flex().id("panel").w(PANEL_W).h_full().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
+    return v_flex().id("panel").size_full().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
       .child(head).child(card).child(actions).when(!!notice, (el) => el.child(notice))
       .child(div().text_size(11).font_semibold().text_color(t.muted).child("Activity")).child(feed)
       .child(div().text_size(11).font_semibold().text_color(t.muted).child(`Chat with ${a.name}`))
