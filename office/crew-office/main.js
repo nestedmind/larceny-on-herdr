@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -144,6 +144,9 @@ export default class CrewOffice extends View {
     // The panel's width: kept per crew in shared state, so a reload keeps it. Clamped on every render, when the office's width is known.
     // It is read once the crew shown is known (render), so it is per crew, not per prop.
     this.panelKey = null;
+    // The lights: on at the start, then whatever was saved. Herdr's dark mode only sets the stage colour.
+    this.lights = true;
+    try { this.lights = lightsFrom(shared(LIGHTS_KEY)); } catch (_) { /* none saved: lights on */ }
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window is open
@@ -604,10 +607,17 @@ export default class CrewOffice extends View {
       .child(cell("done", "done")).child(cell("idle", "idle"))
       .child(div().flex_1())
       .when(!!this.chat && !view.zoomed, (el) => el.child(div().text_size(12).text_color(t.muted).child(`Chat: ${this.chat.name}`)))
+      .child(button("lights", this.lights ? "Lights off" : "Lights on", (_e, cx) => this.setLights(!this.lights, cx)))
       .child(button("fullscreen", this.fs ? "Exit full screen (Esc)" : "Full screen", (_e, cx) => (this.fs ? this.leaveFullscreen(cx) : this.enterFullscreen(view, cx))))
       .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
 
+
+  setLights(on, cx) {
+    this.lights = !!on;
+    try { setShared(LIGHTS_KEY, lightsValue(this.lights)); } catch (_) { /* the choice is only remembered, not needed */ }
+    if (cx) cx.notify();
+  }
 
   // Ask for another render one tick on, once.
   keepBuilding() {
@@ -786,7 +796,7 @@ export default class CrewOffice extends View {
     // The night layers are built once for a set of lit screens, a little at a time like the floor. A
     // change in the lit screens (an agent changing state) keeps the last finished night on screen until the new one is built.
     let nightEls = [];
-    if (dark) {
+    if (!this.lights) {
       const nkey = `${key}|${lit.map(([d, s]) => `${d.cx},${d.y},${s}`).join(";")}`;
       if (!this.night || this.night.key !== nkey) this.night = { key: nkey, layers: nightLayers(L, lit) };
       let budget = BUILD_MS;
@@ -831,6 +841,7 @@ export default class CrewOffice extends View {
       .on_key_down((e, cx) => {
         if (this.termOpen) return;
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
+        if ((e.key === "l" || e.key === "L") && !e.modifiers?.control && !e.modifiers?.alt && !e.modifiers?.platform && this.handle.is_focused()) { this.setLights(!this.lights, cx); cx.stop_propagation(); return; }
         if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
         else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }

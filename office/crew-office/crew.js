@@ -568,6 +568,19 @@ export function panelWidthKey(crew) {
   return `crew-office.panel-width.${crew || ""}`;
 }
 
+/** Where the lights choice is kept (shared state, so a reload and a restart keep it). One for the office, not per crew. */
+export const LIGHTS_KEY = "crew-office.lights";
+
+/** The remembered lights choice, read back: on unless it was saved as off. */
+export function lightsFrom(saved) {
+  return saved !== "off";
+}
+
+/** The value to save for a lights choice. */
+export function lightsValue(on) {
+  return on ? "on" : "off";
+}
+
 /**
  * The window that shows an agent's own terminal over the whole herdr window: a slim bar from this
  * mod (its Back button, and the unlock when the window goes) above the terminal block.
