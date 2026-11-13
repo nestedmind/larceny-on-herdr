@@ -57,6 +57,7 @@ const SH = globalThis.SHARED = {};
 export const layout = () => ({}); export const shared = (k) => (k in SH ? SH[k] : null); export const setShared = (k, v) => { SH[k] = v; };
 export const openOverlay = (s) => { (globalThis.OVERLAYS ||= []).push(s); return "o1"; }; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
+export const focused = () => globalThis.FOCUS || null;
 EOF
   echo '{"type":"module"}' > "$d/package.json"
   for f in crew draw panel chat main; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
@@ -169,7 +170,7 @@ console.log(chain("m-sheba"), chain("tm-sheba"), insideTag, insideFigure);'
   run office_js '
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions).map((n) => [id(n), n.props.transitions.map((t) => [t[0], t[1].duration, t[1].delay, t[1].easing]), n.props.left[0], n.props.top[0]]));
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000);
 const a = render();
 const b = render();
@@ -186,7 +187,7 @@ console.log(real.length > 1, delays[0] === 0, delays.slice(1).every((d, i) => d 
   run office_js '
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions && /^t?m-/.test(id(n))).map((n) => [id(n).replace(/^tm-/, "m-"), n.props.transitions, n.props.left[0], n.props.top[0]]));
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000);
 const a = render();
 console.log(sig(a, "m-sheba") === sig(a, "tm-sheba"), sig(a, "m-sheba").length > 10);'
@@ -206,7 +207,7 @@ console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].durat
 @test "a walk's timers only turn the walker or end the gait, and a walk ends after its last leg" {
   run office_js '
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000); timers.length = 0;
 render();
 const walk = office.walks.get("sheba");
@@ -220,7 +221,7 @@ console.log(walk.legs.length > 1, Math.max(...ms) > total, Math.max(...ms) <= to
 @test "when the walk is over, the person is drawn at the goal on one millisecond transitions" {
   run office_js '
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000); timers.length = 0;
 render();
 const goal = { x: office.walks.get("sheba").goal.x, y: office.walks.get("sheba").goal.y };
@@ -351,7 +352,7 @@ console.log(night >= 0, hit > night, tag > hit, label > hit, label < tag);'
   run office_js '
 const tr = (root) => (find(root, "tag-tsheba").props.transitions || []).map((a) => a[1].duration);
 const rest = tr(render());
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 const walking = tr(render());
 console.log(rest.length, walking.length, walking.includes(220));'
   [ "$status" -eq 0 ]
@@ -362,9 +363,9 @@ console.log(rest.length, walking.length, walking.includes(220));'
   run office_js '
 const walk = () => office.walks.get("sheba");
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render();
-const wake = timers.filter((t) => !t.cancelled).map((t) => t.ms);
+const wake = timers.filter((t) => !t.cancelled && !(office.wake && t === office.wake.task)).map((t) => t.ms);
 later(1500);
 terms()[1].status = "working";
 render();
@@ -381,7 +382,7 @@ const sig = (root) => JSON.stringify(all(find(root, "m-sheba")).filter((n) => n.
 const walk = () => office.walks.get("sheba");
 render();
 const home = { x: walk().goal.x, y: walk().goal.y };
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000);
 const first = sig(render());
 const legs = walk().legs;
@@ -402,7 +403,7 @@ console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y ==
 @test "a whole walk, from the hold to the last timer, runs with every render and timer callback on a cx of its own" {
   run office_js '
 render();
-terms()[1].status = "done";
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000);
 render();
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
@@ -422,11 +423,11 @@ const R = () => { const l = links(render()); if (going(l) && !(prev && going(pre
 const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
 R();
 // out to the desk, and back to the kitchen while still on the way
-terms()[1].status = "done"; R(); later(3000); R();
+terms()[1].labels.pr = "9"; terms()[1].status = "done"; R(); later(3000); R();
 later(1000); terms()[1].status = "working"; R();
 later(60000); fire(); R(); later(60); fire(); R();
 // the walk back, and out again as soon as it has begun
-terms()[1].status = "done"; R();
+terms()[1].labels.pr = "9"; terms()[1].status = "done"; R();
 later(60000); fire(); R(); later(60); fire(); R();
 later(60000); fire(); R(); later(60); fire(); R();
 console.log(walks, bad);'
@@ -736,9 +737,9 @@ console.log(first !== undefined, office.floorView.inst.layer === office.shown.la
 
 @test "the repo list is read and applied though the cx the render passed is long dead (strict cx)" {
   run office_js '
-let resolve;
+const resolvers = [];
 globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
-globalThis.EXEC_HOOK = () => new Promise((r) => { resolve = r; });
+globalThis.EXEC_HOOK = () => new Promise((r) => { resolvers.push(r); });
 const kids = [], tasks = [], errors = [];
 const mk = () => { const c = { alive: true, notified: 0, dead: [],
   notify() { if (!c.alive) { c.dead.push("notify"); throw new Error("cx is no longer valid"); } c.notified++; },
@@ -747,9 +748,82 @@ const strict = mk();
 office.repos = []; office.reposKey = null;
 office.loadRepos([], "sandbox", strict);
 strict.alive = false;
-resolve({ code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "web" }]) });
+resolvers[0]({ code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "web" }]) });
+await new Promise((r) => setTimeout(r, 0));
+resolvers[1]({ code: 0, stdout: JSON.stringify({ idle_minutes: 2 }) });
 await Promise.all(tasks);
-console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified)]));'
+console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified), office.idleMinutes]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["api","web"],[],[],[1]]' ]
+  [ "$output" = '[["api","web"],[],[],[2],2]' ]
+}
+
+# Scofield's turn ends; nothing in herdr changes after that, so a timer has to bring the office back for the idle time to end.
+@test "Scofield stays at his desk after his turn ends and goes to the lounge when the idle time is over, brought back by a timer" {
+  run office_js '
+const place = () => { const q = office.layoutNow.people.find((p) => p.id === "scofield").place; return q === "kitchen" || q === "lounge" ? "away" : q; };
+render();
+terms()[0].status = "done";
+render();
+const at0 = place();
+const wake = timers.filter((t) => !t.cancelled && t.ms > 100000).map((t) => t.ms);
+later(179000); render();
+const before = place();
+later(1000); render();
+console.log(at0, wake.length, wake[0] > 179000 && wake[0] < 181000, before, place());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk 1 true desk away" ]
+}
+
+@test "the idleMinutes prop sets the idle time, and the workspace's setting is used without it" {
+  run office_js '
+globalThis.PROPS = { crew: "sandbox", idleMinutes: 1 };
+const place = () => { const q = office.layoutNow.people.find((p) => p.id === "scofield").place; return q === "kitchen" || q === "lounge" ? "away" : q; };
+render();
+terms()[0].status = "idle";
+render();
+later(61000); render();
+const withProp = place();
+globalThis.PROPS = { crew: "sandbox" };
+office.idleMinutes = 5;
+later(1000); render();
+const settingHolds = place();
+later(300000); render();
+console.log(withProp, settingHolds, place());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "away desk away" ]
+}
+
+@test "Matt is away until he types in the message box, at his desk for 20 s after, and away again, brought back by a timer" {
+  run office_js '
+const matt = () => office.layoutNow.people.find((p) => p.id === "matt");
+render();
+const away = matt().place;
+office.typed({ notify() {} });
+render();
+const typing = matt().place;
+const wake = timers.filter((t) => !t.cancelled).map((t) => t.ms);
+later(19000); render();
+const still = matt().place;
+later(2000); render();
+console.log(away, typing, still, matt().place, wake.some((m) => m > 19000 && m <= 20100));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "lounge matt matt lounge true" ]
+}
+
+@test "Matt is at his desk for 20 s after focus arrives on a terminal opened from the office, and goes away though it stays focused" {
+  run office_js '
+const matt = () => office.layoutNow.people.find((p) => p.id === "matt").place;
+office.chat = { pane: "p1", office: "p1", address: "tsheba", name: "sheba", agent: {} };
+globalThis.FOCUS = { terminal: "tsheba" };
+render();
+const focused = matt();
+later(19000); render();
+const still = matt();
+later(2000); render();
+const stays = matt();
+globalThis.FOCUS = { terminal: "tscofield" }; render();
+globalThis.FOCUS = { terminal: "tsheba" }; render();
+console.log(focused, still, stays, matt());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "matt matt lounge matt" ]
 }

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Claude Code hook: publish this agent's status card as herdr labels.
 #
-# Wired in hooks/hooks.json to UserPromptSubmit, PreToolUse, PostToolUse and
-# Stop. Claude Code passes the event as JSON on stdin. The script writes
-# `step=` (and `pr=` after `gh pr create`) with `hc label` on the terminal
-# named in HC_TERMINAL_ID.
+# Wired in hooks/hooks.json to UserPromptSubmit, PreToolUse, PostToolUse, Stop,
+# StopFailure, PreCompact and SessionStart (sources compact and clear). Claude
+# Code passes the event as JSON on stdin. The script writes `step=` (and `pr=`
+# after `gh pr create`) with `hc label` on the terminal named in HC_TERMINAL_ID.
+# It also writes `ctx=compact` while the context compacts and `ctx=clear` after
+# a clear; the next turn (or the end of the compaction) removes the label. The
+# office reads `ctx` to put the agent in the rest room.
 #
 # It never fails and never blocks: outside herdr, on bad input, or when hc
 # fails, it exits 0 and writes nothing.
@@ -46,6 +49,23 @@ label() {
   else
     hc label "$HC_TERMINAL_ID" "${args[@]}" >/dev/null 2>&1
   fi
+}
+
+# current_note: this terminal's note label, or nothing (hc get fails, or no note).
+current_note() {
+  local t=""
+  if command -v timeout >/dev/null 2>&1; then
+    t=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then
+    t=gtimeout
+  fi
+  local out
+  if [[ -n "$t" ]]; then
+    out="$("$t" 3 hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  else
+    out="$(hc get "$HC_TERMINAL_ID" 2>/dev/null)"
+  fi
+  printf '%s' "$out" | jq -r '.labels.note // empty' 2>/dev/null
 }
 
 # rel_path <abs path> <cwd>: the path relative to the repo that holds the file
@@ -155,7 +175,25 @@ TEST_CWD="$cwd"
 
 case "$event" in
   UserPromptSubmit)
-    label "step=reading the prompt"
+    # A new turn ends any compact or clear mark: the office reads ctx= and sends the agent back to its desk.
+    # The answer to an escalation arrives as a prompt, so a note that starts with escalation: goes in the same call; any other note stays.
+    note="$(current_note)"
+    if [[ "$note" == escalation:* ]]; then
+      label "step=reading the prompt" "ctx=" "note="
+    else
+      label "step=reading the prompt" "ctx="
+    fi
+    ;;
+  PreCompact)
+    label "ctx=compact"
+    ;;
+  SessionStart)
+    # hooks.json runs this for the sources compact and clear only. A compaction is over once the session
+    # starts again; a clear is marked until the next turn starts.
+    case "$(field '.source')" in
+      compact) label "ctx=" ;;
+      clear) label "ctx=clear" ;;
+    esac
     ;;
   PreToolUse)
     tool="$(field '.tool_name')"

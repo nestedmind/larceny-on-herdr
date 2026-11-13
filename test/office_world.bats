@@ -69,9 +69,9 @@ console.log(agents.length, [...rooms].sort().join(","), agents.every((p) => p.st
   [ "${lines[1]}" = "10 kitchen,lounge true" ]
 }
 
-@test "Matt is at his desk and Waffles sleeps on her bed" {
+@test "Matt is at his desk while typing and Waffles sleeps on her bed" {
   run crew_js "$HELPERS"'
-const L = crew.layoutCrew([], ["api"]);
+const L = crew.layoutCrew([], ["api"], 0, {mattTyping: true});
 const m = P(L, "matt"), d = P(L, "dog");
 console.log(m.x, m.y, m.face, m.place, d.x, d.y, d.state);'
   [ "$status" -eq 0 ]
@@ -87,17 +87,17 @@ console.log(a.place, a.desk, a.agent.step, a.face, b.place, b.state, b.kind, inR
   [ "$output" = "desk repo:web:1 editing s desk blocked other true" ]
 }
 
-@test "a done coder is in the kitchen, an idle one with a task is at ping pong, one with no task is in the lounge" {
+@test "a done coder with a PR is in the kitchen, one escalated is at ping pong, one with a task and no PR is at its desk" {
   run crew_js "$HELPERS"'
-const L = lay([T("sucre", "done", {role: "coder", task: "api#1"}), T("mahone", "idle", {role: "coder", task: "api#2"}), T("sheba", "idle", {role: "coder", task: "web#3"}), T("whip", "idle", {role: "coder"})], ["api", "web"]);
+const L = lay([T("sucre", "done", {role: "coder", task: "api#1", pr: "3", round: "1"}), T("mahone", "idle", {role: "coder", task: "api#2"}), T("sheba", "idle", {role: "coder", task: "web#3", pr: "4", note: "escalation:stuck"}), T("whip", "idle", {role: "coder"})], ["api", "web"]);
 console.log(["sucre", "mahone", "sheba", "whip"].map((id) => P(L, id).place).join(" "), L.rally);'
   [ "$status" -eq 0 ]
-  [ "$output" = "kitchen pong pong lounge true" ]
+  [ "$output" = "kitchen desk pong desk false" ]
 }
 
-@test "no rally when only one coder is waiting at ping pong" {
+@test "no rally when only one coder is at ping pong" {
   run crew_js "$HELPERS"'
-const L = lay([T("mahone", "idle", {role: "coder", task: "api#2"})], ["api"]);
+const L = lay([T("mahone", "idle", {role: "coder", task: "api#2", pr: "4", note: "escalation:stuck"})], ["api"]);
 console.log(P(L, "mahone").place, L.rally);'
   [ "$status" -eq 0 ]
   [ "$output" = "pong false" ]
@@ -105,7 +105,7 @@ console.log(P(L, "mahone").place, L.rally);'
 
 @test "a coder away from its desk keeps the desk slot, so the others do not move" {
   run crew_js "$HELPERS"'
-const mk = (st) => [T("sucre", st, {role: "coder", task: "api#1"}), T("mahone", "working", {role: "coder", task: "api#2"})];
+const mk = (st) => [T("sucre", st, {role: "coder", task: "api#1", pr: "3", round: "1"}), T("mahone", "working", {role: "coder", task: "api#2"})];
 const a = lay(mk("working"), ["api"]), b = lay(mk("done"), ["api"]);
 const pos = (L) => P(L, "mahone").x + "," + P(L, "mahone").y;
 console.log(pos(a) === pos(b), P(b, "sucre").place);'
@@ -143,12 +143,12 @@ console.log(f("yoda"), f("sara"), f("scofield"), f("amy"));'
   [ "$output" = "meeting,410,50,e meeting,460,50,w desk,322,52,n desk,368,52,n" ]
 }
 
-@test "Scofield and Amy leave their desks when idle or done, like everyone else" {
+@test "Scofield and Amy stay at their desks when idle or done, with a dark screen" {
   run crew_js "$HELPERS"'
 const L = lay([T("scofield", "idle", {role: "coordinator"}), T("amy", "done", {role: "reviewer"})], ["api", "web"]);
 console.log(P(L, "scofield").place, P(L, "amy").place, P(L, "scofield").desk, L.screens.scofield);'
   [ "$status" -eq 0 ]
-  [ "$output" = "lounge kitchen null undefined" ]
+  [ "$output" = "desk desk scofield dim" ]
 }
 
 @test "three working coders in a one-repo workspace all sit at desks" {
@@ -205,13 +205,13 @@ console.log(c.map((a) => a.name + ":" + crew.castKey(a, c)).join(","));'
   [ "$output" = "boss:scofield,owl:yoda,sheba:sheba,zed:null" ]
 }
 
-@test "an agent outside the cast is drawn as an extra person in the lounge" {
+@test "an agent outside the cast is drawn as an extra person, at a free desk while its turn is fresh" {
   run crew_js "$HELPERS"'
 const L = lay([T("zed", "idle", {role: "coder"})], ["api"]);
 const z = L.people.find((p) => p.name === "Zed" || p.name === "zed");
 console.log(L.people.length, z.place, z.running);'
   [ "$status" -eq 0 ]
-  [ "$output" = "13 lounge true" ]
+  [ "$output" = "13 desk true" ]
 }
 
 @test "Waffles keeps Matt company while an agent is blocked, then goes back to her bed" {

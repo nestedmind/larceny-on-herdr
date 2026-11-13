@@ -63,7 +63,7 @@ try {
     const chosen = CASES.filter((x) => !only || x.name === only);
     if (!chosen.length) throw new Error(`no case named ${only}; the cases are ${CASES.map((x) => x.name).join(", ")}`);
     for (const c of chosen) {
-      const r = await drawOffice(office, { agents: c.crew, repos: c.repos, stage: c.stage });
+      const r = await drawOffice(office, { agents: c.crew, repos: c.repos, stage: c.stage, typing: c.typing, advance: c.advance });
       const res = await compareCase({ P: proto.data, r, c, crew: office.crew, proto, route: c.route ? ROUTE : null });
       const sorted = sortKnown(c.name, res.findings);
       print(c.name, r.k, res, sorted);

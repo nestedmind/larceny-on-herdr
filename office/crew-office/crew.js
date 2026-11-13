@@ -111,6 +111,10 @@ export function crewOf(terminals, workspace) {
       pr: clean(l.pr, 8),
       round: clean(l.round, 4),
       note: clean(l.note, 60),
+      // Set by the hooks while the session compacts (compact) or has just been cleared (clear).
+      ctx: l.ctx === "compact" || l.ctx === "clear" ? l.ctx : "",
+      // When herdr says the status last changed (ms), if it says: a person first seen idle counts the idle time from then.
+      statusMs: typeof t.status_ms === "number" && Number.isFinite(t.status_ms) ? t.status_ms : null,
       withMatt: l.with_matt === "1",
     });
   }
@@ -626,21 +630,91 @@ export function serialQueue() {
 
 // ---------- who stands where ----------
 
-const SLOT_HOME = { opemipo: { room: 0, slot: 3 }, maya: { room: 1, slot: 2 } };
+
+// How long someone sits at their desk after their turn ends before going to the kitchen or the lounge.
+export const IDLE_MS = 3 * 60 * 1000;
+// A coder waiting on a review sits in the kitchen this long before ping pong, or PONG_LONE when someone plays alone.
+export const PONG_AFTER = 15000;
+export const PONG_LONE = 2000;
+// After a clear, someone rests this long (zz) and then goes to the lounge.
+export const REST_MS = 4000;
+
+/** The idle time in ms from a setting in minutes (a number or a numeric string). Anything else gives IDLE_MS. */
+export function idleMsOf(minutes) {
+  const n = typeof minutes === "string" && minutes.trim() !== "" ? Number(minutes) : minutes;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.round(n * 60000) : IDLE_MS;
+}
+
+/** The idle time in ms: the mod's `idleMinutes` prop when it is a positive number, else the workspace's setting, else IDLE_MS. */
+export function pickIdleMs(prop, setting) {
+  const ok = (v) => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) && Number.isFinite(Number(v)) && Number(v) > 0;
+  return idleMsOf(ok(prop) ? prop : setting);
+}
+
+/** `idle_minutes` from `loh status --settings` output (a JSON object), or undefined. */
+export function idleMinutesOf(text) {
+  let v;
+  try { v = JSON.parse(text); } catch { return undefined; }
+  const n = v && typeof v === "object" ? v.idle_minutes : undefined;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+// Matt is at his desk this long after his last key in the office's message box (the prototype's away time is 20 s).
+export const TYPING_HOLD = 20000;
 
 /**
- * Everyone, placed from real state. All twelve are always there.
- *  - a coder with a task and a free desk: working or blocked at the desk; done in the kitchen;
- *    idle at ping pong. The desk stays its own while it is away, so the others do not move.
- *  - a coder without a desk, and anyone not running: the lounge (then the kitchen and the rest room when full)
- *  - Scofield and Amy at their own desks while running; Yoda and Sara at the meeting table
- *  - Maya and Opemipo at a home desk in the repo rooms while running
- *  - Matt at his desk; Waffles on her bed, or beside Matt while an agent is blocked
- * `aspect` is the pane's width over its height (see aspectOf); the floor is made to match it.
- * Repo rooms come from `repoList` (the manifest), then any repo a coder's task names. Desks are given
- * in name order, so a desk does not move while the crew is the same.
+ * Whether Matt is typing in herdr: `until` is when his last sign of activity stops counting (TYPING_HOLD after it). A mod
+ * sees keys only in its own views, so a sign is a key in the office's message box, a click on a person, or herdr's focus
+ * moving onto the terminal of an agent he opened from the office (see main.js). Never a key typed in a terminal.
  */
-export function layoutCrew(crew, repoList = [], aspect = 0) {
+export function mattTypingAt(now, until) {
+  return typeof until === "number" && now < until;
+}
+
+/** Whether herdr's focus has just moved onto one of `open` (addresses of terminals opened from the office): the last focus was elsewhere. */
+export function focusArrived(focusedTerminal, lastFocus, open) {
+  return !!focusedTerminal && focusedTerminal !== lastFocus && (open || []).includes(focusedTerminal);
+}
+
+/** The command that reads the workspace's settings. Same folder rules as reposCall. */
+export function settingsCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["status", "--settings"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
+/**
+ * What layoutCrew remembers between renders, so that people keep their places: when each person's turn ended (the
+ * idle time counts from there), when a waiting coder sat down, when a clear began, and the spot and desk each person
+ * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
+ */
+export function newMemory() {
+  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map() };
+}
+
+const SLOT_HOME = { opemipo: { room: 0, slot: 3 }, maya: { room: 1, slot: 2 } };
+const AWAY = ["lounge", "kitchen"];
+const KITCHEN = ["kitchen", "lounge"];
+
+/**
+ * Everyone, placed from real state. All twelve are always there. Where each stands (ticket #26):
+ *  - a session that is open: at its own desk while working, blocked, or after its turn ends. Scofield, Amy, Yoda,
+ *    Sara and a coder with no ticket go to the lounge once idle for `idleMs` (the kitchen when the lounge is full);
+ *    a coder with a ticket stays at its desk;
+ *  - a coder with a PR and no work in hand is waiting on its review: in the kitchen with a mug, at ping pong after
+ *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
+ *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
+ *    clear ends in the lounge after REST_MS;
+ *  - no session: the lounge. Maya and Opemipo sit at their home desks while they run;
+ *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
+ * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
+ * moves. `opts.now` is the time in ms and `opts.idleMs` the idle time. `wakeIn` in the result is when time alone changes
+ * something next (ms), or null.
+ * `aspect` is the pane's width over its height (see aspectOf); the floor is made to match it.
+ * Repo rooms come from `repoList` (the manifest), then any repo a coder's task names.
+ */
+export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
+  const now = typeof opts.now === "number" ? opts.now : 0;
+  const idleMs = opts.idleMs > 0 ? opts.idleMs : IDLE_MS;
+  const mem = opts.mem || newMemory();
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
   const world = worldFor([...repoList, ...extraRepos], aspect);
   const { desks, rooms, spots } = world;
@@ -662,9 +736,54 @@ export function layoutCrew(crew, repoList = [], aspect = 0) {
     p.state = p.agent ? p.agent.status : "off";
     p.kind = p.agent ? p.agent.kind : null;
     p.dim = !p.running && p.id !== "matt" && p.id !== "dog";
-    p.desk = null; p.place = null; p.face = "s"; p.spot = null; p.mug = false; p.paddle = 0; p.dir = 1;
+    p.desk = null; p.place = null; p.face = "s"; p.spot = null; p.mug = false; p.paddle = 0; p.dir = 1; p.mode = null;
   }
   const by = (id) => people.find((p) => p.id === id);
+  const wakes = [];
+
+  // When each turn ended. Someone is busy while working or blocked or changing context; the idle time counts from the
+  // render that first saw them not busy, and a done that turns idle does not restart it. Not seen before: counted from now.
+  const live = new Set(people.filter((p) => p.agent).map((p) => p.id));
+  for (const id of [...mem.act.keys()]) if (!live.has(id)) mem.act.delete(id);
+  for (const p of people) {
+    if (!p.agent) continue;
+    const a = p.agent;
+    p.busy = a.status === "working" || a.status === "blocked";
+    const active = p.busy || !!a.ctx;
+    const prev = mem.act.get(p.id);
+    if (active) mem.act.set(p.id, { busy: true, since: now });
+    else if (!prev) mem.act.set(p.id, { busy: false, since: a.statusMs !== null && a.statusMs <= now ? a.statusMs : now });
+    else if (prev.busy) mem.act.set(p.id, { busy: false, since: now });
+    p.idleFor = active ? 0 : now - mem.act.get(p.id).since;
+    p.recent = p.idleFor < idleMs;
+  }
+
+  // Each running person's mode: what they are doing, which says where they are.
+  const stillWait = new Set();
+  for (const p of people) {
+    if (!p.agent) continue;
+    const a = p.agent;
+    const ticket = a.repo !== "";
+    if (a.ctx === "compact") { p.mode = "rest"; mem.cleared.delete(p.id); continue; }
+    if (a.ctx === "clear") {
+      if (!mem.cleared.has(p.id)) mem.cleared.set(p.id, now);
+      const left = REST_MS - (now - mem.cleared.get(p.id));
+      if (left > 0) { p.mode = "rest"; wakes.push(left); } else p.mode = "lounge";
+      continue;
+    }
+    mem.cleared.delete(p.id);
+    const sitting = p.busy || p.recent;
+    if (!p.busy && p.recent && !(p.role === "coder" && ticket) && !(p.id in SLOT_HOME)) wakes.push(idleMs - p.idleFor);
+    if (p.role === "coder") {
+      if (ticket) p.mode = p.busy ? "desk" : /^escalation:/.test(a.note) ? "esc" : a.pr ? "wait" : "desk";
+      else p.mode = sitting ? "deskfree" : "away";
+    } else if (p.id in SLOT_HOME) p.mode = "home";
+    else if (p.id === "scofield" || p.id === "amy" || p.id === "yoda" || p.id === "sara") p.mode = sitting ? "home" : "away";
+    else p.mode = "away";
+    if (p.mode === "wait") stillWait.add(p.id);
+  }
+  for (const id of [...mem.wait.keys()]) if (!stillWait.has(id)) mem.wait.delete(id);
+  for (const id of [...mem.cleared.keys()]) if (!live.has(id)) mem.cleared.delete(id);
 
   // Home desks for the helpers, then the coders' free slots in each repo room.
   const homes = {};
@@ -681,44 +800,87 @@ export function layoutCrew(crew, repoList = [], aspect = 0) {
 
   const sit = (p, d) => { p.desk = d.key; p.place = "desk"; p.x = d.seat.x; p.y = d.seat.y; p.face = d.side === "n" ? "s" : "n"; };
   const coders = people.filter((p) => p.role === "coder" && p.agent);
-  const busy = (c) => c.state === "working" || c.state === "blocked";
-  const own = (p) => { const list = slots.get("repo:" + p.agent.repo); if (list && list.length) p.desk = list.shift(); };
-  // Everyone with a task takes a desk in their own room, in name order, so desks stay put while the
-  // crew is the same. Then a working or blocked coder with none takes a free desk in the first room
-  // that has one; if every desk is held, it takes the desk of an idle or done coder (who goes to the
-  // kitchen, ping pong or lounge instead). A busy coder is never in the lounge while a desk could be theirs.
-  for (const p of coders.filter((c) => c.agent.repo)) own(p);
-  for (const p of coders.filter((c) => !c.desk && busy(c))) {
+  const seeks = (c) => c.mode === "desk" || c.mode === "deskfree";
+  // Desks stay with whoever held them: a coder with a task keeps its desk in its own room, and a coder who joins takes
+  // a free one, so nobody slides. Then a working or blocked coder with none takes a free desk in the first room that has
+  // one; if every desk is held, it takes the desk of a coder who is not working or blocked (who goes to the kitchen,
+  // ping pong or lounge instead), never the lounge for itself.
+  // A coder with no task who only sits there after its turn takes a free desk, and never takes one from anyone.
+  const free = (key) => [...slots.values()].find((l) => l.includes(key));
+  const take = (p, list, key) => { list.splice(list.indexOf(key), 1); p.desk = key; };
+  const ticketed = coders.filter((c) => c.agent.repo);
+  for (const p of ticketed) {
+    const list = slots.get("repo:" + p.agent.repo), held = mem.desks.get(p.id);
+    if (list && held && list.includes(held)) take(p, list, held);
+  }
+  for (const p of ticketed.filter((c) => !c.desk)) { const list = slots.get("repo:" + p.agent.repo); if (list && list.length) { p.desk = list[0]; list.shift(); } }
+  const seekers = coders.filter((c) => !c.desk && seeks(c)).sort((a, b) => Number(b.busy) - Number(a.busy));
+  for (const p of seekers) {
+    const held = mem.desks.get(p.id);
+    const heldList = held ? free(held) : null;
+    if (heldList) { take(p, heldList, held); continue; }
     const list = [...slots.values()].find((l) => l.length);
     if (list) { p.desk = list.shift(); continue; }
-    const victim = [...coders].reverse().find((c) => c.desk && !busy(c));
+    if (!p.busy) continue;
+    const victim = [...coders].reverse().find((c) => c.desk && !c.busy);
     if (victim) { p.desk = victim.desk; victim.desk = null; }
   }
+  mem.desks = new Map(coders.filter((c) => c.desk).map((c) => [c.id, c.desk]));
+
+  // Matt: at his desk only while he is typing, else away in the lounge.
+  const matt = by("matt");
+  matt.state = opts.mattTyping ? "matt" : "away";
+
+  // Who is at ping pong now, for the waiting coder who goes there sooner when someone plays alone.
+  const atPong = new Set(people.filter((p) => p.mode === "esc").map((p) => p.id));
+  for (const [id, s] of mem.spots) if (s.room === "pong" && live.has(id)) atPong.add(id);
 
   // Standing places first: desks, the meeting table, Matt.
   const needSpot = [];
+  const need = (p, chain) => needSpot.push({ p, chain });
   for (const p of people) {
-    if (p.id === "matt") { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; continue; }
     if (p.id === "dog") continue;
-    if (!p.running) { needSpot.push({ p, chain: ["lounge", "kitchen", "rest"] }); continue; }
-    // Scofield and Amy are at their desks while working or blocked; idle or done they go to the lounge or kitchen.
-    if ((p.id === "scofield" || p.id === "amy") && (p.state === "working" || p.state === "blocked")) { sit(p, deskBy.get(p.id)); continue; }
-    if (p.id === "yoda" || p.id === "sara") {
-      const m = world.meetSeats[p.id];
-      p.place = "meeting"; p.x = m.x; p.y = m.y; p.face = m.face;
+    if (p.id === "matt") {
+      if (opts.mattTyping) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
-    if (homes[p.id]) { sit(p, deskBy.get(homes[p.id])); continue; }
-    if (p.role === "coder") {
-      if (p.desk && (p.state === "working" || p.state === "blocked")) { sit(p, deskBy.get(p.desk)); continue; }
-      if (p.state === "done") { needSpot.push({ p, chain: ["kitchen", "rest", "lounge"] }); continue; }
-      if (p.state === "idle" && p.agent.repo) { needSpot.push({ p, chain: ["pong", "kitchen", "lounge", "rest"] }); continue; }
+    if (!p.running) { need(p, AWAY); continue; }
+    switch (p.mode) {
+      case "rest": need(p, ["rest"]); break;
+      case "lounge": need(p, AWAY); break;
+      case "home":
+        if (p.id === "yoda" || p.id === "sara") {
+          const m = world.meetSeats[p.id];
+          p.place = "meeting"; p.x = m.x; p.y = m.y; p.face = m.face;
+        } else sit(p, deskBy.get(homes[p.id] || p.id));
+        break;
+      case "desk":
+      case "deskfree":
+        if (p.desk) sit(p, deskBy.get(p.desk)); else need(p, AWAY);
+        break;
+      case "esc": need(p, ["pong", "kitchen", "lounge"]); break;
+      case "wait": {
+        let w = mem.wait.get(p.id);
+        if (!w) {
+          const from = mem.pos.get(p.id) || null;
+          const walk = from ? walkMs(legsOf(from, pathTo(world, p.id, from, spots.kitchen[0]))) : 0;
+          // Counted from herdr's time for the status change when it gives one (a coder first seen after a long wait).
+          const sat = p.agent.statusMs !== null && p.agent.statusMs <= now ? p.agent.statusMs : now;
+          w = { arrive: sat + GOAL_HOLD + walk, pong: false };
+          mem.wait.set(p.id, w);
+        }
+        const left = w.arrive + ([...atPong].filter((id) => id !== p.id).length === 1 ? PONG_LONE : PONG_AFTER) - now;
+        if (left <= 0) w.pong = true; else if (!w.pong) wakes.push(left);
+        need(p, w.pong ? ["pong", "kitchen", "lounge"] : KITCHEN);
+        break;
+      }
+      default: need(p, AWAY);
     }
-    needSpot.push({ p, chain: p.state === "done" ? ["kitchen", "rest", "lounge"] : ["lounge", "kitchen", "rest"] });
   }
 
-  // Spots: running people first, waiting coders before the rest, so ping pong goes to those who wait.
-  const rank = (n) => (n.p.running ? 0 : 3) + (n.chain[0] === "pong" ? 0 : n.chain[0] === "kitchen" ? 1 : 2);
+  // Spots: someone who held a spot in a room last time, for the same reason, keeps it. The rest claim in order:
+  // running people first, waiting coders before the rest, so ping pong goes to those who wait.
+  const rank = (n) => (n.p.id === "matt" ? -1 : n.p.running ? 0 : 3) + (n.chain[0] === "pong" ? 0 : n.chain[0] === "kitchen" ? 1 : 2);
   const used = new Set();
   const claim = (room, id) => {
     const list = spots[room];
@@ -730,20 +892,28 @@ export function layoutCrew(crew, repoList = [], aspect = 0) {
     }
     return null;
   };
+  const why = (n) => n.chain.join(">");
+  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms.
+  for (const n of needSpot) {
+    const h = mem.spots.get(n.p.id);
+    if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) { used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room; }
+  }
   needSpot.map((n, i) => ({ n, i })).sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i).forEach(({ n }) => {
     const { p, chain } = n;
-    let got = null;
-    let where = "lounge";
-    for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
-    if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; }
+    let got = n.got || null;
+    let where = n.where || "lounge";
+    if (!got) for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
+    if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = "lounge"; }
     p.place = where; p.x = got.x; p.y = got.y; p.face = "s";
     if (where === "pong") { p.spot = "pong:" + got.idx; p.paddle = got.idx === 0 ? 1 : -1; }
     p.mug = where === "kitchen" || (where === "lounge" && p.role !== "coder");
+    n.final = { room: where, idx: got.idx, why: why(n) };
   });
+  mem.spots = new Map(needSpot.filter((n) => n.final && n.final.idx >= 0).map((n) => [n.p.id, n.final]));
+  mem.pos = new Map(people.filter((p) => p.place).map((p) => [p.id, { x: p.x, y: p.y }]));
 
   // Waffles: asleep on her bed, or sitting beside Matt while an agent is blocked and needs him.
   const dog = by("dog");
-  const matt = by("matt");
   if (people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = matt.x + 11; dog.y = matt.y + 5; dog.dir = -1; } else { dog.state = "sleep"; dog.x = world.bed.x; dog.y = world.bed.y; }
   dog.place = "dog";
 
@@ -763,7 +933,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0) {
   screens.matt = "work";
 
   const rally = people.filter((p) => p.spot === "pong:0" || p.spot === "pong:1").length === 2;
-  return { ...world, people, dog, screens, rally, totals: totals(people.filter((p) => AGENT_IDS.includes(p.id) || p.id.startsWith("x:")).map((p) => ({ status: p.state === "off" ? "idle" : p.state }))) };
+  const next = wakes.filter((w) => w > 0);
+  return { ...world, people, dog, screens, rally, wakeIn: next.length ? Math.min(...next) : null, totals: totals(people.filter((p) => AGENT_IDS.includes(p.id) || p.id.startsWith("x:")).map((p) => ({ status: p.state === "off" ? "idle" : p.state }))) };
 }
 
 /**

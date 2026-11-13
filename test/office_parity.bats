@@ -79,10 +79,42 @@ copy_mod() {
 
 @test "Scofield and Amy swapped between their desks is reported: the prototype says who sits where" {
   copy_mod
-  sed -i 's/sit(p, deskBy.get(p.id)); continue; }/sit(p, deskBy.get(p.id === "scofield" ? "amy" : "scofield")); continue; }/' "$MOD/crew.js"
+  sed -i 's/else sit(p, deskBy.get(homes\[p.id\] || p.id));/else sit(p, deskBy.get(p.id === "scofield" ? "amy" : p.id === "amy" ? "scofield" : homes[p.id] || p.id));/' "$MOD/crew.js"
   run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
   [ "$status" -eq 1 ]
   [[ "$output" == *"scofield desk: office \"amy\", prototype \"scofield\""* ]]
+}
+
+@test "seating: people who do not leave their desks after the idle time are reported against the prototype's lounge" {
+  copy_mod
+  sed -i 's/export const IDLE_MS = 3 \* 60 \* 1000;/export const IDLE_MS = 3e9;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case idle-3-minutes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield place: office \"desk\", prototype \"lounge (the prototype's lounge)\""* ]]
+}
+
+@test "seating: someone who leaves the desk when the turn ends, before the idle time, is reported" {
+  copy_mod
+  sed -i 's/export const IDLE_MS = 3 \* 60 \* 1000;/export const IDLE_MS = 1000;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case seated-after-turn
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"scofield place"* ]]
+}
+
+@test "seating: a coder waiting on a review who never goes to ping pong is reported" {
+  copy_mod
+  sed -i 's/export const PONG_AFTER = 15000;/export const PONG_AFTER = 1e9;/' "$MOD/crew.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case ping-pong-after-15s
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"sucre place: office \"kitchen\""* ]]
+}
+
+@test "seating: Matt at his desk when he is not typing is reported" {
+  copy_mod
+  sed -i 's/mattTyping: mattTypingAt(now, this.mattUntil),/mattTyping: true,/' "$MOD/main.js"
+  run node "$TOOL/run.mjs" --mod "$MOD" --case rest-room-and-away
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"matt place"* ]]
 }
 
 @test "a person drawn in a colour the prototype does not give them is reported" {
@@ -220,12 +252,12 @@ use_fakes() {
   [[ "$output" == *" y: office"* ]]
 }
 
-@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases" {
+@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases, and 3, 5, 1, 2, 1 and 5 in the six seating cases" {
   run node "$TOOL/run.mjs"
   [ "$status" -eq 0 ]
   [[ "$output" == *"two-repos-native"*"8 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
   [[ "$output" == *"two-repos-narrow"*"4 known"* && "$output" == *"six-repos"*"3 known"* ]]
-  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 16 ]
+  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 33 ]
 }
 
 # The tool in a temp dir, so a test can change its list of known differences.

@@ -18,7 +18,7 @@ const mainCheckout = () => {
 };
 export const DEFAULT_PROTO = process.env.PARITY_PROTO || join(mainCheckout(), ".larceny", "office", "crew-office.html");
 const HOOK = "hook.browser = { getS: () => S,";
-const WORLD = "ROOMS, DESKS, SPOTS, MATT_DESK, MEET_SEATS, DOG_BED, HOME_DESK, PODS, pathTo, W, H, ";
+const WORLD = "ROOMS, DESKS, SPOTS, MATT_DESK, MEET_SEATS, DOG_BED, HOME_DESK, PODS, PLACE_OF_THEN, pathTo, W, H, ";
 // Animation stopped: no frame is ever scheduled, the page draws once when asked.
 const FREEZE = "window.__crewOfficeTest = {}; window.requestAnimationFrame = () => 0;";
 
@@ -37,7 +37,7 @@ export async function openPrototype(file = DEFAULT_PROTO) {
     for (const n of Array.from(cs).concat(["--accent"])) if (/^--((fl|st)-|accent$|p-)/.test(n)) pal[n.slice(2)] = cs.getPropertyValue(n).trim();
     const strip = (o) => JSON.parse(JSON.stringify(o));
     return { W: b.W, H: b.H, ROOMS: strip(b.ROOMS), DESKS: strip(b.DESKS), MATT_DESK: strip(b.MATT_DESK), SPOTS: strip(b.SPOTS), MEET_SEATS: strip(b.MEET_SEATS),
-      DOG_BED: strip(b.DOG_BED), HOME_DESK: strip(b.HOME_DESK), PODS: strip(b.PODS), pal };
+      DOG_BED: strip(b.DOG_BED), HOME_DESK: strip(b.HOME_DESK), PODS: strip(b.PODS), PLACE_OF_THEN: strip(b.PLACE_OF_THEN), pal };
   })()`);
   return {
     data,

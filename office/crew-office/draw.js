@@ -449,7 +449,7 @@ function bubble(g, x, y, label, fill, ink, k) {
     .text_size(Math.max(5, 5 * k)).font_semibold().text_color(ink).child(label);
 }
 
-const TYPING = (p) => p.id === "matt" || (p.state === "working" && p.place === "desk");
+const TYPING = (p) => (p.id === "matt" && p.place === "matt") || (p.state === "working" && p.place === "desk");
 const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
   const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
   const [fx, tx] = rev ? [cx + ax, cx - ax] : [cx - ax, cx + ax];
