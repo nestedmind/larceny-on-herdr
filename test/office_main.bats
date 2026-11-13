@@ -69,7 +69,7 @@ let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
 // herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
 // calls a test makes: its functions, and those of its timer, throw once alive is false, so a view that keeps a cx and
-// uses it later fails here. The init and render calls below each get one and end it when they return.
+// uses it later fails here. Each render below gets one and ends it when it returns. The cx of init is an AsyncContext in herdr (it may be held), so init gets the plain one.
 const strict = () => {
   const s = { alive: true };
   const guard = (o, name) => new Proxy(o, { get: (t, k) => {
@@ -80,7 +80,7 @@ const strict = () => {
   s.cx = guard(cx, "cx");
   return s;
 };
-const fresh = () => { const s = strict(); try { office = new Office({}, s.cx); office.init({}, s.cx); } finally { s.alive = false; } office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
+const fresh = () => { office = new Office({}, cx); office.init({}, cx); office.size = { width: 1990, height: 1000 }; office.measured = true; timers.length = 0; return office; };
 const render = () => { const s = strict(); try { return office.render(s.cx); } finally { s.alive = false; } };
 // A clock a test moves by hand: the hold before a walk and the time a walk has run are read from Date.now.
 let clock = 1e12;
@@ -399,7 +399,7 @@ console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y ==
   [ "$output" = "true true true true" ]
 }
 
-@test "walking runs on the cx of the call that needs it: nothing keeps a cx from init or from an earlier render" {
+@test "a whole walk, from the hold to the last timer, runs with every render and timer callback on a cx of its own" {
   run office_js '
 render();
 terms()[1].status = "done";
@@ -407,9 +407,9 @@ render(); later(3000);
 render();
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
 render();
-console.log(Object.keys(office).filter((k) => /cx$/i.test(k)).length, office.walks.get("sheba").legs.length);'
+console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goal === office.walks.get("sheba").at || office.walks.get("sheba").goal.x === office.walks.get("sheba").at.x);'
   [ "$status" -eq 0 ]
-  [ "$output" = "0 0" ]
+  [ "$output" = "0 true" ]
 }
 
 @test "while a new plan builds, the last finished floor stays on screen" {

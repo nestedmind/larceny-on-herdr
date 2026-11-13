@@ -91,6 +91,7 @@ export default class CrewOffice extends View {
     this.sig = null;
     this.anim = false;
     this.handle = cx.focus_handle();
+    this.acx = cx;
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -357,7 +358,7 @@ export default class CrewOffice extends View {
   // `snap` (a new scale or floor) puts everyone in place.
   // Each person is { at, goal, from, legs, t0, i, tasks }: `at` is where they stand when not walking;
   // while walking they go from `from` along `legs`, which began at `t0` (ms), and `i` is the leg they face.
-  motion(L, snap, cx) {
+  motion(L, snap) {
     const out = new Map();
     const here = new Set();
     const now = Date.now();
@@ -367,7 +368,7 @@ export default class CrewOffice extends View {
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
       if (snap) { this.stopWalk(w); w.pending = null; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
-      else this.holdOrGo(w, p, L, goal, now, cx);
+      else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
@@ -385,31 +386,29 @@ export default class CrewOffice extends View {
   // A new place for someone is acted on only once it has held for a moment, and never while they walk
   // (crew.js nextGoal). A state that flips back within seconds moves nobody. A walk already handed to the
   // renderer is never redirected, so nobody is routed from a point in mid-air and no running mover is
-  // retargeted. When the walk ends, the next render sees the new place and walks there from where they
-  // stand. Every timer here is made from `cx`, the cx of the render that calls this, which is live while
-  // that render runs (a cx kept from init is dead by then).
-  holdOrGo(w, p, L, goal, now, cx) {
+  // retargeted. When the walk ends, the next render sees the new place and walks there from where they stand.
+  holdOrGo(w, p, L, goal, now) {
     const d = nextGoal(w.pending, w.goal, goal, now, w.legs.length > 0);
     w.pending = d.pending;
     if (d.wakeIn !== null && !w.wake) {
-      w.wake = cx.timer.after(d.wakeIn + 5, (c) => {
+      w.wake = this.acx.timer.after(d.wakeIn + 5, (c) => {
         w.wake = null;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
       });
     }
-    if (d.go) this.planWalk(w, p, L, goal, cx);
+    if (d.go) this.planWalk(w, p, L, goal);
   }
 
-  planWalk(w, p, L, goal, cx) {
+  planWalk(w, p, L, goal) {
     const start = w.at;
     this.stopWalk(w);
     w.goal = goal;
     const legs = legsOf(start, pathTo(L, p.id, start, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
     if (!legs.length) { w.at = goal; w.legs = []; w.i = 0; return; }
-    this.beginWalk(w, start, legs, cx);
+    this.beginWalk(w, start, legs);
   }
 
-  beginWalk(w, from, legs, cx) {
+  beginWalk(w, from, legs) {
     const goal = w.goal;
     w.from = from; w.legs = legs; w.t0 = Date.now(); w.i = 0;
     let at = 0;
@@ -417,7 +416,7 @@ export default class CrewOffice extends View {
       at += leg.ms;
       // At each corner, turn to face the next leg; after the last, stop the gait.
       const last = i === legs.length - 1;
-      w.tasks.push(cx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
+      w.tasks.push(this.acx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
         if (w.legs !== legs) return;
         if (last) { w.at = goal; w.legs = []; w.i = 0; } else w.i = i + 1;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
@@ -548,10 +547,10 @@ export default class CrewOffice extends View {
 
 
   // Ask for another render one tick on, once.
-  keepBuilding(cx) {
+  keepBuilding() {
     if (this.moreBuilding) return;
     this.moreBuilding = true;
-    cx.timer.after(1, (c) => {
+    this.acx.timer.after(1, (c) => {
       this.moreBuilding = false;
       try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
     });
@@ -608,7 +607,7 @@ export default class CrewOffice extends View {
     this.anim = sig === this.sig;
     this.sig = sig;
     const u = (n) => n * k;
-    const mo = this.motion(L, !this.anim, cx);
+    const mo = this.motion(L, !this.anim);
 
     // The floor does not change with the crew, only with the plan; a new scale only resizes it. Its
     // paths are built a little at a time, so no render runs past herdr's deadline building them.
@@ -637,7 +636,7 @@ export default class CrewOffice extends View {
       building = !layer.done;
       if (layer.done) { this.shown = this.floor; this.pinned = [key, ...this.pinned.filter((x) => x !== key)].slice(0, 2); }
     }
-    if (!this.shown) { this.keepBuilding(cx); return this.frame(t, L, view, stageColour, true, waiting(), showPanel, F, cx); }
+    if (!this.shown) { this.keepBuilding(); return this.frame(t, L, view, stageColour, true, waiting(), showPanel, F, cx); }
     // The floor view draws the last finished floor (stretched over a new plan's box until that is finished, as its
     // paths are percentages). A plan that finished since it last drew is handed over, and the view is asked, one tick on,
     // to render once more. The view's first render, when it is first mounted, draws what is handed over by then.
@@ -645,7 +644,7 @@ export default class CrewOffice extends View {
     handed.layer = this.shown.layer;
     if (handed.drawn && handed.drawn !== handed.layer && !this.floorAsked) {
       this.floorAsked = true;
-      cx.timer.after(1, (c) => {
+      this.acx.timer.after(1, (c) => {
         this.floorAsked = false;
         try { c.notify(this.floorView); } catch (_) { /* the view was reloaded or closed */ }
       });
@@ -724,7 +723,7 @@ export default class CrewOffice extends View {
       nightEls = use.map((layer) => layer.at(k).el(ready || use === this.nightLast ? undefined : 0)).concat(lit.flatMap(([d, s]) => glow(d, s, k)));
     }
     // A layer still being built carries on in the next render, one tick on.
-    if (building) this.keepBuilding(cx);
+    if (building) this.keepBuilding();
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(this.floorView).children(glows).child(plaque.el())
