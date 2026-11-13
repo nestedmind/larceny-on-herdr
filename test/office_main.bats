@@ -30,7 +30,7 @@ function el() {
 }
 export const div = el;
 export const View = class {};
-globalThis.window = { paint_path: () => el(), toggle_fullscreen() {} };
+globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
 export const PathBuilder = { fill: mk, stroke: mk };
 EOF
@@ -120,13 +120,13 @@ console.log(find(root, "hit-matt") === undefined, find(root, "hit-dog") === unde
   [ "$output" = "true true true" ]
 }
 
-@test "the figure's click target is small and sits on the body, not across its whole drawing box" {
+@test "the figure's click target is small and centred on the person, not across the whole drawing box" {
   run office_js '
 const root = render();
 const hit = find(root, "hit-sheba").props, box = find(root, "person-sheba").props;
-console.log(hit.w[0] < box.w[0] / 3, hit.h[0] < box.h[0] / 3, hit.left[0] > 0, hit.top[0] > 0);'
+console.log(hit.w[0] < box.w[0] / 3, hit.h[0] < box.h[0] / 3, hit.left[0] < 0, hit.top[0] < 0, hit.left[0] + hit.w[0] > 0, hit.top[0] + hit.h[0] > 0);'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true true true" ]
+  [ "$output" = "true true true true true true" ]
 }
 
 @test "the name tag sits inside a chain of movers that matches its person's, link for link" {
@@ -281,4 +281,80 @@ while (renders < 60) { const t = timers.pop(); if (!t) break; t.fn({ notify() {}
 console.log(first >= 1, office.floor.layer.done, renders < 60, timers.length);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 0" ]
+}
+
+# dark mode, and the order of what is drawn on the floor
+DARK='globalThis.DARK = true;'
+
+@test "in dark mode the night shading is still there on the first render after a screen changes state" {
+  run office_js "$DARK"'
+for (let i = 0; i < 14; i++) render();
+const dim = (root) => all(find(root, "stage")).filter((n) => n.fill === "#060a24a8").length;
+const before = dim(render());
+terms()[1].status = "blocked";
+const after = dim(render());
+terms()[1].status = "idle";
+const after2 = dim(render());
+console.log(before, after, after2);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 1 1" ]
+}
+
+@test "a figure's click target is drawn above the night layers and below the tags and room labels" {
+  run office_js "$DARK"'
+for (let i = 0; i < 14; i++) render();
+const root = render();
+const floor = find(root, "stage").kids[0].node;
+const idx = (pred) => floor.kids.findIndex((k) => pred(k.node));
+const has = (k, pred) => all(k).some(pred);
+const night = idx((k) => has(k, (n) => n.fill === "#060a24a8"));
+const hit = idx((k) => has(k, (n) => id(n) === "hit-sheba"));
+const tag = idx((k) => has(k, (n) => id(n) === "tag-tsheba"));
+const label = idx((k) => has(k, (n) => n.kids.some((c) => c === "API" || c === "api")));
+console.log(night >= 0, hit > night, tag > hit, label > hit, label < tag);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true true" ]
+}
+
+@test "a walker's tag has a transition on its own body, so settling into its stacked place slides" {
+  run office_js '
+const tr = (root) => (find(root, "tag-tsheba").props.transitions || []).map((a) => a[1].duration);
+const rest = tr(render());
+terms()[1].status = "done";
+const walking = tr(render());
+console.log(rest.length, walking.length, walking.includes(220));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "2 2 true" ]
+}
+
+@test "while a new plan builds, the last finished floor stays on screen" {
+  run office_js '
+const shapes = (root) => all(find(root, "stage")).filter((n) => n.fill && n.fill.length === 7).length;
+for (let i = 0; i < 14; i++) render();
+const full = shapes(render());
+office.size = { width: 1630, height: 1000 };
+const during = [];
+for (let i = 0; i < 4; i++) during.push(shapes(render()));
+console.log(full > 100, during.every((n) => n > 100));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true" ]
+}
+
+@test "dragging the window through many shapes does not push the panel-open and panel-closed plans out of the cache" {
+  run office_js '
+const rounds = (n) => { for (let i = 0; i < n; i++) render(); };
+rounds(14);
+const closed = office.floor.layer;
+office.size = { width: 1630, height: 1000 };
+rounds(14);
+const open = office.floor.layer;
+for (const w of [1250, 1300, 1350, 1400, 1450, 1500, 1550]) { office.size = { width: w, height: 1000 }; rounds(1); }
+office.size = { width: 1990, height: 1000 };
+render();
+const a = office.floor.layer === closed && closed.done;
+office.size = { width: 1630, height: 1000 };
+render();
+console.log(a, office.floor.layer === open && open.done);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true" ]
 }

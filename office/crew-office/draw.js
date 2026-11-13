@@ -64,15 +64,19 @@ function boxOf(cmds) {
 
 /**
  * Opaque shapes of one colour that follow each other draw as one path (one element, in the same
- * order), unless one overlaps another already in that path: overlapping parts of a single path
- * may be left unfilled, and a shape that only touches its neighbour is safe.
+ * order), unless one overlaps another already in that path (overlapping parts of a single path
+ * may be left unfilled, and a shape that only touches its neighbour is safe) or the path would
+ * pass MAX_CMDS commands.
  */
+// A path with more commands than this takes too long to build in one go, so a merged path stops here.
+export const MAX_CMDS = 300;
+
 export function mergeOps(ops) {
   const out = [];
   for (let n = 0; n < ops.length; n++) {
     const o = ops[n];
     const last = out[out.length - 1];
-    const same = last && !o.stroke && !last.stroke && o.fill === last.fill && o.fill.length === 7;
+    const same = last && !o.stroke && !last.stroke && o.fill === last.fill && o.fill.length === 7 && last.cmds.length + o.cmds.length <= MAX_CMDS;
     const box = same || o.fill.length === 7 ? boxOf(o.cmds) : null;
     let clear = same;
     if (same) {
@@ -188,7 +192,7 @@ export class Layer {
   build(limit) {
     if (!this.plan) {
       this.plan = this.merge ? mergeOps(this.ops) : this.ops; this.paths = [];
-      if (limit !== undefined) return this.plan.length === 0;
+      if (limit !== undefined && this.merge) return this.plan.length === 0;
     }
     const pct = this.pct ? { w: this.w * this.s, h: this.h * this.s } : null;
     const t = Date.now();
@@ -200,9 +204,11 @@ export class Layer {
     return this.paths.length === this.plan.length;
   }
   /** The box as an element. Its shapes are absolute children that each fill it. */
-  el(limit) {
+  el(limit, size) {
     this.build(limit);
-    return div().absolute().left(this.x * this.k).top(this.y * this.k).w(this.w * this.k).h(this.h * this.k)
+    // `size` ({w, h} in px) stretches a percentage layer over another box: the last finished floor stands in for a new plan's.
+    const w = size ? size.w : this.w * this.k, h = size ? size.h : this.h * this.k;
+    return div().absolute().left(this.x * this.k).top(this.y * this.k).w(w).h(h)
       .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
   }
 }
@@ -584,11 +590,14 @@ export function mover(prefix, at, chain, k, walking, leaf) {
   return slide(div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner), instant);
 }
 
-/** A person's drawing box, centred on the mover that carries it, with a small click target over the body. */
-export function figureBox(id, k, kids, onClick) {
-  const el = div().id("person-" + id).absolute().left(-BOX * k).top(-BOX * k).w(2 * BOX * k).h(2 * BOX * k).children(kids);
-  if (!onClick) return el;
-  return el.child(div().id("hit-" + id).absolute().left((BOX - 7) * k).top((BOX - 8) * k).w(14 * k).h(16 * k).cursor_pointer().on_click(onClick));
+/** A person's drawing box, centred on the mover that carries it. */
+export function figureBox(id, k, kids) {
+  return div().id("person-" + id).absolute().left(-BOX * k).top(-BOX * k).w(2 * BOX * k).h(2 * BOX * k).children(kids);
+}
+
+/** The click target over a person's body, centred on the mover that carries it; drawn above the night layers. */
+export function hitBox(id, k, onClick) {
+  return div().id("hit-" + id).absolute().left(-7 * k).top(-8 * k).w(14 * k).h(16 * k).cursor_pointer().on_click(onClick);
 }
 
 /**

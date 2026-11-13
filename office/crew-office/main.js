@@ -10,7 +10,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, window as appWindow } from "herdr";
 import { PAD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, recoveryFor, chatGone, crewOf, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, lockCall, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
-import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { PANEL_W, Panel } from "./panel.js";
 
 // How long one render may spend building a big layer's paths before it carries on in the next one.
@@ -43,7 +43,11 @@ export default class CrewOffice extends View {
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
     this.floors = new Map();
+    // The last floor that was finished, drawn while a new plan builds, and the two most recent finished plans' keys (kept in the cache).
+    this.shown = null;
+    this.pinned = [];
     this.night = null;
+    this.nightLast = null;
     this.moreBuilding = false;
     // Whether the chat panel was showing when the stage was last measured, and when it was last drawn:
     // herdr reports the stage's size a frame late, so a render that opens the panel must know the size is too wide.
@@ -467,21 +471,34 @@ export default class CrewOffice extends View {
 
     // The floor does not change with the crew, only with the plan; a new scale only resizes it. Its
     // paths are built a little at a time, so no render runs past herdr's deadline building them.
-    // A new plan takes three steps over three renders (the drawing list, which shapes share a path,
-    // then the paths), the floor showing what is built so far.
-    // The last few plans are kept (the panel opening and closing, full screen, each have their own shape).
+    // A new plan takes a few renders (the drawing list, which shapes share a path, then the paths).
+    // Until it is finished the last finished floor stays on screen, stretched to the new box (its
+    // paths are percentages). The two most recent finished plans (the panel open and closed) are
+    // never pushed out of the cache by a drag through other shapes.
     const key = floorKey(L);
     if (!this.floor || this.floor.key !== key) {
       this.floor = this.floors.get(key) || { key, layer: null };
       this.floors.delete(key);
       this.floors.set(key, this.floor);
-      if (this.floors.size > 4) this.floors.delete(this.floors.keys().next().value);
+      while (this.floors.size > 4) {
+        const old = [...this.floors.keys()].find((x) => x !== key && !this.pinned.includes(x));
+        if (old === undefined) break;
+        this.floors.delete(old);
+      }
     }
+    // (A first render after a reload also has the whole crew to draw, so with no floor yet the drawing list waits for the second.)
+    if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k);
+    this.floor.waited = true;
     let floorEl = null;
     let building = true;
-    // (A first render after a reload also has the whole crew to draw, so the drawing list waits for the second.)
-    if (!this.floor.layer) { if (this.floor.waited) this.floor.layer = floorLayer(L, k); this.floor.waited = true; }
-    else { floorEl = this.floor.layer.at(k).el(BUILD_MS); building = !this.floor.layer.done; }
+    if (this.floor.layer) {
+      const layer = this.floor.layer.at(k);
+      if (layer.done) { floorEl = layer.el(); building = false; }
+      else if (this.shown && this.shown !== this.floor) { layer.build(BUILD_MS); building = !layer.done; }
+      else { floorEl = layer.el(BUILD_MS); building = !layer.done; }
+      if (layer.done) { this.shown = this.floor; this.pinned = [key, ...this.pinned.filter((x) => x !== key)].slice(0, 2); }
+    }
+    if (!floorEl && this.shown) floorEl = this.shown.layer.at(k).el(undefined, { w: u(L.W), h: u(L.H) });
 
     // Screens: a lit strip on each desk, and Matt's two monitors.
     const lit = [];
@@ -508,7 +525,12 @@ export default class CrewOffice extends View {
       const m = mo.get(p.id);
       const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.face, m.walking, L);
       const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
-      return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids, clickable ? (_e, c) => this.pick(p, c) : null));
+      return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids));
+    });
+    // The click targets are their own layer, above the night layers (drawn on top of everything else but the labels and tags).
+    const hits = L.people.filter((p) => !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog")).map((p) => {
+      const m = mo.get(p.id);
+      return mover("hm-" + p.id, m.from, m.chain, k, m.walking, hitBox(p.id, k, (_e, c) => this.pick(p, c)));
     });
 
     // Name tags. Someone at rest has a tag where it clears the others (stacked, and kept on the floor);
@@ -529,24 +551,27 @@ export default class CrewOffice extends View {
     const tags = sized.map((s) => {
       // Where the tag's corner is from the person, in px.
       const off = s.m.walking ? { x: -s.w / 2, y: u(9) } : { x: s.x - u(s.m.x), y: Math.max(2, tops.get(s.id)) - u(s.m.y) };
-      const slide = this.anim && !s.m.walking ? TAG_SLIDE : null;
+      const slide = this.anim ? TAG_SLIDE : { duration: 1 };
       const body = s.p.agent ? this.tag(s.p, off.x, off.y, s.w, F, t, slide) : this.chip(s.p, off.x, off.y, slide);
       return mover("tm-" + s.id, s.m.from, s.m.chain, k, s.m.walking, body);
     });
-    // The night layers are built once for a set of lit screens, a little at a time like the floor.
+    // The night layers are built once for a set of lit screens, a little at a time like the floor. A
+    // change in the lit screens (an agent changing state) keeps the last finished night on screen until the new one is built.
     let nightEls = [];
     if (dark) {
       const nkey = `${key}|${lit.map(([d, s]) => `${d.cx},${d.y},${s}`).join(";")}`;
       if (!this.night || this.night.key !== nkey) this.night = { key: nkey, layers: nightLayers(L, lit) };
       let budget = BUILD_MS;
-      nightEls = this.night.layers.map((layer) => {
+      for (const layer of this.night.layers) {
         const t0 = Date.now();
-        const el = layer.at(k).el(Math.max(0, budget));
+        layer.at(k).build(Math.max(0, budget));
         budget -= Date.now() - t0;
-        return el;
-      });
-      if (this.night.layers.some((layer) => !layer.done)) building = true;
-      nightEls = nightEls.concat(lit.flatMap(([d, s]) => glow(d, s, k)));
+      }
+      const ready = this.night.layers.every((layer) => layer.done);
+      if (ready) this.nightLast = this.night.layers;
+      else building = true;
+      const use = ready ? this.night.layers : this.nightLast || this.night.layers;
+      nightEls = use.map((layer) => layer.at(k).el(ready || use === this.nightLast ? undefined : 0)).concat(lit.flatMap(([d, s]) => glow(d, s, k)));
     }
     // A layer still being built carries on in the next render, one tick on.
     if (building && !this.moreBuilding) {
@@ -559,7 +584,7 @@ export default class CrewOffice extends View {
 
     const floor = div().relative().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .when(!!floorEl, (el) => el.child(floorEl)).children(glows).child(plaque.el())
-      .children(ball(L, k, L.rally)).children(figures).children(nightEls)
+      .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
 

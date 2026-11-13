@@ -96,6 +96,24 @@ console.log(el.node.kids.length, el.node.kids.map((e) => e.node.path.cmds.filter
   [ "$output" = "2 2,2" ]
 }
 
+@test "a merged layer works out its paths in a step of its own, a plain layer draws something at once" {
+  run draw_js '
+const mk = (m) => { const g = new draw.Layer(1, 0, 0, 100, 50, "", true); if (m) g.merged(); for (let i = 0; i < 5; i++) g.rect(i * 3, 0, 2, 2, "#111111"); return g; };
+console.log(mk(false).el(0).node.kids.length, mk(true).el(0).node.kids.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 0" ]
+}
+
+@test "a merged path never holds more than 300 commands, unless one shape alone is bigger" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 1000, 50, "", true).merged();
+for (let i = 0; i < 200; i++) g.rect(i * 4, 0, 4, 4, "#111111");
+const sizes = g.el().node.kids.map((e) => e.node.path.cmds.length);
+console.log(Math.max(...sizes) <= 300, sizes.length > 2, sizes.reduce((a, b) => a + b, 0));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 1000" ]
+}
+
 @test "a merged path keeps every shape's own subpath" {
   run draw_js '
 const g = new draw.Layer(1, 0, 0, 100, 50, "", true).merged();
@@ -115,15 +133,14 @@ let calls = 0;
 while (!g.done && calls < 1000) { g.build(0); calls++; steps.push(g.paths.length); }
 console.log(g.done, log.builds, steps[0], steps[1], calls);'
   [ "$status" -eq 0 ]
-  # the first call works out the paths (none built yet), then each call builds one, as the limit is 0
-  [ "$output" = "true 40 0 1 41" ]
+  # a layer that is not merged has nothing to work out first: each call builds one, as the limit is 0
+  [ "$output" = "true 40 1 2 40" ]
 }
 
 @test "a layer that is not finished still draws what it has built" {
   run draw_js '
 const g = new draw.Layer(1, 0, 0, 100, 50, "", true);
 for (let i = 0; i < 10; i++) g.rect(i, 0, 1, 1, i % 2 ? "#111111" : "#222222");
-g.el(0);
 const el = g.el(0);
 console.log(el.node.kids.length, g.done);'
   [ "$status" -eq 0 ]
