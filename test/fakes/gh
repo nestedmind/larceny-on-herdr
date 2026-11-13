@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Fake gh for tests.
+#   FAKE_GH_LOG        file; argv is appended, tab-joined, one call per line
+#   FAKE_GH_ENV        file; "GH_TOKEN=<value>" is appended per call
+#   FAKE_GH_USER_JSON  file printed for `gh api user` (default: id 42, login "fake")
+#   FAKE_GH_EXIT       exit status for every other call (default 0)
+#   FAKE_GH_STDERR     text written to stderr for every other call
+set -euo pipefail
+: "${FAKE_GH_LOG:?FAKE_GH_LOG must be set}"
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$FAKE_GH_LOG"
+)
+[[ -z "${FAKE_GH_ENV:-}" ]] || printf 'GH_TOKEN=%s\n' "${GH_TOKEN-<unset>}" >>"$FAKE_GH_ENV"
+if [[ "${1:-}" == "api" && "${2:-}" == "user" ]]; then
+  if [[ -n "${FAKE_GH_USER_JSON:-}" ]]; then
+    cat "$FAKE_GH_USER_JSON"
+  else
+    printf '{"id":42,"login":"fake"}\n'
+  fi
+  exit "${FAKE_GH_API_EXIT:-0}"
+fi
+printf 'fake gh ran\n'
+[[ -z "${FAKE_GH_STDERR:-}" ]] || printf '%s\n' "$FAKE_GH_STDERR" >&2
+exit "${FAKE_GH_EXIT:-0}"

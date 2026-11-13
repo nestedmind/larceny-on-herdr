@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Fake git for tests.
+#   FAKE_GIT_LOG  file; argv is appended, tab-joined, one call per line
+#   FAKE_GIT_ENV  file; the identity and token variables are appended per call
+#   FAKE_GIT_EXIT exit status (default 0)
+set -euo pipefail
+: "${FAKE_GIT_LOG:?FAKE_GIT_LOG must be set}"
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$FAKE_GIT_LOG"
+)
+if [[ -n "${FAKE_GIT_ENV:-}" ]]; then
+  {
+    for v in GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL GH_TOKEN; do
+      printf '%s=%s\n' "$v" "${!v-<unset>}"
+    done
+    echo ---
+  } >>"$FAKE_GIT_ENV"
+fi
+printf 'fake git ran\n'
+exit "${FAKE_GIT_EXIT:-0}"

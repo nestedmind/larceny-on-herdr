@@ -3,8 +3,9 @@
 #
 #   source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 #
-# The sourcing script sets its own `set -euo pipefail` (bin/loh does this for
-# every command it dispatches).
+# bin/loh runs each command as a separate `bash lib/loh/<cmd>.sh`, so shell
+# options do not carry over: every command script sets its own
+# `set -euo pipefail` before sourcing this file.
 
 # die <message...>: print "loh: <message>" on stderr and exit 1.
 die() {
