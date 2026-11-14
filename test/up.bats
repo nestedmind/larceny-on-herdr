@@ -175,3 +175,44 @@ LIVE='{"state":"live","status":{"state":"idle"},"labels":{"crew":"demo"}}'
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"workspace.md"* ]]
 }
+
+@test "up adds scofield_args after the fixed arguments" {
+  printf 'scofield_args: --channels plugin:discord@claude-plugins-official\n' >>"$WS/.loh/workspace.md"
+  hc_seq get.scofield "$ABSENT" "$IDLE"
+  hc_seq get.amy "$ABSENT" "$IDLE"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tscofield\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=coordinator\t--\tclaude\t--agent\tlarceny:coordinator\t--permission-mode\tauto\t--channels\tplugin:discord@claude-plugins-official' "$FAKE_HC_LOG"
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tamy\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=reviewer\t--\tclaude\t--agent\tlarceny:reviewer\t--permission-mode\tauto' "$FAKE_HC_LOG"
+}
+
+@test "up adds amy_args to amy only" {
+  printf 'amy_args: --model sonnet\n' >>"$WS/.loh/workspace.md"
+  hc_seq get.scofield "$ABSENT" "$IDLE"
+  hc_seq get.amy "$ABSENT" "$IDLE"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  grep -q -- $'--agent\tlarceny:reviewer\t--permission-mode\tauto\t--model\tsonnet$' "$FAKE_HC_LOG"
+  grep -q -- $'--agent\tlarceny:coordinator\t--permission-mode\tauto$' "$FAKE_HC_LOG"
+}
+
+@test "up treats an empty scofield_args as no key" {
+  printf 'scofield_args:\namy_args: ""\n' >>"$WS/.loh/workspace.md"
+  hc_seq get.scofield "$ABSENT" "$IDLE"
+  hc_seq get.amy "$ABSENT" "$IDLE"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  grep -q -- $'--agent\tlarceny:coordinator\t--permission-mode\tauto$' "$FAKE_HC_LOG"
+  grep -q -- $'--agent\tlarceny:reviewer\t--permission-mode\tauto$' "$FAKE_HC_LOG"
+}
+
+@test "up splits scofield_args without evaluating it" {
+  printf 'scofield_args: --x $(touch %s/pwned) * ;\n' "$BATS_TEST_TMPDIR" >>"$WS/.loh/workspace.md"
+  hc_seq get.scofield "$ABSENT" "$IDLE"
+  hc_seq get.amy "$ABSENT" "$IDLE"
+  cd "$WS"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  [ ! -e "$BATS_TEST_TMPDIR/pwned" ]
+  grep -qF -- $'permission-mode\tauto\t--x\t$(touch\t'"$BATS_TEST_TMPDIR"$'/pwned)\t*\t;' "$FAKE_HC_LOG"
+}
