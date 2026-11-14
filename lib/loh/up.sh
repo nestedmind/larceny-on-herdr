@@ -56,21 +56,28 @@ standing_live() {
   return 1
 }
 
-# start_standing <name> <role> <agent> <skill> <role-line>
+# start_standing <name> <role> <agent> <skill> <role-line> <extra-args>
+# <extra-args> is the manifest's raw string for this agent. It is split on
+# whitespace with no quote handling, glob expansion or evaluation, and added
+# after the fixed claude arguments.
 start_standing() {
-  local name="$1" role="$2" agent="$3" skill="$4" line="$5"
+  local name="$1" role="$2" agent="$3" skill="$4" line="$5" raw="$6"
+  local -a extra=()
+  read -r -a extra <<<"$raw"
   ! standing_live "$name" || return 0
   start_and_prompt "$name" "$(founding_prompt "$skill" "$line")" \
     --bg --no-parent --name "$name" --cwd "$WS_ROOT" \
     --label "crew=$WS_NAME" --label "role=$role" \
-    -- claude --agent "$agent" --permission-mode "$WS_PANE_MODE"
+    -- claude --agent "$agent" --permission-mode "$WS_PANE_MODE" ${extra[@]+"${extra[@]}"}
   echo "started $name"
 }
 
 start_standing scofield coordinator larceny:coordinator larceny:coordinator \
-  "You are the coordinator: you write and dispatch tickets with \`loh spawn <coder> <repo> <ticket>\` and track the crew."
+  "You are the coordinator: you write and dispatch tickets with \`loh spawn <coder> <repo> <ticket>\` and track the crew." \
+  "$WS_SCOFIELD_ARGS"
 start_standing amy reviewer larceny:reviewer larceny:adversarial-review \
-  "You are the reviewer: coders message you by name when a PR is ready, and you review it against its ticket."
+  "You are the reviewer: coders message you by name when a PR is ready, and you review it against its ticket." \
+  "$WS_AMY_ARGS"
 
 # loh watch (desktop notifications) runs as its own terminal. It is started
 # only when this install has the command, and it is not a Claude session, so

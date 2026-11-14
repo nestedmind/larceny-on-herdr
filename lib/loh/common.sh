@@ -60,6 +60,9 @@ manifest_path() {
 #
 #   name: demo                 workspace name (required); the crew= label
 #   pane_mode: auto            Claude permission mode for crew panes
+#   scofield_args: --flag v    extra arguments for scofield's claude command
+#   amy_args: --flag v         extra arguments for amy's claude command
+#                              (split on whitespace, never evaluated; optional)
 #   idle_minutes: 3            minutes a person sits at their desk after a turn
 #                              ends before the office sends them to the kitchen
 #                              or lounge (a whole number above zero; default 3)
@@ -72,7 +75,8 @@ manifest_path() {
 # pane_mode is one of default, acceptEdits, auto, plan, dontAsk. bypassPermissions
 # is refused on purpose: crew panes must never skip every permission check.
 #
-# Any top-level key other than name, pane_mode, idle_minutes, repos and board is an
+# Any top-level key other than name, pane_mode, scofield_args, amy_args, idle_minutes, repos and
+# board is an
 # error, so a typo such as `pane_mod:` cannot silently fall back to the default.
 # board is accepted and ignored. `#` comment lines are ignored.
 # ---------------------------------------------------------------------------
@@ -92,8 +96,10 @@ _manifest_value() {
 
 # manifest_load: parse the manifest into globals. Dies on a missing or
 # malformed manifest.
-#   WS_ROOT WS_NAME WS_PANE_MODE WS_IDLE_MINUTES
+#   WS_ROOT WS_NAME WS_PANE_MODE WS_IDLE_MINUTES WS_SCOFIELD_ARGS WS_AMY_ARGS
+#   (the two args values are raw strings; empty when the key is absent)
 #   REPO_NAMES[] REPO_PATHS[] REPO_BRANCHES[] REPO_GITHUBS[]
+# shellcheck disable=SC2034 # WS_*_ARGS are read by up.sh, which sources this file
 manifest_load() {
   WS_ROOT="$(workspace_root)" || exit 1
   local file
@@ -102,6 +108,8 @@ manifest_load() {
   WS_NAME=""
   WS_PANE_MODE="auto"
   WS_IDLE_MINUTES="3"
+  WS_SCOFIELD_ARGS=""
+  WS_AMY_ARGS=""
   REPO_NAMES=()
   REPO_PATHS=()
   REPO_BRANCHES=()
@@ -122,8 +130,10 @@ manifest_load() {
         name) WS_NAME="$val" ;;
         pane_mode) WS_PANE_MODE="$val" ;;
         idle_minutes) WS_IDLE_MINUTES="$val" ;;
+        scofield_args) WS_SCOFIELD_ARGS="$val" ;;
+        amy_args) WS_AMY_ARGS="$val" ;;
         board) ;;
-        *) die "$file: line $n: unknown key '$key' (allowed: name, pane_mode, idle_minutes, repos, board)" ;;
+        *) die "$file: line $n: unknown key '$key' (allowed: name, pane_mode, scofield_args, amy_args, idle_minutes, repos, board)" ;;
       esac
     elif [[ -n "$in_repos" && "$line" =~ ^[[:space:]]+-[[:space:]]+([A-Za-z_][A-Za-z0-9_]*):[[:space:]]*(.*)$ ]]; then
       cur=$((cur + 1))
