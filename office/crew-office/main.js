@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -190,13 +190,19 @@ export default class CrewOffice extends View {
   }
 
   // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in a
-  // folder inside the workspace: an agent's, else the `dir` prop. A failure keeps the last list.
+  // folder inside the workspace: an agent's, else the `dir` prop. A failure keeps the last list. It is asked on a change of
+  // workspace, folder or crew size, and every REPOS_EVERY_MS besides, so a repo added to or removed from the manifest shows up.
+  // Each ask is two local loh calls (the repo list and the settings): they read files, and no network is used.
   loadRepos(crew, workspace, cx) {
     const dir = this.workspaceDir(crew);
     if (!dir) return;
     const key = `${workspace}|${dir}|${crew.length}`;
-    if (key === this.reposKey) return;
+    // Asked again when the key changes, and otherwise every REPOS_EVERY_MS (the manifest can change with the key the same).
+    const now = Date.now();
+    if (key === this.reposKey && this.reposAt && now - this.reposAt < REPOS_EVERY_MS) { this.wakeIn(this.reposAt + REPOS_EVERY_MS - now); return; }
     this.reposKey = key;
+    this.reposAt = now;
+    this.wakeIn(REPOS_EVERY_MS);
     const c = reposCall({ cwd: dir }, (props() || {}).loh);
     // The continuation runs in cx.spawn with its own cx: the one this method got is dead by then.
     cx.spawn(async (cx) => {
