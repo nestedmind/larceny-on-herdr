@@ -269,3 +269,18 @@ MD
   run config_values "$BATS_TEST_TMPDIR/config.md" lint
   [ -z "$output" ]
 }
+
+@test "manifest_load refuses scofield_args and amy_args that change permissions, the agent or settings" {
+  local key flag
+  for key in scofield_args amy_args; do
+    for flag in --dangerously-skip-permissions --allow-dangerously-skip-permissions \
+      "--permission-mode bypassPermissions" --permission-mode=bypassPermissions \
+      "--agent larceny:yoda" --agent=larceny:yoda "--settings x.json" --settings=x.json \
+      "--channels a --dangerously-skip-permissions"; do
+      printf 'name: demo\n%s: %s\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' "$key" "$flag" >"$BATS_TEST_TMPDIR/m.md"
+      run --separate-stderr bash -c "source '$REPO_ROOT/lib/loh/common.sh'; manifest_path() { echo '$BATS_TEST_TMPDIR/m.md'; }; workspace_root() { echo '$BATS_TEST_TMPDIR'; }; manifest_load"
+      [ "$status" -ne 0 ] || { echo "accepted: $key: $flag"; return 1; }
+      [[ "$stderr" == *"$key"* ]] || { echo "no key named for: $flag: $stderr"; return 1; }
+    done
+  done
+}

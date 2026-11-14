@@ -69,7 +69,7 @@ repos:
 - `name` is required. Every crew terminal gets the label `crew=<name>`.
 - Only `name`, `pane_mode`, `scofield_args`, `amy_args`, `idle_minutes`, `repos` and `board` are allowed at the top level. `board` is accepted and ignored. Any other key is an error, so a typo such as `pane_mod:` cannot quietly fall back to the default.
 - `pane_mode` is the Claude permission mode for crew terminals: `default`, `acceptEdits`, `auto`, `plan` or `dontAsk`. The default is `auto`. `bypassPermissions` is refused on purpose.
-- `scofield_args` and `amy_args` (optional) add arguments to that standing agent's `claude` command. `loh up` puts them after the fixed arguments (`--agent` and `--permission-mode`). The value is split on whitespace and never evaluated by a shell, so quotes, `$(...)` and `*` are plain text. A value that must hold a space cannot be written. An empty value is the same as no key. Without them, `loh up` starts both agents as before. To reach Scofield from Discord:
+- `scofield_args` and `amy_args` (optional) add arguments to that standing agent's `claude` command. `loh up` puts them after the fixed arguments (`--agent` and `--permission-mode`). The value is split on whitespace and never evaluated by a shell, so quotes, `$(...)` and `*` are plain text. A value that must hold a space cannot be written. An empty value is the same as no key. `loh` refuses a value that holds `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode`, `--agent` or `--settings` (also in the `--flag=value` form), so the arguments cannot undo `pane_mode` or change the agent. Without them, `loh up` starts both agents as before. To reach Scofield from Discord:
 
   ```
   scofield_args: --channels plugin:discord@claude-plugins-official
