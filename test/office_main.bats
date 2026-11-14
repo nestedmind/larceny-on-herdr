@@ -707,6 +707,20 @@ console.log(JSON.stringify(a.props.left), JSON.stringify(a.props.top), a.props.w
   [ "$output" = "[0] [0] undefined undefined" ]
 }
 
+@test "the floor view sits in a box of the floor's own size, the one the people and click targets use" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const root = render();
+const stage = find(root, "stage");
+const floor = all(stage)[1];
+const wrap = floor.kids.map((k) => k.node).find((n) => id(n) === "floor-box");
+const fl = floor.props;
+const person = find(root, "m-sheba");
+console.log(wrap !== undefined, JSON.stringify(wrap.props.w) === JSON.stringify(fl.w), JSON.stringify(wrap.props.h) === JSON.stringify(fl.h), wrap.props.absolute !== undefined, wrap.kids.includes(office.floorView), fl.flex_none !== undefined, fl.w[0] > 0);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true true true true" ]
+}
+
 @test "steady renders do not ask the floor view to render again" {
   run office_js '
 for (let i = 0; i < 14; i++) render();
