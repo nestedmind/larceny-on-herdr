@@ -923,3 +923,64 @@ console.log(off, on, office.lights);'
   [ "$status" -eq 0 ]
   [ "$output" = "false true true" ]
 }
+
+# The repo list is read again every minute, not only when the workspace, folder or crew size changes.
+repos_probe='
+globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
+const calls = []; let reply = { code: 0, stdout: JSON.stringify([{ name: "api" }]) };
+globalThis.EXEC_HOOK = (c, a) => { calls.push(a.join(" ")); return Promise.resolve(a.includes("--repos") ? reply : { code: 1 }); };
+const tasks = [];
+const cx2 = { notify() {}, spawn(fn) { tasks.push(fn({ notify() {}, spawn: cx2.spawn })); } };
+const ask = async () => { office.loadRepos([], "sandbox", cx2); await Promise.all(tasks.splice(0)); };
+const asks = () => calls.filter((x) => x.includes("--repos")).length;
+office.repos = []; office.reposKey = null; office.reposAt = 0;'
+
+@test "a repo added to the manifest is picked up once the minute is up, and a removed one is dropped" {
+  run office_js "$repos_probe"'
+await ask();
+reply = { code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "mieru" }]) };
+later(60000); await ask();
+const added = office.repos.join(",");
+reply = { code: 0, stdout: JSON.stringify([{ name: "mieru" }]) };
+later(60000); await ask();
+console.log(added, office.repos.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "api,mieru mieru" ]
+}
+
+@test "no repo call is made before the minute is up, and a change of crew size asks at once" {
+  run office_js "$repos_probe"'
+await ask();
+later(59000); await ask(); await ask();
+const early = asks();
+office.loadRepos([{ name: "x", cwd: "/ws" }], "sandbox", cx2); await Promise.all(tasks.splice(0));
+const resized = asks();
+later(1000); await ask();
+console.log(early, resized);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 2" ]
+}
+
+@test "a failed repo call keeps the last list, and is tried again a minute later" {
+  run office_js "$repos_probe"'
+await ask();
+reply = { code: 1, stdout: "" };
+later(60000); await ask();
+const kept = office.repos.join(",");
+reply = { code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "web" }]) };
+later(60000); await ask();
+console.log(kept, office.repos.join(","), asks());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "api api,web 3" ]
+}
+
+@test "a render before the minute is up asks for a render at its end" {
+  run office_js "$repos_probe"'
+await ask();
+timers.length = 0; office.wake = null;
+later(20000); office.loadRepos([], "sandbox", cx2);
+const t = timers.filter((x) => !x.cancelled).map((x) => x.ms);
+console.log(t.some((ms) => ms > 39000 && ms <= 41000), asks());'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 1" ] || { echo "GOT: $output" >&2; false; }
+}

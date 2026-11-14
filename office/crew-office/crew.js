@@ -725,6 +725,8 @@ export function focusArrived(focusedTerminal, lastFocus, open) {
  * or closed by someone else ends the wait within that time; the coder's own merge or close ends it at once (the hook).
  */
 export const PRS_EVERY_MS = 120000;
+// How often the repo list is read again, whatever else changed: a manifest edit changes no key the office sees.
+export const REPOS_EVERY_MS = 60000;
 
 /** The command that has loh clear the pr label of every coder whose pull request ended. Same folder rules as reposCall. */
 export function prsCall(agent, loh) {
