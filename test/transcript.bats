@@ -224,3 +224,22 @@ queued_session() {
   [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = \
     '[["typed mid-turn",""],["array prompt",""],["mid-turn discord","discord"],["short source","discord"]]' ]
 }
+
+# shapes seen in a real session: a Discord message that starts a turn is an isMeta user entry
+# with origin.kind channel; a compaction summary is a user entry flagged isCompactSummary
+meta_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"origin":{"kind":"channel","server":"plugin:discord:discord"},"promptSource":"system","message":{"role":"user","content":"<channel source=\"plugin:discord:discord\" chat_id=\"1\">\nhello from discord\n</channel>"},"timestamp":"2026-11-15T03:00:01.000Z"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"message":{"role":"user","content":"some other meta text"},"timestamp":"2026-11-15T03:00:02.000Z"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"origin":{"kind":"channel"},"message":{"role":"user","content":"not a channel wrapper"},"timestamp":"2026-11-15T03:00:03.000Z"}'
+    printf '%s\n' '{"type":"user","isSidechain":false,"isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"This session is being continued from a previous conversation..."},"timestamp":"2026-11-15T03:00:04.000Z"}'
+    printf '%s\n' '{"type":"user","isSidechain":false,"message":{"role":"user","content":"after compaction"},"timestamp":"2026-11-15T03:00:05.000Z"}'
+  } >"$PROJ/m1.jsonl"
+}
+
+@test "transcript keeps a turn-starting Discord message (isMeta, origin channel) and drops compaction summaries" {
+  meta_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = '[["hello from discord","discord"],["after compaction",""]]' ]
+}

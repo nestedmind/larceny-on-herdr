@@ -18,9 +18,10 @@
 # Kept: user turns (typed text), assistant text, and messages other agents sent
 # in (<hc from="tN name">...</hc>), unwrapped, as {"role":"agent","from":"name"}.
 # Left out: thinking, tool calls and results, meta and sub-agent turns,
-# <system-reminder> blocks, command echoes, <task-notification> blocks and bare <hc>...</hc> notes.
+# <system-reminder> blocks, command echoes, <task-notification> blocks, compaction summaries and bare <hc>...</hc> notes.
 # A Discord message (<channel source="discord" ...> or source="plugin:discord:discord", text inside) is Matt's turn with
-# the text unwrapped and "via":"discord". A message Matt sent while the agent was working is not a user
+# the text unwrapped and "via":"discord". A Discord message that starts a turn is a user line with isMeta and origin.kind "channel", kept
+# the same way. A message Matt sent while the agent was working is not a user
 # line: it is an attachment of type queued_command with origin.kind "human" (or "channel" when the prompt is a <channel> wrapper), kept as his user turn. Turns are cut to 4000 characters. A half-written last line is
 # skipped.
 set -euo pipefail
@@ -90,7 +91,11 @@ fi
 filter='
   fromjson?
   | select(
-      ((.type == "user" or .type == "assistant") and (.isSidechain | not) and (.isMeta | not))
+      ((.type == "user" or .type == "assistant") and (.isSidechain | not)
+          and ((.isCompactSummary or .isVisibleInTranscriptOnly) | not)
+          and ((.isMeta | not)
+               or (.type == "user" and .origin.kind == "channel"
+                   and (.message.content | type == "string" and test("^\\s*<channel ")))))
       or (.type == "attachment" and .attachment.type == "queued_command"
           and ((.attachment.origin.kind // .origin.kind) as $k
                | $k == "human" or ($k == "channel" and (.attachment.prompt | type == "string" and test("^\\s*<channel "))))))
