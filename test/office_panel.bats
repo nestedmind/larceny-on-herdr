@@ -217,6 +217,11 @@ console.log(JSON.stringify(input.text), panel.trace.split(" | ").slice(-2).join(
   [ "${lines[1]}" = '"" submit plain | not sent: the box is empty' ]
 }
 
+@test "layout: no line height in the panel is a bare number, which the kit reads as a multiplier" {
+  run grep -nE 'line_height\([0-9.]+\)' "$(mod_dir)/panel.js"
+  [ "$status" -eq 1 ]
+}
+
 @test "message box: it wraps and grows from one row to six" {
   run panel_js 'console.log(JSON.stringify(input.grow));'
   [ "$status" -eq 0 ]

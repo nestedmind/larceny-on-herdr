@@ -265,8 +265,8 @@ export class Panel {
     const state = `${STATE_WORDS[a.status] || cap(a.status)}${a.status === "blocked" && a.kind && a.kind !== "other" ? ` · ${a.kind}` : ""}`;
     const head = h_flex().flex_none().items_center().gap(10)
       .child(this.avatar(avatarName({ role: "assistant" }, raw), 36, t))
-      .child(v_flex().flex_1().min_w(0).child(div().text_size(15).line_height(20).font_semibold().text_color(t.foreground).child(a.name))
-        .child(h_flex().gap(5).items_center().text_size(12).line_height(16).text_color(t.muted)
+      .child(v_flex().flex_1().min_w(0).child(div().text_size(15).line_height("20px").font_semibold().text_color(t.foreground).child(a.name))
+        .child(h_flex().gap(5).items_center().text_size(12).line_height("16px").text_color(t.muted)
           .child(div().child(`${cap(a.role || "agent")} ·`))
           .child(div().w(8).h(8).rounded_full().bg(color))
           .child(div().child(state))))
@@ -292,7 +292,7 @@ export class Panel {
       .child(this.tabButton("tab-chat", "Chat", "chat", 0, t))
       .child(this.tabButton("tab-activity", "Crew activity", "activity", this.blocked, t))
       .child(div().flex_1())
-      .when(this.tab === "chat", (el) => el.child(div().id("panel-copy-all").text_size(12).line_height(16).text_color(t.muted).cursor_pointer()
+      .when(this.tab === "chat", (el) => el.child(div().id("panel-copy-all").text_size(12).line_height("16px").text_color(t.muted).cursor_pointer()
         .hover((e) => e.text_color(t.foreground))
         .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c))
         .child(this.copied === "all" ? "Copied" : "Copy all")));
@@ -376,12 +376,12 @@ export class Panel {
   // the box does not change size. Send is a solid button the height of the one-row box, at the box's bottom.
   form(t, a, why) {
     const on = this.focused;
-    const box = div().flex_1().min_w(0).min_h(28).rounded(6).bg(t.surface).text_size(13).line_height(18).text_color(t.foreground)
+    const box = div().flex_1().min_w(0).min_h(28).rounded(6).bg(t.surface).text_size(13).line_height("18px").text_color(t.foreground)
       .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
       .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
       .on_key_down((e, c) => this.key(e, c))
       .on_key_up((e, c) => { if (e && e.key === "enter") { this.note(`keyup enter${e.modifiers && e.modifiers.control ? " ctrl" : ""} reached wrapper`); c.notify(); } })
-      .child(Textarea.new(this.inputs.get(a.address)).text_size(13).line_height(18).p(0).border_0());
+      .child(Textarea.new(this.inputs.get(a.address)).text_size(13).line_height("18px").p(0).border_0());
     const send = h_flex().id("panel-send").flex_none().h(28).px(14).items_center().justify_center().rounded(6).bg(t.solid)
       .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)
       .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
