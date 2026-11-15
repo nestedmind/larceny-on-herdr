@@ -6,7 +6,8 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
+import { look } from "./crew.js";
+import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const COPIED_MS = 1500;
@@ -38,6 +39,9 @@ export class Panel {
     this.copied = null; // the row whose Copy was just clicked
     this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
   }
+
+  // The panel's width in px, for the 24 px avatar below 320.
+  get width() { return this.host.width ? this.host.width() : 360; }
 
   get open() { return !!this.address; }
 
@@ -240,6 +244,18 @@ export class Panel {
       .child(this.form(t, raw, why));
   }
 
+  // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (hair, skin and shirt from
+  // the same look() that dresses the figure). Everything is drawn inside the circle and clipped to it. #35 puts a
+  // photo in place of this one element: it takes the person's lower-case name and a size, nothing else.
+  avatar(name, size, t) {
+    const [hair, skin, shirt] = look(name || "?");
+    const head = Math.round(size * 0.42), at = Math.round((size - head) / 2);
+    return div().flex_none().relative().w(size).h(size).rounded_full().overflow_hidden().bg(t.raised)
+      .child(div().absolute().left(Math.round(size * 0.14)).top(Math.round(size * 0.66)).w(Math.round(size * 0.72)).h(size).rounded_full().bg(shirt))
+      .child(div().absolute().left(at).top(Math.round(size * 0.2)).w(head).h(head).rounded_full().bg(skin))
+      .child(div().absolute().left(at).top(Math.round(size * 0.16)).w(head).h(Math.round(head * 0.45)).rounded_full().bg(hair));
+  }
+
   tabButton(id, label, name, badge, t) {
     const on = this.tab === name;
     return h_flex().id(id).px(8).py(4).gap(6).items_center().text_size(12).font_semibold().cursor_pointer()
@@ -270,7 +286,7 @@ export class Panel {
       const row = h_flex().id(key).relative().w_full().gap(8).px(12).py(head ? 6 : 1).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { if (h) this.hover = key; else if (this.hover === key) this.hover = null; c.notify(); })
-        .child(div().flex_none().w(32).h(head ? 32 : 0).rounded_full().bg(head ? (mine ? t.accent : t.chrome) : "#00000000"))
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), this.width < 320 ? 24 : 32, t) : div().flex_none().w(this.width < 320 ? 24 : 32))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
           .child(this.button(`copy-${id}`, this.copied === key ? "Copied" : "Copy", (_e, c) => this.copy(key, copyText(m), c), t))));

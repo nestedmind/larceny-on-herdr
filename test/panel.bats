@@ -294,3 +294,11 @@ console.log(k2.every((k, i) => k === k1[i + 1]), new Set(k1).size === 4);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true" ]
 }
+
+@test "panel: a turn's avatar is the floor figure of whoever wrote it" {
+  run chat_js '
+const a = { rawName: "scofield", name: "Scofield" };
+console.log(chat.avatarName({ role: "user" }, a), chat.avatarName({ role: "assistant" }, a), chat.avatarName({ role: "agent", from: "Amy" }, a), JSON.stringify(chat.avatarName({ role: "agent" }, a)));'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'matt scofield amy ""' ]
+}

@@ -29,7 +29,7 @@ export const terminals = () => [];
 export const exec = (c, a, o) => new Promise((resolve, reject) => { (globalThis.CALLS ||= []).push({ c, a, resolve, reject }); });
 JS
   echo '{"type":"module"}' > "$d/package.json"
-  for f in panel chat; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in panel chat crew; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 import { Panel } from "./panel.mjs";
 const deadUses = [];
@@ -204,4 +204,14 @@ console.log(JSON.stringify(globalThis.CLIP[1]));'
   [ "${lines[0]}" = '["**Hello**\n\n- a"] m1 1500' ]
   [ "${lines[1]}" = "null" ]
   [ "${lines[2]}" = '"x"' ]
+}
+
+@test "render: a log with Matt's, the agent's, another agent's and a launch turn draws without error" {
+  run panel_js '
+panel.turns = [{ role: "user", text: "L", launch: true, ts: "" }, { role: "user", text: "Hi", ts: "2026-11-15T10:00:00Z" }, { role: "assistant", text: "**Hello**", ts: "2026-11-15T10:01:00Z" }, { role: "agent", from: "amy", text: "ok", ts: "2026-11-15T10:02:00Z" }];
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" };
+click((cx) => { panel.render(th, {}, cx); panel.tab = "activity"; panel.render(th, {}, cx); });
+console.log("drawn");'
+  [ "$status" -eq 0 ]
+  [ "$output" = "drawn" ]
 }

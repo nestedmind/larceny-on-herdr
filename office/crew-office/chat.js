@@ -103,6 +103,13 @@ export function viaMark(m) {
   return m.via === "discord" ? " · via Discord" : "";
 }
 
+/** Whose floor figure is the avatar of a turn, as a lower-case terminal name. Matt's typed turns are "matt". */
+export function avatarName(m, agent) {
+  if (m.role === "user") return "matt";
+  if (m.role === "agent") return String(m.from || "").toLowerCase();
+  return String((agent && (agent.rawName || agent.name)) || "").toLowerCase();
+}
+
 /** The text a turn shows: a launch prompt is one clipped line without its wrapper tags. */
 export function shownText(m) {
   if (m.launch) return clip(m.text.replace(/<\/?pasted_content\b[^>]*>/g, " ").replace(/\s+/g, " "), 140);

@@ -150,7 +150,7 @@ export default class CrewOffice extends View {
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window is open
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, typed: (cx) => this.typed(cx) });
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, typed: (cx) => this.typed(cx), width: () => this.panelW });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar
