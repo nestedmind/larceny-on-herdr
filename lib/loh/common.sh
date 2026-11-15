@@ -79,8 +79,9 @@ manifest_path() {
 # board is an
 # error, so a typo such as `pane_mod:` cannot silently fall back to the default.
 # scofield_args and amy_args may not hold --dangerously-skip-permissions,
-# --allow-dangerously-skip-permissions, --permission-mode, --agent or --settings
-# (any of them, with a space or =): they would undo pane_mode or the agent's role.
+# --allow-dangerously-skip-permissions, --permission-mode, --agent, --settings,
+# --allowedTools, --allowed-tools, --permission-prompt-tool, --mcp-config or --add-dir
+# (any of them, with a space or =): they would undo pane_mode, the agent's role or what it may do.
 # board is accepted and ignored. `#` comment lines are ignored.
 # ---------------------------------------------------------------------------
 
@@ -155,12 +156,13 @@ manifest_load() {
 
   [[ -n "$WS_NAME" ]] || die "$file: missing required key 'name:'"
   [[ "$WS_NAME" =~ ^[A-Za-z0-9._-]+$ ]] || die "$file: name '$WS_NAME' may only hold letters, digits, '.', '_' and '-'"
-  local akey aval aword
+  local akey aval aword awords
   for akey in scofield_args amy_args; do
     aval="$([[ $akey == scofield_args ]] && printf '%s' "$WS_SCOFIELD_ARGS" || printf '%s' "$WS_AMY_ARGS")"
-    for aword in $aval; do
+    read -r -a awords <<<"$aval" # split as up.sh does: whitespace only, no globbing
+    for aword in ${awords[@]+"${awords[@]}"}; do
       case "$aword" in
-        --dangerously-skip-permissions | --allow-dangerously-skip-permissions | --permission-mode | --permission-mode=* | --agent | --agent=* | --settings | --settings=*)
+        --dangerously-skip-permissions | --allow-dangerously-skip-permissions | --permission-mode | --permission-mode=* | --agent | --agent=* | --settings | --settings=* | --allowedTools | --allowedTools=* | --allowed-tools | --allowed-tools=* | --permission-prompt-tool | --permission-prompt-tool=* | --mcp-config | --mcp-config=* | --add-dir | --add-dir=*)
           die "$file: $akey may not contain '$aword': permissions, the agent and settings come from loh, not from the manifest" ;;
       esac
     done
