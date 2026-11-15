@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { bustEl } from "./draw.js";
+import { bustEl, iconEl } from "./draw.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -252,6 +252,14 @@ export class Panel {
       .cursor_pointer().hover((e) => e.bg(t.hover)).on_click(onClick).child(label);
   }
 
+  // Copy on hover, as an icon (design decision 10): a 24 px square in `popover` with a `border` edge and a 14 px
+  // glyph in `muted`; a tick for 1.5 s after a click. The glyphs are drawn paths (draw.js iconEl).
+  copyChip(id, done, onClick, t) {
+    return h_flex().id(id).w(24).h(24).items_center().justify_center().rounded(5).border_1().border_color(t.border).bg(t.popover)
+      .cursor_pointer().tooltip(done ? "Copied" : "Copy").hover((e) => e.bg(t.hover)).on_click(onClick)
+      .child(iconEl(done ? "copied" : "copy", 14, t.muted));
+  }
+
   render(t, F, cx) {
     const raw = this.agent;
     const a = { ...raw, name: displayName(raw.name) };
@@ -334,7 +342,7 @@ export class Panel {
       const stamp = m.pending ? (m.unsure ? "Not confirmed" : "Sending…") : m.ts ? clock(new Date(m.ts)) : "";
       const body = m.launch
         ? div().text_size(12).text_color(t.muted).whitespace_normal().child(`Launch prompt · ${markdownOf(m)}`)
-        : TextView.markdown(`msg-${id}`, markdownOf(m)).selectable(true).font_family(FONT).text_size(13).line_height("19px").text_color(t.foreground);
+        : TextView.markdown(`msg-${id}`, markdownOf(m)).selectable(true).font_family(FONT).text_size(14).line_height("20px").text_color(t.foreground);
       const key = `m-${id}`;
       const hovered = this.hover === key || this.copied === key;
       // Maya's spacing (changes-p1.md, Round 2): a new speaker starts 16 px under the last turn, a grouped turn 4 px;
@@ -350,11 +358,11 @@ export class Panel {
       const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
-        .on_hover((h, c) => { if (h) this.hover = key; else if (this.hover === key) this.hover = null; c.notify(); })
+        .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
         .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t) : div().flex_none().w(pic))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
-          .child(this.button(`copy-${id}`, this.copied === key ? "Copied" : "Copy", (_e, c) => this.copy(key, copyText(m), c), t))));
+          .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));
       return row;
     });
     // Follow the newest turn. The window holds at most 40 turns, so once it is full a new turn leaves the count
@@ -392,12 +400,12 @@ export class Panel {
   // the box does not change size. Send is a solid button the height of the one-row box, at the box's bottom.
   form(t, a, why) {
     const on = this.focused;
-    const box = div().flex_1().min_w(0).min_h(28).rounded(6).bg(t.surface).text_size(13).line_height("18px").text_color(t.foreground)
+    const box = div().flex_1().min_w(0).min_h(30).rounded(6).bg(t.surface).text_size(14).line_height("20px").text_color(t.foreground)
       .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
       .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
       .on_key_down((e, c) => this.key(e, c))
-      .child(Textarea.new(this.inputs.get(a.address)).text_size(13).line_height("18px").p(0).border_0());
-    const send = h_flex().id("panel-send").flex_none().h(28).px(14).items_center().justify_center().rounded(6).bg(t.solid)
+      .child(Textarea.new(this.inputs.get(a.address)).text_size(14).line_height("20px").p(0).border_0());
+    const send = h_flex().id("panel-send").flex_none().h(30).px(14).items_center().justify_center().rounded(6).bg(t.solid)
       .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)
       .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
     return v_flex().flex_none().gap(4)

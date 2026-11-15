@@ -271,6 +271,38 @@ export function bustEl(name, size, ring) {
     .child(div().absolute().left(0).top(0).w(size).h(size).rounded_full().border_1().border_color(ring));
 }
 
+// ---------- the copy icons ----------
+
+const ICONS = new Map();
+
+/**
+ * A 24-unit line icon drawn as stroked paths at `size` px in `color`: "copy" (two sheets) or "copied" (a tick).
+ * Drawn, not loaded from a file: svg(path) resolves against herdr's folder by the mod's own folder name, which
+ * differs between the installed office and a dev copy. Built once per kind, size and colour.
+ */
+export function iconEl(kind, size, color) {
+  const key = `${kind}|${size}|${color}`;
+  let g = ICONS.get(key);
+  if (!g) {
+    g = new Layer(size / 24, 0, 0, 24, 24);
+    const X = (x) => g.X(x), Y = (y) => g.Y(y), R = (r) => r * g.s;
+    if (kind === "copy") {
+      const [x, y, w, h, r] = [9, 9, 12, 12, 2.5];
+      g.add([["move_to", X(x + r), Y(y)], ["line_to", X(x + w - r), Y(y)], ["arc_to", R(r), R(r), 0, false, true, X(x + w), Y(y + r)],
+        ["line_to", X(x + w), Y(y + h - r)], ["arc_to", R(r), R(r), 0, false, true, X(x + w - r), Y(y + h)],
+        ["line_to", X(x + r), Y(y + h)], ["arc_to", R(r), R(r), 0, false, true, X(x), Y(y + h - r)],
+        ["line_to", X(x), Y(y + r)], ["arc_to", R(r), R(r), 0, false, true, X(x + r), Y(y), ], ["close"]], color, 2 * g.s);
+      g.add([["move_to", X(5), Y(15)], ["line_to", X(4.5), Y(15)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(2), Y(12.5)],
+        ["line_to", X(2), Y(4.5)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(4.5), Y(2)],
+        ["line_to", X(12.5), Y(2)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(15), Y(4.5)], ["line_to", X(15), Y(5)]], color, 2 * g.s);
+    } else {
+      g.add([["move_to", X(4), Y(12.5)], ["line_to", X(9), Y(17.5)], ["line_to", X(20), Y(6.5)]], color, 2.4 * g.s);
+    }
+    ICONS.set(key, g);
+  }
+  return div().flex_none().relative().w(size).h(size).child(g.el());
+}
+
 // ---------- the floor ----------
 
 function planks(g, r, base, line, step) {
