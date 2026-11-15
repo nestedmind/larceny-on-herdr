@@ -29,11 +29,12 @@ const FS_KEY = "crew-office.fullscreen";
 // The folder of this source names it until the scan in nameMod() says which mods/ entry leads here: a symlinked
 // mod may report its real folder, whose name is not the one it is loaded under.
 let MOD = modNameOf(import.meta.url);
-function nameMod() {
+// `done` runs once the name is settled, whether or not the scan could say: what looks for this copy's panes waits for it.
+function nameMod(done) {
   try {
     const c = modScanCall(import.meta.url, appHome());
-    exec(c.cmd, c.args, c.options).then((r) => { if (r && r.code === 0) MOD = resolveModName(MOD, r.stdout); }).catch(() => {});
-  } catch (_) { /* keep the folder's name */ }
+    exec(c.cmd, c.args, c.options).then((r) => { if (r && r.code === 0) MOD = resolveModName(MOD, r.stdout); }).catch(() => {}).then(done);
+  } catch (_) { done(); /* keep the folder's name */ }
 }
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
@@ -108,7 +109,7 @@ export default class CrewOffice extends View {
     this.anim = false;
     this.handle = cx.focus_handle();
     this.acx = cx;
-    nameMod();
+    nameMod(() => this.recoverFs());
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -146,16 +147,8 @@ export default class CrewOffice extends View {
     // The chat panel beside the office; its Terminal button docks the real terminal (open below).
     // Full-screen mode that is on: { plan, pane } (what it did, so Esc undoes exactly that) or null.
     this.fs = null;
-    // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
-    // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
-    try {
-      const left = shared(FS_KEY);
-      const now = panes();
-      const offices = now.filter((p) => p.mod === MOD).map((p) => p.pane);
-      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props(), MOD), offices);
-      if (what === "adopt") this.fs = left;
-      else if (what === "undo") this.recover(left);
-    } catch (_) { /* nothing to recover */ }
+    // Full screen that an earlier copy left on is dealt with once the name is settled (recoverFs): before that, this
+    // copy could take another mod's panes for its own.
     // The panel's width: kept per crew in shared state, so a reload keeps it. Clamped on every render, when the office's width is known.
     // It is read once the crew shown is known (render), so it is per crew, not per prop.
     this.panelKey = null;
@@ -409,6 +402,19 @@ export default class CrewOffice extends View {
       } catch (_) { ok = false; }
     }
     return ok;
+  }
+
+  // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
+  // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
+  recoverFs() {
+    try {
+      const left = shared(FS_KEY);
+      const now = panes();
+      const offices = now.filter((p) => p.mod === MOD).map((p) => p.pane);
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props(), MOD), offices);
+      if (what === "adopt") this.fs = left;
+      else if (what === "undo") this.recover(left);
+    } catch (_) { /* nothing to recover */ }
   }
 
   // Put back what a plan left undone, and forget the plan only once that worked: otherwise it stays

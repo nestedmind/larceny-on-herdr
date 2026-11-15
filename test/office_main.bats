@@ -50,7 +50,7 @@ export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
 export const appHome = () => "/h/herdr-app";
-export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
@@ -699,6 +699,7 @@ globalThis.PROPS = { crew: "sandbox" };
 globalThis.PANES = [];
 globalThis.SHARED["crew-office.fullscreen"] = saved;
 const o = new Office({}, cx); o.init({}, cx);
+await new Promise((r) => setTimeout(r, 0));
 const adopted = o.fs === saved;
 o.fs = null;
 o.enterFullscreen({ mine: null, zoomed: false }, cx);
@@ -1067,4 +1068,18 @@ office.open(terms()[1], cx);
 console.log(office.chat && office.chat.office);'
   [ "$status" -eq 0 ]
   [ "$output" = "p9" ]
+}
+
+@test "full-screen recovery waits for the name: a copy named by a scan does not adopt another mod's saved plan" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }, { pane: "p9", tab: "t", mod: "crew-office-test", focused: false }];
+globalThis.PROPS = { crew: "sandbox" };
+globalThis.SHARED["crew-office.fullscreen"] = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
+globalThis.EXEC_HOOK = (c) => Promise.resolve(c === "sh" ? { code: 0, stdout: "own\t/x\ncrew-office-test\t/x\ncrew-office\t/y\n", stderr: "" } : { code: 0 });
+const o = new Office({}, cx); o.init({}, cx);
+const before = o.fs;
+await new Promise((r) => setTimeout(r, 0));
+console.log(before, o.fs, (globalThis.RUNS || []).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "null null 0" ]
 }
