@@ -106,7 +106,90 @@ export function viaMark(m) {
 /** The text a turn shows: a launch prompt is one clipped line without its wrapper tags. */
 export function shownText(m) {
   if (m.launch) return clip(m.text.replace(/<\/?pasted_content\b[^>]*>/g, " ").replace(/\s+/g, " "), 140);
-  return m.text.length > 1200 ? m.text.slice(0, 1200) + "…" : m.text;
+  return m.text;
+}
+
+/** The markdown a turn hands to the text view: the text as written, trimmed. Launch prompts stay one plain line. */
+export function markdownOf(m) {
+  return shownText(m).trim();
+}
+
+/** An agent's name for the screen: the first letter capitalised ("scofield" is "Scofield"). */
+export function displayName(name) {
+  const s = String(name || "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export const SEND_HINT = "Enter sends · Ctrl+Enter adds a line";
+export const GROUP_MS = 7 * 60 * 1000;
+
+/** What a key in the message box does: "send" (Enter), "newline" (Ctrl+Enter) or null (leave it to the box). */
+export function enterAction(e) {
+  if (!e || e.key !== "enter") return null;
+  const m = e.modifiers || {};
+  if (m.shift || m.alt || m.platform) return null;
+  return m.control ? "newline" : "send";
+}
+
+/**
+ * The log as rows { m, head }: head is true when the turn starts a group (photo and name shown). A turn
+ * continues the group before it when the speaker is the same, neither is a launch prompt or pending,
+ * and both have a time at most GROUP_MS apart.
+ */
+export function groupLog(turns, agentName) {
+  const out = [];
+  const seen = new Map();
+  let prev = null;
+  for (const m of turns) {
+    const who = speaker(m, agentName);
+    const at = m.ts ? Date.parse(m.ts) : NaN;
+    const joins = prev && !m.launch && !prev.m.launch && !m.pending && !prev.m.pending && prev.who === who
+      && Number.isFinite(at) && Number.isFinite(prev.at) && at - prev.at >= 0 && at - prev.at <= GROUP_MS;
+    out.push({ m, head: !joins, key: turnKey(m, seen) });
+    prev = { m, who, at };
+  }
+  return out;
+}
+
+/**
+ * A key for a turn that stays with the turn when the 40-turn window slides: its role, time and text, plus a
+ * count for an identical earlier turn in the same log (`seen` carries the counts). Not the position.
+ */
+export function turnKey(m, seen) {
+  const base = `${m.pending ? "p" : m.role}|${m.from || ""}|${m.ts || ""}|${m.text.length}|${hashOf(m.text)}`;
+  const n = (seen.get(base) || 0) + 1;
+  seen.set(base, n);
+  return `${base}|${n}`;
+}
+
+function hashOf(text) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/** What Copy puts on the clipboard for one turn: its whole text. */
+export function copyText(m) {
+  return m.text;
+}
+
+/** What Copy all puts on the clipboard: each turn as "Name · HH:MM", a newline and its text, a blank line between turns. */
+export function copyAll(turns, agentName) {
+  return turns.map((m) => {
+    const t = m.ts && Number.isFinite(Date.parse(m.ts)) ? ` · ${clock(new Date(m.ts))}` : "";
+    return `${speaker(m, agentName)}${t}\n${m.text}`;
+  }).join("\n\n");
+}
+
+/** The Crew activity list: the "Office opened" row, then every change in order. */
+export function feedRows(feed) {
+  return [{ at: "", text: "Office opened. Changes before this are not shown.", level: "info" },
+    ...feed.map((e) => ({ at: e.at, text: `${displayName(e.name)} ${e.text}`, level: e.level }))];
+}
+
+/** The tab badge: how many agents need Matt now (blocked). Not an unread count. */
+export function blockedCount(crew) {
+  return crew.filter((a) => a.status === "blocked").length;
 }
 
 /** Card rows for an agent: [label, value], only the ones known. */

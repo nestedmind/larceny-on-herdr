@@ -108,12 +108,12 @@ fixture() { cp "$REPO_ROOT/test/fixtures/transcripts/$1.jsonl" "$PROJ/$2.jsonl";
   [[ "$stderr" == *"Usage: loh transcript"* ]]
 }
 
-@test "transcript cuts a very long turn" {
-  fixture reviewer r1
-  jq -c --arg t "$(head -c 9000 /dev/zero | tr '\0' x)" 'if .type=="assistant" then .message.content[0].text=$t else . end' "$PROJ/r1.jsonl" >"$PROJ/r1.tmp"
-  mv "$PROJ/r1.tmp" "$PROJ/r1.jsonl"
+@test "transcript keeps a very long turn whole" {
+  fixture coordinator c1
+  jq -cR --arg t "$(head -c 9000 /dev/zero | tr '\0' x)" 'fromjson? | if .type=="assistant" then .message.content[0].text=$t else . end' "$PROJ/c1.jsonl" >"$PROJ/c1.tmp"
+  mv "$PROJ/c1.tmp" "$PROJ/c1.jsonl"
   run "$LOH" transcript scofield
-  [ "$(jq -r '.[1].text | length' <<<"$output")" -le 4001 ]
+  [ "$(jq -r '.[1].text | length' <<<"$output")" -eq 9000 ]
 }
 
 @test "transcript matches the agent when the first lines of the session file are over 64 KiB" {

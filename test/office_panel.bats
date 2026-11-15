@@ -20,8 +20,8 @@ export const div = el;
 JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
-export const v_flex = div, h_flex = div, Input = { new: () => div() };
-export const InputState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, value: () => s.text, on() {}, focus() {} }; return s; } };
+export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
+export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on() {}, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
 export const ScrollHandle = { new: () => ({ scroll_to_item() {} }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
@@ -38,6 +38,8 @@ const tasks = [], taskErrors = [];
 const mkcx = () => {
   const cx = { alive: true,
     notify() { if (!cx.alive) dead("notify"); },
+    stop_propagation() { (globalThis.STOPS ||= []).push(1); },
+    write_to_clipboard(t) { (globalThis.CLIP ||= []).push(t); },
     spawn(fn) {
       if (!cx.alive) dead("spawn");
       const c = mkcx();
@@ -152,4 +154,54 @@ await settle();
 console.log(JSON.stringify([first, input.text, panel.pending[0].unsure, panel.error.startsWith("Not sure")]));'
   [ "$status" -eq 0 ]
   [ "$output" = '[["",true],"",true,true]' ]
+}
+
+@test "message box: Enter sends the text and stops the key, Ctrl+Enter keeps a newline in what is sent" {
+  run panel_js '
+const key = (k, control) => click((cx) => panel.key({ key: k, modifiers: { shift: false, control: !!control, alt: false, platform: false, function: false } }, cx));
+input.text = "line one";
+key("enter", true);
+console.log(JSON.stringify(input.text), calls() === undefined, (globalThis.STOPS || []).length);
+input.text += "line two";
+key("enter", false);
+console.log(JSON.stringify(calls()[0].a), (globalThis.STOPS || []).length);
+calls()[0].resolve({ code: 0, stdout: "", stderr: "" });
+await settle();
+console.log(JSON.stringify([input.text, taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '"line one\n" true 1' ]
+  [ "${lines[1]}" = '["tell","scofield","line one\nline two"] 2' ]
+  [ "${lines[2]}" = '["",[],[]]' ]
+}
+
+@test "message box: Shift+Enter and other keys are left to the box" {
+  run panel_js '
+click((cx) => panel.key({ key: "enter", modifiers: { shift: true, control: false, alt: false, platform: false, function: false } }, cx));
+click((cx) => panel.key({ key: "a", modifiers: { shift: false, control: false, alt: false, platform: false, function: false } }, cx));
+console.log(calls() === undefined, (globalThis.STOPS || []).length, JSON.stringify(input.text));'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'true 0 ""' ]
+}
+
+@test "message box: it wraps and grows from one row to six" {
+  run panel_js 'console.log(JSON.stringify(input.grow));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[1,6]" ]
+}
+
+@test "copy: Copy puts that message on the clipboard, Copy all the turns shown; Copied clears after 1.5 s" {
+  run panel_js '
+panel.turns = [{ role: "user", text: "Hi", ts: "" }, { role: "assistant", text: "**Hello**\n\n- a", ts: "" }];
+let fired = null;
+click((cx) => { cx.timer = { after: (ms, fn) => { fired = [ms, fn]; } }; panel.copy("m1", panel.turns[1].text, cx); });
+console.log(JSON.stringify(globalThis.CLIP), panel.copied, fired[0]);
+fired[1]({ notify() {} });
+console.log(panel.copied);
+click((cx) => panel.copy("all", "x", cx));
+click((cx) => panel.render({ foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" }, {}, cx));
+console.log(JSON.stringify(globalThis.CLIP[1]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '["**Hello**\n\n- a"] m1 1500' ]
+  [ "${lines[1]}" = "null" ]
+  [ "${lines[2]}" = '"x"' ]
 }
