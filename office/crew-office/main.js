@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, modNameOf, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -25,6 +25,8 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
+// The name this copy is loaded under. Panes of this mod, and the full-terminal window it opens, are found by it.
+const MOD = modNameOf(import.meta.url);
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
 let held = {};
@@ -136,8 +138,8 @@ export default class CrewOffice extends View {
     try {
       const left = shared(FS_KEY);
       const now = panes();
-      const offices = now.filter((p) => p.mod === "crew-office").map((p) => p.pane);
-      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()), offices);
+      const offices = now.filter((p) => p.mod === MOD).map((p) => p.pane);
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props(), MOD), offices);
       if (what === "adopt") this.fs = left;
       else if (what === "undo") this.recover(left);
     } catch (_) { /* nothing to recover */ }
@@ -164,7 +166,7 @@ export default class CrewOffice extends View {
     const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-")));
     if (open) { focus(open[0]); return; }
     const id = `term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    try { openOverlay(fullTerminalOverlay(a, loh, id)); } catch (e) { this.fail(a, e); return; }
+    try { openOverlay(fullTerminalOverlay(a, loh, id, MOD)); } catch (e) { this.fail(a, e); return; }
     hold(a, loh, id);
     this.termOpen = true;
     // A window does not take the keyboard when it opens: give it to the terminal, so Esc and typing go to the agent.
@@ -289,7 +291,7 @@ export default class CrewOffice extends View {
       unhold(this.chat.agent, loh, `chat-${this.chat.office}`);
       this.chat = { ...this.chat, address: a.address, name: a.name, agent: a };
     } else {
-      const mine = officePane(panes(), props());
+      const mine = officePane(panes(), props(), MOD);
       if (!mine) { this.fail(a, new Error("the office pane was not found")); return; }
       const before = new Set(panes().map((p) => p.pane));
       const tab = (panes().find((p) => p.pane === mine) || {}).tab;
@@ -341,7 +343,7 @@ export default class CrewOffice extends View {
     // A plan is already saved: never write over it, it is the only record of what was hidden.
     let saved = null;
     try { saved = shared(FS_KEY); } catch (_) { /* none */ }
-    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
+    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === MOD).map((p) => p.pane));
     if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
     if (entry === "blocked") { notify({ title: "Full screen is already on", body: "An office is in full screen. Click this office to take it back, or close the other office pane.", level: "warning" }); return; }
     if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
@@ -523,7 +525,7 @@ export default class CrewOffice extends View {
   // The folder loh runs in to find the workspace: the `dir` prop, else the coordinator's folder or
   // any running agent's, else a pane in the office's own tab. Empty when none has one.
   workspaceDir(crew) {
-    return workspaceDir(crew, props(), panes(), officePane(panes(), props()));
+    return workspaceDir(crew, props(), panes(), officePane(panes(), props(), MOD));
   }
 
   confirmStart(cx) {
@@ -680,7 +682,7 @@ export default class CrewOffice extends View {
     }
     // While a chat is open, keep using the office pane found when it opened: the click moves focus
     // to the chat, and officePane looks for the focused one.
-    const mine = (this.chat && this.chat.office) || officePane(allPanes, props());
+    const mine = (this.chat && this.chat.office) || officePane(allPanes, props(), MOD);
     const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
     // Fit the floor to the stage in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.

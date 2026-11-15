@@ -228,10 +228,16 @@ export function floorKey(L) {
   return `${L.W}|${L.H}|${L.pods.map((p) => p.repo).join(",")}`;
 }
 
-/** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
-export function officePane(panes, props) {
+/** The name this copy of the mod is loaded under: the folder its source sits in (mods/<name>/main.js). */
+export function modNameOf(url) {
+  const m = /([^/]+)\/[^/]+$/.exec(String(url || ""));
+  return m ? decodeURIComponent(m[1]) : "crew-office";
+}
+
+/** The pane this mod (loaded as `mod`) runs in: the one named in props, else its focused pane, else null. */
+export function officePane(panes, props, mod = "crew-office") {
   if (props && props.pane) return props.pane;
-  const mine = (panes || []).find((p) => p.mod === "crew-office" && p.focused);
+  const mine = (panes || []).find((p) => p.mod === mod && p.focused);
   return mine ? mine.pane : null;
 }
 
@@ -612,7 +618,7 @@ export function lightsValue(on) {
  * mod (its Back button, and the unlock when the window goes) above the terminal block.
  * Esc goes to the terminal, as herdr documents for windows with terminals, so the bar is the way back.
  */
-export function fullTerminalOverlay(agent, loh, termId) {
+export function fullTerminalOverlay(agent, loh, termId, mod = "crew-office") {
   return {
     kind: "window",
     key: "crew-office-terminal",
@@ -622,7 +628,7 @@ export function fullTerminalOverlay(agent, loh, termId) {
     layout: {
       type: "column",
       children: [
-        { type: "block", size: { px: 34 }, content: { mod: "crew-office", props: { terminalBar: true, termId: termId || null, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
+        { type: "block", size: { px: 34 }, content: { mod, props: { terminalBar: true, termId: termId || null, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
         { type: "block", content: { terminal: agent.address } },
       ],
     },

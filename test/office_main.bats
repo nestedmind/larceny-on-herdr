@@ -10,7 +10,7 @@ mod_dir() { printf '%s\n' "$REPO_ROOT/office/crew-office"; }
 # Runs $1 as module code with `office` (a started CrewOffice), `find`, `all`, `render`, `terms` and `timers` in scope.
 office_js() {
   command -v node >/dev/null || skip "node not installed"
-  local d="$BATS_TEST_TMPDIR/main"
+  local d="$BATS_TEST_TMPDIR/crew-office"
   mkdir -p "$d/node_modules/gpui-kit" "$d/node_modules/gpui-base" "$d/node_modules/herdr"
   cat > "$d/node_modules/gpui-kit/index.js" <<'EOF'
 function el() {
