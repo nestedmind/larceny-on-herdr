@@ -276,6 +276,15 @@ console.log(JSON.stringify(globalThis.SCROLLS));'
   [ "$output" = "2" ]
 }
 
+@test "layout: via Discord follows the time in the time's own style, and the selected tab is underlined in foreground" {
+  run grep -c 'child(`${stamp}${viaMark(m)}`)' "$(mod_dir)/panel.js"
+  [ "$output" = "1" ]
+  run grep -c 'viaMark(m)}`))' "$(mod_dir)/panel.js"
+  [ "$output" = "1" ]
+  run grep -c 'border_color(on ? t.foreground' "$(mod_dir)/panel.js"
+  [ "$output" = "1" ]
+}
+
 @test "message box: it wraps and grows from one row to six" {
   run panel_js 'console.log(JSON.stringify(input.grow));'
   [ "$status" -eq 0 ]

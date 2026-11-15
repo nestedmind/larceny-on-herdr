@@ -325,7 +325,7 @@ export class Panel {
   tabButton(id, label, name, badge, t) {
     const on = this.tab === name;
     return h_flex().id(id).px(8).py(4).gap(6).items_center().text_size(12).font_semibold().cursor_pointer()
-      .text_color(on ? t.foreground : t.muted).border_b(2).border_color(on ? t.accent : "#00000000")
+      .text_color(on ? t.foreground : t.muted).border_b(2).border_color(on ? t.foreground : "#00000000")
       .on_click((_e, c) => { this.tab = name; this.logEnd = null; this.feedEnd = null; c.notify(); })
       .child(label)
       .when(badge > 0, (el) => el.child(div().px(5).h(16).flex().items_center().rounded_full().bg(t.blocked).text_size(11).text_color(t.canvas).child(String(badge))));
@@ -352,8 +352,8 @@ export class Panel {
       const sp = rowSpace(log, i);
       const text = v_flex().flex_1().min_w(0).gap(4)
         .when(head, (el) => el.child(h_flex().gap(6).items_baseline()
-          .child(div().text_size(12).line_height("16px").font_semibold().text_color(t.foreground).child(`${who}${viaMark(m)}`))
-          .child(div().text_size(12).line_height("16px").text_color(m.unsure ? t.blocked : t.muted).child(stamp))))
+          .child(div().text_size(12).line_height("16px").font_semibold().text_color(t.foreground).child(who))
+          .child(div().text_size(12).line_height("16px").text_color(m.unsure ? t.blocked : t.muted).child(`${stamp}${viaMark(m)}`))))
         .child(body);
       const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
