@@ -264,6 +264,12 @@ console.log(JSON.stringify(globalThis.SCROLLS));'
   [ "$output" = "[100,100]" ]
 }
 
+@test "layout: a full-width border divider sits above the composer, which pads 8 above and 12 below" {
+  run grep -c 'pt(8).pb(12).border_t(1).border_color(t.border)' "$(mod_dir)/panel.js"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
 @test "message box: it wraps and grows from one row to six" {
   run panel_js 'console.log(JSON.stringify(input.grow));'
   [ "$status" -eq 0 ]

@@ -282,7 +282,7 @@ export class Panel {
         .child(this.button("panel-notice-terminal", "Open terminal", (_e, c) => this.host.terminal(raw, c), t))
       : null;
 
-    const tabs = h_flex().flex_none().items_center().gap(4).border_b(1).border_color(t.border)
+    const tabs = h_flex().flex_none().items_center().gap(4).px(12).border_b(1).border_color(t.border)
       .child(this.tabButton("tab-chat", "Chat", "chat", 0, t))
       .child(this.tabButton("tab-activity", "Crew activity", "activity", this.blocked, t))
       .child(div().flex_1())
@@ -291,12 +291,18 @@ export class Panel {
         .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c))
         .child(this.copied === "all" ? "Copied" : "Copy all")));
 
-    return v_flex().id("panel").size_full().overflow_hidden().gap(8).p(12).bg(t.canvas).border_l(1).border_color(t.border)
-      .child(head).child(actions).when(!!factRows, (el) => el.child(factRows)).when(!!notice, (el) => el.child(notice))
+    // Header, tabs and log run edge to edge (the log's rows carry their own 12 px, so Matt's band reaches both
+    // edges); a full-width divider sits between the log and the composer, which has 8 px above and 12 below.
+    const top = v_flex().flex_none().gap(8).px(12).pt(12).pb(8)
+      .child(head).child(actions).when(!!factRows, (el) => el.child(factRows)).when(!!notice, (el) => el.child(notice));
+    const composer = v_flex().flex_none().gap(8).px(12).pt(8).pb(12).border_t(1).border_color(t.border)
+      .when(!!this.error, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.notSent ? `Not sent: ${this.error} Your message is back in the box.` : this.error)))
+      .child(this.form(t, raw, why));
+    return v_flex().id("panel").size_full().overflow_hidden().gap(0).bg(t.canvas).border_l(1).border_color(t.border)
+      .child(top)
       .child(tabs)
       .child(this.tab === "chat" ? this.chatLog(t, a) : this.activity(t))
-      .when(!!this.error, (el) => el.child(div().flex_none().text_size(12).text_color(t.blocked).child(this.notSent ? `Not sent: ${this.error} Your message is back in the box.` : this.error)))
-      .child(this.form(t, raw, why));
+      .child(composer);
   }
 
   // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (draw.js's bustEl). #35 puts a
@@ -366,7 +372,7 @@ export class Panel {
       this.feedEnd = end;
       this.feedScroll.scroll_to_item(rows.length - 1);
     }
-    return v_flex().id("panel-activity").flex_1().min_h(0).gap(4).overflow_y_scroll().track_scroll(this.feedScroll)
+    return v_flex().id("panel-activity").flex_1().min_h(0).gap(4).px(12).py(8).overflow_y_scroll().track_scroll(this.feedScroll)
       .children(rows.map((e) => h_flex().gap(8)
         .child(div().w(36).flex_none().text_size(12).text_color(t.muted).child(e.at))
         .child(div().flex_1().min_w(0).text_size(12).text_color(e.level === "blocked" ? t.blocked : t.foreground).whitespace_normal().child(e.text))));
