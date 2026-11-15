@@ -296,6 +296,28 @@ console.log(crew.officePane(ps, {}, "crew-office-dev"), crew.officePane(ps, {}, 
   [ "$output" = "p3 p1 p1 null" ]
 }
 
+@test "a symlinked mod is named by the mods/ entry that leads to its folder, not by the folder it resolves to" {
+  run crew_js '
+const out = (own) => ["own\t" + own, "crew-office\t/w/real/office/crew-office", "crew-office-test\t/w/pr/office/crew-office", "files\t/m/files"].join("\n");
+console.log(
+  crew.resolveModName("crew-office", out("/w/pr/office/crew-office")),
+  crew.resolveModName("crew-office", out("/w/real/office/crew-office")),
+  crew.resolveModName("crew-office-test", out("/w/pr/office/crew-office")),
+  crew.resolveModName("crew-office", out("/w/gone")),
+  crew.resolveModName("crew-office", ""),
+  crew.resolveModName("crew-office", out("/m/files")));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office-test crew-office crew-office-test crew-office crew-office files" ]
+}
+
+@test "the scan that names the mod passes its folder and the app home as arguments" {
+  run crew_js '
+const c = crew.modScanCall("file:///w/pr/office/crew-office/main.js", "/h/herdr-app");
+console.log(c.cmd, c.args.slice(-2).join(" "), c.args[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "sh /w/pr/office/crew-office /h/herdr-app -c" ]
+}
+
 @test "the mod name is the folder the source was loaded from" {
   run crew_js 'console.log(crew.modNameOf("file:///home/m/.config/herdr-app/mods/crew-office-dev/main.js"), crew.modNameOf("/a/crew-office/main.js"), crew.modNameOf(undefined));'
   [ "$status" -eq 0 ]

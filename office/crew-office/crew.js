@@ -234,6 +234,26 @@ export function modNameOf(url) {
   return m ? decodeURIComponent(m[1]) : "crew-office";
 }
 
+/**
+ * The command that lists where each mods/<name> entry leads, so a copy can tell which entry is its own.
+ * herdr may report the real folder of a symlinked mod in import.meta.url, and then the folder's name is not
+ * the name the mod is loaded under. Prints "own<TAB><real dir of this source>", then "<name><TAB><real dir>" per entry.
+ */
+export function modScanCall(url, appHome) {
+  const dir = decodeURIComponent(String(url || "").replace(/^file:\/\//, "")).replace(/\/[^/]*$/, "");
+  const script = 'printf "own\\t%s\\n" "$(cd "$1" 2>/dev/null && pwd -P)"; for d in "$2"/mods/*/; do printf "%s\\t%s\\n" "$(basename "$d")" "$(cd "$d" 2>/dev/null && pwd -P)"; done';
+  return { cmd: "sh", args: ["-c", script, "sh", dir, appHome], options: { timeout: 5000 } };
+}
+
+/** The name this copy is loaded under, from modScanCall's output: the mods/ entry whose real folder is this source's. `fallback` (the folder name in the URL) when none, or when it is one of several. */
+export function resolveModName(fallback, out) {
+  const rows = String(out || "").split("\n").map((l) => l.split("\t"));
+  const own = (rows.find((r) => r[0] === "own") || [])[1];
+  if (!own) return fallback;
+  const names = rows.filter((r) => r[0] !== "own" && r[1] === own).map((r) => r[0]);
+  return !names.length || names.includes(fallback) ? fallback : names[0];
+}
+
 /** The pane this mod (loaded as `mod`) runs in: the one named in props, else its focused pane, else null. */
 export function officePane(panes, props, mod = "crew-office") {
   if (props && props.pane) return props.pane;

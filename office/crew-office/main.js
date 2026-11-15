@@ -8,8 +8,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
-import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, modNameOf, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -26,7 +26,15 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
 // The name this copy is loaded under. Panes of this mod, and the full-terminal window it opens, are found by it.
-const MOD = modNameOf(import.meta.url);
+// The folder of this source names it until the scan in nameMod() says which mods/ entry leads here: a symlinked
+// mod may report its real folder, whose name is not the one it is loaded under.
+let MOD = modNameOf(import.meta.url);
+function nameMod() {
+  try {
+    const c = modScanCall(import.meta.url, appHome());
+    exec(c.cmd, c.args, c.options).then((r) => { if (r && r.code === 0) MOD = resolveModName(MOD, r.stdout); }).catch(() => {});
+  } catch (_) { /* keep the folder's name */ }
+}
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
 let held = {};
@@ -96,6 +104,7 @@ export default class CrewOffice extends View {
     this.anim = false;
     this.handle = cx.focus_handle();
     this.acx = cx;
+    nameMod();
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;

@@ -49,6 +49,7 @@ globalThis.SELECTED = [];
 export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
+export const appHome = () => "/h/herdr-app";
 export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
@@ -1019,4 +1020,16 @@ const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).len
 console.log(a.split(",").length, share(a, c), share(ids(rest2, "m-sheba"), c) === c.split(",").length, share(ta, tc), ids(rest, "m-sheba") === b);'
   [ "$status" -eq 0 ]
   [ "$output" = "9 0 true 0 true" ]
+}
+
+@test "a copy whose source reports its real folder finds its own pane under the mods/ entry that leads to it" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: false }, { pane: "p9", tab: "t", mod: "crew-office-test", focused: true }];
+globalThis.EXEC_HOOK = (c, a) => Promise.resolve(c === "sh" ? { code: 0, stdout: "own\t/x\ncrew-office-test\t/x\ncrew-office\t/y\n", stderr: "" } : { code: 0 });
+fresh();
+await new Promise((r) => setTimeout(r, 0));
+office.open(terms()[1], cx);
+console.log(office.chat && office.chat.office);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "p9" ]
 }
