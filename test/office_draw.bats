@@ -225,3 +225,31 @@ console.log(walks > 2000, tooLong, [...bad].length, [...bad].slice(0, 3).join(" 
   [ "$status" -eq 0 ]
   [ "$output" = "true 0 0 " ]
 }
+
+@test "a walk from any kitchen spot to any ping pong spot, as drawn, goes out by the kitchen door, along the corridor and in by the ping pong door" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+let bad = 0, walks = 0;
+for (const repos of [["api"], ["api", "web"], []]) for (const aspect of [0, 1.2, 1.6, 2.2]) {
+  const L = crew.worldFor(repos, aspect);
+  const kit = L.rooms.find((r) => r.kind === "kitchen"), pong = L.rooms.find((r) => r.kind === "pong");
+  for (const a of L.spots.kitchen) for (const b of L.spots.pong) {
+    walks++;
+    const legs = crew.legsOf(a, crew.pathTo(L, "p", a, b));
+    let at = a; const pts = [];
+    for (const l of crew.walkChain(a, legs, draw.SLOTS).links) { at = { x: at.x + l.dx, y: at.y + l.dy }; pts.push(at); }
+    const corr = (p) => p.y >= L.corr.y && p.y <= L.corr.y + L.corr.h;
+    const inKitchen = (p) => p.x >= kit.x && p.x <= kit.x + kit.w && p.y >= kit.y && p.y <= kit.y + kit.h;
+    const inPong = (p) => p.x >= pong.x && p.x <= pong.x + pong.w && p.y >= pong.y && p.y <= pong.y + pong.h;
+    const first = pts[0], lane = pts.filter(corr);
+    // the first stop is the kitchen door, above the spot; the corridor is walked between the doors; the last stop is the spot
+    if (!(Math.abs(first.x - kit.door) < 0.01 && first.y < a.y && inKitchen(first))) bad++;
+    else if (lane.length !== 2 || lane[0].x !== kit.door || lane[1].x !== pong.door) bad++;
+    else if (!pts.every((p) => inKitchen(p) || corr(p) || inPong(p))) bad++;
+    else if (Math.abs(at.x - b.x) > 0.01 || Math.abs(at.y - b.y) > 0.01) bad++;
+  }
+}
+console.log(walks, bad);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "288 0" ]
+}
