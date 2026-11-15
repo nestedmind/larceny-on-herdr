@@ -19,7 +19,7 @@ export const PAL = {
   counter: "#7f8b9b", counterTop: "#d8dde4", appliance: "#2e3340", fridge: "#eef2f6", sage: "#9cb89a", table: "#b98a5e",
   green: "#5f9a6a", greenLine: "#568d60", pong: "#2f7d4f", white: "#ffffff", purple: "#8a7aa8", purpleLine: "#7f6f9d",
   orange: "#e58a3a", sofa: "#4f78b8", sofaDark: "#3d6299", pouf1: "#e8b94a", pouf2: "#d9607a", pouf3: "#4fb3a6",
-  teal: "#6f9e9c", tealLine: "#67928f", bean: "#ece0c6", mats: ["#b8a7dd", "#a6d2a4", "#e0c48f", "#9cc3d9"],
+  teal: "#6f9e9c", tealLine: "#67928f", bean: "#ece0c6", mats: ["#b8a7dd", "#a6d2a4", "#e0c48f", "#9cc3d9"], matLeads: "#95c3e6",
   desk: "#f6f1e8", deskEdge: "#d9cfbf", monitor: "#262a35", plant: "#4f9a55", plant2: "#6dbb5f", pot: "#c46a3c",
   books: ["#d9534f", "#f0ad4e", "#5bc0de", "#5cb85c", "#8e6bbf"], shelf: "#6b4a32",
   dogbed: "#c0504a", dogbedIn: "#f0e0c8", dog: "#d9a066", dogDark: "#8a5a2b", shade: "#0000002e", ball: "#ffffff",
@@ -324,8 +324,9 @@ export function floorLayer(world, k) {
     edge(r, r.x0 + 12, 108, () => plant(g, r.x0 + 12, 108, 5)); edge(r, r.x0 + 138, 12, () => plant(g, r.x0 + 138, 12, 5));
     if (i % 2 === 0) edge(r, r.x0 + 12, 6, () => shelf(g, r.x0 + 12, 6, 22, 7)); else edge(r, r.x0 + 112, 106, () => shelf(g, r.x0 + 112, 106, 26, 7));
   });
-  // leads
-  world.desks.filter((d) => d.room === "leads").forEach((d) => { chairDot(g, d.seat.x, d.seat.y); deskArt(g, d, false); });
+  // leads: the same pod as a repo room's, on a rug of its own, 76 wide so it clears the room's walls
+  mid(leads, () => g.rr(leads.x0 + 45 - 38, 18, 76, 80, 10, PAL.matLeads));
+  world.desks.filter((d) => d.room === "leads").forEach((d) => { chairDot(g, d.seat.x, d.seat.y); deskArt(g, d, true); });
   edge(leads, leads.x0 + 6, 6, () => shelf(g, leads.x0 + 6, 6, 30, 7));
   edge(leads, leads.x0 + 80, 108, () => plant(g, leads.x0 + 80, 108, 5)); edge(leads, leads.x0 + 8, 108, () => plant(g, leads.x0 + 8, 108, 4));
   // meeting room
@@ -393,6 +394,11 @@ export function labels(world, k, crewCount) {
   for (const r of world.rooms) {
     if (r.kind === "repo") { // the repo's chip sits under its pod, which is centred in the room
       out.push(pill(r.label, r.x + r.w / 2, 100 + shiftOf(r).dy, k, PAL.chip, PAL.chipInk, size, true));
+      continue;
+    }
+    if (r.kind === "leads") { // the leads' name is centred over the door, under the pod
+      const h = Math.max(7, size - 1) + 5;
+      out.push(pill(r.label.toUpperCase(), r.x0 + 45 + shiftOf(r).dx, 112 + shiftOf(r).dy - h / 2 / k, k, PAL.label, PAL.labelInk, Math.max(7, size - 1), true));
       continue;
     }
     // Room names stay at the room's top left corner.

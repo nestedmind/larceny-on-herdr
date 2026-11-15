@@ -179,3 +179,16 @@ console.log(JSON.stringify(g.el().node.kids[0].node.path.cmds[0]));'
   [ "$status" -eq 0 ]
   [ "$output" = '["move_to",3,6]' ]
 }
+
+@test "the leads room's name is centred on the door line, at 112 units, and the other rooms' names stay at their corners" {
+  run draw_js '
+const world = (await import("./crew.mjs")).worldFor(["api", "web"]);
+const k = 2;
+const out = draw.labels(world, k, 10).map((e) => e.node);
+const find = (text) => out.find((n) => n.kids.includes(text));
+const lead = find("SCOFIELD · AMY"), kitchen = find("KITCHEN");
+const wide = (n, text) => text.length * (n.props.h[0] - 5) * 0.62 + 12;
+console.log(lead.props.left[0] + wide(lead, "SCOFIELD · AMY") / 2, 345 * k, lead.props.top[0] + lead.props.h[0] / 2, 112 * k, kitchen.props.left[0], kitchen.props.top[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "690 690 224 224 204 356" ]
+}

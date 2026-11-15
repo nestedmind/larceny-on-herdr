@@ -79,7 +79,7 @@ copy_mod() {
 
 @test "Scofield and Amy swapped between their desks is reported: the prototype says who sits where" {
   copy_mod
-  sed -i 's/else sit(p, deskBy.get(homes\[p.id\] || p.id));/else sit(p, deskBy.get(p.id === "scofield" ? "amy" : p.id === "amy" ? "scofield" : homes[p.id] || p.id));/' "$MOD/crew.js"
+  sed -i 's/else sit(p, deskBy.get(p.id));/else sit(p, deskBy.get(p.id === "scofield" ? "amy" : p.id === "amy" ? "scofield" : p.id));/' "$MOD/crew.js"
   run node "$TOOL/run.mjs" --mod "$MOD" --case two-repos-native
   [ "$status" -eq 1 ]
   [[ "$output" == *"scofield desk: office \"amy\", prototype \"scofield\""* ]]
@@ -179,8 +179,8 @@ live() { node "$TOOL/live.mjs" --crew "$TOOL/fixtures/crew.json" --out "$BATS_TE
   run live --shot "$BATS_TEST_TMPDIR/fault.png" --all
   [ "$status" -eq 1 ]
   [[ "$output" =~ sideways\ offset\ =\ (9\.[5-9]|10\.[0-4])%\ of\ x ]]
-  [[ "$output" == *"scofield x: off 129"* ]]
-  [[ "$output" == *"amy x: off 147"* ]]
+  [[ "$output" == *"scofield x: off 132"* ]]
+  [[ "$output" == *"amy x: off 144"* ]]
 }
 
 @test "live: a person who is not found fails the run" {
@@ -252,12 +252,12 @@ use_fakes() {
   [[ "$output" == *" y: office"* ]]
 }
 
-@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases, and 3, 5, 1, 2, 1 and 5 in the six seating cases" {
+@test "the known differences are exactly the ones listed (#29): 9, 1, 4 and 3 in the four cases, and 4, 6, 1, 2, 1 and 5 in the six seating cases" {
   run node "$TOOL/run.mjs"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"two-repos-native"*"8 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
+  [[ "$output" == *"two-repos-native"*"9 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
   [[ "$output" == *"two-repos-narrow"*"4 known"* && "$output" == *"six-repos"*"3 known"* ]]
-  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 33 ]
+  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 36 ]
 }
 
 # The tool in a temp dir, so a test can change its list of known differences.

@@ -19,7 +19,7 @@ const worldOf = (P, n) => {
   const desks = new Map();
   const pod = P.DESKS.filter((d) => d.room === "api");
   for (let i = 0; i < n; i++) pod.forEach((d, j) => desks.set(`#${i}:${j + 1}`, { ...d, x: d.x + i * a.w, cx: d.cx + i * a.w, seat: { x: d.seat.x + i * a.w, y: d.seat.y } }));
-  for (const key of ["scofield", "amy"]) {
+  for (const key of ["opemipo", "maya", "scofield", "amy"]) {
     const d = P.DESKS.find((q) => q.key === key);
     desks.set(key, { ...d, x: d.x + moved, cx: d.cx + moved, seat: { x: d.seat.x + moved, y: d.seat.y } });
   }
@@ -106,10 +106,8 @@ export const CHECKS = {
     const { repos } = roomsOf(L);
     const deskBy = new Map(L.desks.concat([L.mattDesk]).map((d) => [d.key, d]));
     // Who sits at which desk is the prototype's: Scofield and Amy at their own, Matt at his, and the helpers at the
-    // desks its HOME_DESK names ("web-3": the web room's third desk), which are the office's repo rooms in order.
-    const roomNames = [...new Set(P.DESKS.map((d) => d.room).filter((x) => x !== "leads"))];
-    const homeKey = (key) => { const [room, j] = key.split("-"); const i = roomNames.indexOf(room); return repos[i] ? `${repos[i].key}:${j}` : null; };
-    const wantDesk = { scofield: "scofield", amy: "amy", matt: "matt", maya: homeKey(P.HOME_DESK.maya), opemipo: homeKey(P.HOME_DESK.opemipo) };
+    // desks its HOME_DESK names, which are in the leads room ("maya", "opemipo").
+    const wantDesk = { scofield: "scofield", amy: "amy", matt: "matt", maya: P.HOME_DESK.maya, opemipo: P.HOME_DESK.opemipo };
     for (const p of L.people) {
       const want = wantDesk[p.id];
       const atDesk = named(p.id) ? P.PLACE_OF_THEN[c.expect[p.id]] === "desk" : p.id === "matt" || ((p.id === "scofield" || p.id === "amy") ? p.state === "working" || p.state === "blocked" : p.running);
