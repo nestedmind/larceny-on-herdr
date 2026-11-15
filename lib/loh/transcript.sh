@@ -18,7 +18,10 @@
 # Kept: user turns (typed text), assistant text, and messages other agents sent
 # in (<hc from="tN name">...</hc>), unwrapped, as {"role":"agent","from":"name"}.
 # Left out: thinking, tool calls and results, meta and sub-agent turns,
-# <system-reminder> blocks, command echoes and bare <hc>...</hc> notes. Turns are cut to 4000 characters. A half-written last line is
+# <system-reminder> blocks, command echoes, <task-notification> blocks and bare <hc>...</hc> notes.
+# A Discord message (<channel source="plugin:discord:discord" ...>text</channel>) is Matt's turn with
+# the text unwrapped and "via":"discord". A message Matt sent while the agent was working is not a user
+# line: it is an attachment of type queued_command with origin.kind "human", kept as his user turn. Turns are cut to 4000 characters. A half-written last line is
 # skipped.
 set -euo pipefail
 # shellcheck source=common.sh
@@ -86,14 +89,21 @@ fi
 # shellcheck disable=SC2016
 filter='
   fromjson?
-  | select((.type == "user" or .type == "assistant") and (.isSidechain | not) and (.isMeta | not))
-  | .message.content as $c
-  | { role: .type, ts: (.timestamp // ""),
+  | select(
+      ((.type == "user" or .type == "assistant") and (.isSidechain | not) and (.isMeta | not))
+      or (.type == "attachment" and .attachment.type == "queued_command"
+          and ((.origin.kind // .attachment.origin.kind) == "human")))
+  | (if .type == "attachment" then (.attachment.prompt // "") else .message.content end) as $c
+  | { role: (if .type == "attachment" then "user" else .type end), ts: (.timestamp // ""),
       text: (if ($c | type) == "string" then $c
              elif ($c | type) == "array" then ([$c[] | select(.type == "text") | .text] | join("\n"))
              else "" end) }
   | .text |= (gsub("(?s)<system-reminder>.*?</system-reminder>"; "") | gsub("^\\s+|\\s+$"; ""))
-  | select(.text != "" and (.text | test("^<(local-)?command-|^<hc>") | not))
+  | select(.text != "" and (.text | test("^<(local-)?command-|^<hc>|^<task-notification>") | not))
+  | if (.text | test("^<channel source=\"plugin:discord:discord\"[^>]*>")) then
+      .via = "discord"
+      | .text |= (sub("^<channel [^>]*>\\s*"; "") | sub("\\s*</channel>\\s*$"; ""))
+    else . end
   | if (.text | test("^<hc from=\"")) then
       .role = "agent"
       | .from = (.text | capture("^<hc from=\"(?:\\S+ )?(?<n>[^\"]+)\"").n)

@@ -35,7 +35,7 @@ export function parseTranscript(text) {
     // `loh transcript` reads the whole session and flags its first user turn when that is the launch prompt
     // (wrapped in <pasted_content>). The window shown here may start later, so only that flag counts: a paste of Matt's is his.
     const launch = m.role === "user" && m.launch === true;
-    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch });
+    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch, via: m.via === "discord" ? "discord" : "" });
   }
   return out;
 }
@@ -96,6 +96,11 @@ export function speaker(m, agentName) {
   if (m.role === "user") return "Matt";
   if (m.role === "agent") return m.from || "another agent";
   return agentName;
+}
+
+/** The small mark after the speaker of a turn that came in through a channel. */
+export function viaMark(m) {
+  return m.via === "discord" ? " · via Discord" : "";
 }
 
 /** The text a turn shows: a launch prompt is one clipped line without its wrapper tags. */

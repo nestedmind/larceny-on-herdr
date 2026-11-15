@@ -202,3 +202,11 @@ console.log(late[0].launch, chat.speaker(late[0], "Scofield"), chat.shownText(la
   [ "${lines[3]}" = "Hey" ]
   [ "${lines[4]}" = 'false Matt <pasted_content id="x">my notes</pasted_content id="x">' ]
 }
+
+@test "panel: a turn that came via Discord keeps the field and gets a via Discord mark" {
+  run chat_js '
+const t = chat.parseTranscript(JSON.stringify([{role:"user",text:"hi",ts:"",via:"discord"},{role:"user",text:"yo",ts:""},{role:"user",text:"x",via:"<b>"}]));
+console.log(t.map((m) => JSON.stringify(chat.viaMark(m))).join("|"));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '" · via Discord"|""|""' ]
+}
