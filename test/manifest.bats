@@ -276,11 +276,25 @@ MD
     for flag in --dangerously-skip-permissions --allow-dangerously-skip-permissions \
       "--permission-mode bypassPermissions" --permission-mode=bypassPermissions \
       "--agent larceny:yoda" --agent=larceny:yoda "--settings x.json" --settings=x.json \
+      "--allowedTools Bash" --allowedTools=Bash "--allowed-tools Bash" --allowed-tools=Bash \
+      "--permission-prompt-tool mcp__x" --permission-prompt-tool=mcp__x \
+      "--mcp-config x.json" --mcp-config=x.json "--add-dir /" --add-dir=/ \
       "--channels a --dangerously-skip-permissions"; do
       printf 'name: demo\n%s: %s\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' "$key" "$flag" >"$BATS_TEST_TMPDIR/m.md"
       run --separate-stderr bash -c "source '$REPO_ROOT/lib/loh/common.sh'; manifest_path() { echo '$BATS_TEST_TMPDIR/m.md'; }; workspace_root() { echo '$BATS_TEST_TMPDIR'; }; manifest_load"
       [ "$status" -ne 0 ] || { echo "accepted: $key: $flag"; return 1; }
       [[ "$stderr" == *"$key"* ]] || { echo "no key named for: $flag: $stderr"; return 1; }
     done
+  done
+}
+
+@test "manifest_load checks a * word as written, not as the files it would match" {
+  local key
+  mkdir "$BATS_TEST_TMPDIR/cwd"
+  : >"$BATS_TEST_TMPDIR/cwd/--agent"
+  for key in scofield_args amy_args; do
+    printf 'name: demo\n%s: *\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: o/api\n' "$key" >"$BATS_TEST_TMPDIR/m.md"
+    run --separate-stderr bash -c "cd '$BATS_TEST_TMPDIR/cwd'; source '$REPO_ROOT/lib/loh/common.sh'; manifest_path() { echo '$BATS_TEST_TMPDIR/m.md'; }; workspace_root() { echo '$BATS_TEST_TMPDIR'; }; manifest_load"
+    [ "$status" -eq 0 ] || { echo "refused $key: $stderr"; return 1; }
   done
 }
