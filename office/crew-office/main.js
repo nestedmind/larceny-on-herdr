@@ -818,7 +818,7 @@ export default class CrewOffice extends View {
     const tops = stackTags(sized.filter((s) => !s.m.walking));
     const tags = sized.map((s) => {
       // Where the tag's corner is from the person, in px.
-      const off = s.m.walking ? { x: -s.w / 2, y: u(9) } : { x: s.x - u(s.m.x), y: Math.max(2, tops.get(s.id)) - u(s.m.y) };
+      const off = s.m.walking ? { x: -s.w / 2, y: u(9) } : { x: s.x - u(s.m.x), y: Math.max(u(2), tops.get(s.id)) - u(s.m.y) };
       const slide = this.anim ? TAG_SLIDE : { duration: 1 };
       const body = s.p.agent ? this.tag(s.p, off.x, off.y, s.w, F, t, slide) : this.chip(s.p, off.x, off.y, slide);
       return mover("tm-" + s.id, s.m.from, s.m.chain, k, s.m.walking, body);

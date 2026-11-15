@@ -73,16 +73,15 @@ export const ROUTE = { id: "mahone", from: { room: "kitchen", spot: 0 }, to: { d
 // fails too. An entry that matches nothing (the office was fixed, or its number moved) fails the run until it is
 // removed or updated. Empty this list as the ticket lands.
 // #29: name tags are stacked and clamped as the prototype does (a gap of 0.6 units, kept 2 units inside the floor's
-// edges, pulled back inside its bottom edge). Maya, on the leads pod's top row, meets the same top-edge clamp as the
-// coder at a repo room's top row; Sara's tag stacks differently once Opemipo stands in the lounge.
+// edges, pulled back inside its bottom edge). Sara's tag stacks differently once Opemipo stands in the lounge.
 const known = (kase, list) => list.map(([id, field, off]) => ({ case: kase, check: "tags", id, field, off, ticket: "#29" }));
 export const KNOWN = [
-  ...known("two-repos-native", [["sara", "x", 2], ["x:t15", "x", 2], ["x:t17", "x", 2], ["x:t10", "y", 17.03], ["x:t11", "y", 57.03], ["x:t17", "y", 29.01], ["x:t13", "y", 97.03], ["maya", "y", -2], ["dog", "y", 3]]),
+  ...known("two-repos-native", [["sara", "x", 2], ["x:t15", "x", 2], ["x:t17", "x", 2], ["x:t10", "y", 17.03], ["x:t11", "y", 57.03], ["x:t17", "y", 29.01], ["x:t13", "y", 97.03], ["dog", "y", 3]]),
   ...known("two-repos-16x9", [["x:t13", "y", 1.29]]),
   ...known("two-repos-narrow", [["x:t10", "y", 1.11], ["x:t11", "y", 1.48], ["x:t17", "y", 1.11], ["x:t13", "y", 35.21]]),
   ...known("six-repos", [["sara", "x", 1.12], ["x:t11", "y", 13.87], ["x:t13", "y", 53.87]]),
   // The seating cases: the same tag stacking and clamping differences, in the rooms they stand in.
-  ...known("seated-after-turn", [["x:t6", "y", -2], ["maya", "y", -2], ["sara", "x", 2], ["dog", "y", 3]]),
+  ...known("seated-after-turn", [["sara", "x", 2], ["dog", "y", 3]]),
   ...known("idle-3-minutes", [["sara", "y", -9.99], ["mahone", "y", -29.2], ["sheba", "y", -29.4], ["x:t6", "y", -33.61], ["amy", "y", -6.82], ["dog", "y", 3]]),
   ...known("waiting-on-review", [["dog", "y", 15.01]]),
   ...known("ping-pong-after-15s", [["amy", "y", -32.2], ["dog", "y", 15.01]]),
