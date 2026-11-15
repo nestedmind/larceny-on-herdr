@@ -301,3 +301,11 @@ console.log(log.join(","));'
   [ "$status" -eq 0 ]
   [ "$output" = "other,lock,unlock,after-error" ]
 }
+
+@test "a copy sees only its own full-terminal windows: they are named by the mod and termHeld can be asked for one" {
+  run crew_js '
+const s = { t7: ["chat", crew.termId("crew-office-dev", "a")], t8: [crew.termId("crew-office", "b")] };
+console.log(crew.termId("crew-office", "x"), crew.termHeld(s), crew.termHeld(s, "t7", "crew-office-dev"), crew.termHeld(s, "t7", "crew-office"), crew.termHeld(s, undefined, "crew-office"), crew.termHeld(s, "t8", "crew-office-dev"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "term-crew-office:x true true false true false" ]
+}

@@ -677,10 +677,16 @@ export function holdersRelease(state, address, id) {
   return { state: out, unlock: cur.includes(id) && next.length === 0 };
 }
 
-/** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-". */
-export function termHeld(state, address) {
+/** The id of a full-terminal window opened by the copy loaded as `mod`: it names the copy, so copies do not see each other's windows. */
+export function termId(mod, unique) {
+  return `term-${mod}:${unique}`;
+}
+
+/** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-"; with `mod`, only that copy's windows count. */
+export function termHeld(state, address, mod) {
+  const prefix = mod === undefined ? "term-" : `term-${mod}:`;
   const lists = state && typeof state === "object" ? (address ? [state[address]] : Object.values(state)) : [];
-  return lists.some((l) => Array.isArray(l) && l.some((i) => String(i).startsWith("term-")));
+  return lists.some((l) => Array.isArray(l) && l.some((i) => String(i).startsWith(prefix)));
 }
 
 /** One queue per key: each call starts when the one before it has finished, and a failure does not stop the ones after. */

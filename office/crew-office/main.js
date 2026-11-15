@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -38,6 +38,10 @@ function nameMod() {
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
 let held = {};
+// The slim bars that are up, by window id: a bar that never comes up means its window never opened.
+const bars = new Set();
+// How long a full-terminal window has to show its bar before its hold is let go.
+const TERM_GRACE = 4000;
 // loh lock and unlock for one agent go through one queue, so the last call sent is the last one run.
 const lohQueue = serialQueue();
 
@@ -94,7 +98,7 @@ export default class CrewOffice extends View {
       // After a mod reload this copy has empty module state: record the window as a holder again, so
       // Back unlocks the agent and nothing else's release does. The lock is idempotent.
       const p = props() || {};
-      if (p.agent && p.agent.address && p.termId) hold(p.agent, p.loh, p.termId);
+      if (p.agent && p.agent.address && p.termId) { bars.add(p.termId); hold(p.agent, p.loh, p.termId); }
       return;
     }
     this.size = { width: 640, height: 480 };
@@ -160,7 +164,8 @@ export default class CrewOffice extends View {
     try { this.lights = lightsFrom(shared(LIGHTS_KEY)); } catch (_) { /* none saved: lights on */ }
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
-    this.termOpen = false; // a full-terminal window is open
+    this.termOpen = false; // a full-terminal window of this copy is open
+    this.termWin = null; // the one this copy opened: { id, agent, loh, at, seen }
     this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, typed: (cx) => this.typed(cx), width: () => this.panelW });
   }
 
@@ -172,11 +177,14 @@ export default class CrewOffice extends View {
     const loh = (props() || {}).loh;
     const focus = (address) => { try { run("pane.focus", { terminal: address }); } catch (_) { /* focus is a nicety */ } };
     // One window at a time: a second click only brings the keyboard back to it.
-    const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-")));
+    // Only this copy's window counts: another copy's does not hold this one's keyboard.
+    const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith(`term-${MOD}:`)));
     if (open) { focus(open[0]); return; }
-    const id = `term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const id = termId(MOD, `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
     try { openOverlay(fullTerminalOverlay(a, loh, id, MOD)); } catch (e) { this.fail(a, e); return; }
     hold(a, loh, id);
+    this.termWin = { id, agent: a, loh, at: Date.now(), seen: false };
+    this.wakeIn(TERM_GRACE + 50);
     this.termOpen = true;
     // A window does not take the keyboard when it opens: give it to the terminal, so Esc and typing go to the agent.
     focus(a.address);
@@ -275,7 +283,7 @@ export default class CrewOffice extends View {
   // The addresses of the agents whose terminal Matt has open from the office: the docked chat and a full-terminal window.
   openTerminals() {
     const out = this.chat ? [this.chat.address] : [];
-    for (const [address, ids] of Object.entries(holders())) if (Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-"))) out.push(address);
+    for (const [address, ids] of Object.entries(holders())) if (Array.isArray(ids) && ids.some((i) => String(i).startsWith(`term-${MOD}:`))) out.push(address);
     return out;
   }
 
@@ -426,6 +434,7 @@ export default class CrewOffice extends View {
     if (this.termBar) {
       // The full-terminal window is going (Back, the terminal ending, a layout switch): release the lock its opening set.
       const p = props() || {};
+      if (p.termId) bars.delete(p.termId);
       if (p.agent && p.agent.address && p.termId) { try { await unhold(p.agent, p.loh, p.termId); } catch (_) { /* nothing to undo */ } }
       return;
     }
@@ -678,7 +687,13 @@ export default class CrewOffice extends View {
       try { saved = shared(wkey); } catch (_) { /* none */ }
       this.panelW = clampPanelW(saved, 1e9);
     }
-    this.termOpen = termHeld(holders());
+    // A window whose bar never came up (it failed to open) or has gone keeps no hold.
+    const w = this.termWin;
+    if (w) {
+      if (bars.has(w.id)) w.seen = true;
+      else if (w.seen || Date.now() - w.at > TERM_GRACE) { this.termWin = null; unhold(w.agent, w.loh, w.id); }
+    }
+    this.termOpen = termHeld(holders(), undefined, MOD);
     this.loadRepos(crew, workspace, cx);
     this.checkPrs(crew, cx);
     this.panel.sync(crew, cx);

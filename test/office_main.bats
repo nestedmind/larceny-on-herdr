@@ -612,6 +612,41 @@ console.log(before, max());'
   [ "$output" = "600 600" ]
 }
 
+@test "a full-terminal window whose bar never comes up is let go: the keyboard and the lock come back" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+render(); const during = office.termOpen;
+later(1000); render(); const soon = office.termOpen;
+later(5000); render(); await tick();
+console.log(during, soon, office.termOpen, office.panel.host.busy(), (globalThis.EXECS || []).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false false lock,unlock" ]
+}
+
+@test "a full-terminal window whose bar is up keeps its hold past the grace time, and Back lets it go" {
+  run office_js '
+const { default: Same } = await import("./main.mjs");
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+const barProps = { terminalBar: true, termId: globalThis.OVERLAYS[0].layout.children[0].content.props.termId, loh: "loh", agent: { address: a.address, name: a.name } };
+const tick = () => new Promise((r) => setTimeout(r, 5));
+globalThis.PROPS = barProps;
+const bar = new Same({}, cx); bar.init({}, cx);
+globalThis.PROPS = { crew: "sandbox" };
+later(9000); render(); const held = office.termOpen;
+globalThis.PROPS = barProps;
+await bar.close(cx); await tick();
+globalThis.PROPS = { crew: "sandbox" };
+render();
+console.log(held, office.termOpen);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false" ]
+}
+
 @test "a reloaded full-terminal bar holds the agent again: a chat closing meanwhile does not unlock it, and Back does" {
   run office_js '
 const { default: Reloaded } = await import("./main.mjs?reload");
