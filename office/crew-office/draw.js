@@ -581,8 +581,8 @@ export function dogEls(p, k, walking, face) {
 }
 const arcPt = (g, cx, cy, r, a) => [g.X(cx + Math.cos(a) * r), g.Y(cy + Math.sin(a) * r)];
 
-/** How many legs a walk can have in one go; a walk has at most five (door, lane, lane, door, spot). */
-export const SLOTS = 6;
+/** How many legs a walk can have in one go; a walk has at most nine (the pod aisle out, door, lane, lane, door, the pod aisle in, spot). */
+export const SLOTS = 9;
 
 /**
  * Where something stands on the floor, as nested movers: the first sits at `at` (world units), and

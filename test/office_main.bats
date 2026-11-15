@@ -163,7 +163,7 @@ const insideTag = find(root, "tm-sheba") && all(find(root, "tm-sheba")).some((n)
 const insideFigure = all(find(root, "m-sheba")).some((n) => id(n) === "person-sheba");
 console.log(chain("m-sheba"), chain("tm-sheba"), insideTag, insideFigure);'
   [ "$status" -eq 0 ]
-  [ "$output" = "7 7 true true" ]
+  [ "$output" = "10 10 true true" ]
 }
 
 @test "a walk is handed over in one render: every link has its own start time, and the next render repeats it exactly" {
@@ -201,7 +201,7 @@ const root = render();
 const t = all(find(root, "m-sheba")).filter((x) => x.props.transitions && /^m-/.test(id(x)));
 console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1 && !a[1].delay)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "7 true" ]
+  [ "$output" = "10 true" ]
 }
 
 @test "a walk's timers only turn the walker or end the gait, and a walk ends after its last leg" {
@@ -232,7 +232,7 @@ const m = find(root, "m-sheba");
 const t = all(m).filter((x) => x.props.transitions && /^m-/.test(id(x)));
 console.log(w.legs.length, w.at.x === goal.x && w.at.y === goal.y, t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "0 true 7 true" ]
+  [ "$output" = "0 true 10 true" ]
 }
 
 @test "with the panel open and the stage not yet re-measured, the floor is fitted to the room beside it" {

@@ -192,3 +192,36 @@ console.log(lead.props.left[0] + wide(lead, "SCOFIELD · AMY") / 2, 345 * k, lea
   [ "$status" -eq 0 ]
   [ "$output" = "690 690 224 224 204 356" ]
 }
+
+@test "every walk between any two desk seats or room spots, as the renderer draws it, crosses a wall only through a door" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+let walks = 0, tooLong = 0;
+const bad = new Set();
+for (const [repos, aspect] of [[["api", "web"], 0], [["api", "web", "docs"], 2.2], [["api"], 1.2]]) {
+  const L = crew.worldFor(repos, aspect);
+  const t = 2.4, botY = L.corr.y + L.corr.h;
+  const walls = [];
+  for (const r of L.rooms) {
+    const wy = r.row === "top" ? L.corr.y - 1.2 : botY - 2.2;
+    walls.push({ x: r.x, y: wy, w: r.door - 9 - r.x, h: t }, { x: r.door + 9, y: wy, w: r.x + r.w - r.door - 9, h: t });
+    if (r.x > 0) walls.push({ x: r.x - t / 2, y: r.y, w: t, h: r.h });
+  }
+  const places = [...L.desks, L.mattDesk].map((d) => d.seat).concat(Object.values(L.spots).flat());
+  const hits = (a, b) => { for (let i = 0; i <= 300; i++) { const x = a.x + (b.x - a.x) * i / 300, y = a.y + (b.y - a.y) * i / 300; if (walls.some((w) => x > w.x + 0.3 && x < w.x + w.w - 0.3 && y > w.y + 0.3 && y < w.y + w.h - 0.3)) return true; } return false; };
+  for (const a of places) for (const b of places) {
+    if (a === b) continue;
+    walks++;
+    const legs = crew.legsOf(a, crew.pathTo(L, "p", a, b));
+    if (legs.length > draw.SLOTS) tooLong++;
+    // The renderer draws the walk as SLOTS links: link i moves by (dx, dy) from where the one before ended.
+    const links = crew.walkChain(a, legs, draw.SLOTS).links;
+    let at = a;
+    for (const l of links) { const to = { x: at.x + l.dx, y: at.y + l.dy }; if (hits(at, to)) bad.add(Math.round(a.x) + "," + Math.round(a.y) + " to " + Math.round(b.x) + "," + Math.round(b.y)); at = to; }
+    if (Math.abs(at.x - b.x) > 0.01 || Math.abs(at.y - b.y) > 0.01) bad.add("ends off the goal");
+  }
+}
+console.log(walks > 2000, tooLong, [...bad].length, [...bad].slice(0, 3).join(" | "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 0 0 " ]
+}
