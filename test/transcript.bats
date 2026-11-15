@@ -205,3 +205,22 @@ harness_session() {
   run "$LOH" transcript scofield
   [ "$(jq -c '[.[] | .text]' <<<"$output")" = '["plain words","from discord","I agree."]' ]
 }
+
+# the shapes Claude Code writes: origin inside the attachment, the prompt a string or an array
+queued_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"typed mid-turn","origin":{"kind":"human"}},"timestamp":"2026-11-15T02:00:01.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"array prompt"}],"origin":{"kind":"human"}},"timestamp":"2026-11-15T02:00:02.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<channel source=\"discord\" chat_id=\"1\">mid-turn discord</channel>","origin":{"kind":"channel"}},"timestamp":"2026-11-15T02:00:03.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>x</task-notification>","origin":{"kind":"task-notification"}},"timestamp":"2026-11-15T02:00:04.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<channel source=\"discord\" chat_id=\"1\">short source</channel>"},"timestamp":"2026-11-15T02:00:05.000Z"}'
+  } >"$PROJ/q1.jsonl"
+}
+
+@test "transcript reads queued_command with origin inside the attachment, a string or array prompt, and a channel origin" {
+  queued_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = \
+    '[["typed mid-turn",""],["array prompt",""],["mid-turn discord","discord"],["short source","discord"]]' ]
+}
