@@ -41,8 +41,8 @@ export class Panel {
     this.inputs = new Map(); // one text state per agent, so a half-typed draft stays
     this.scroll = ScrollHandle.new();
     this.feedScroll = ScrollHandle.new();
-    this.lastCount = -1;
-    this.lastFeed = -1;
+    this.logEnd = null; // the newest log row last scrolled to: its key, so a full 40-turn window still follows
+    this.feedEnd = null; // the same for the activity feed
     this.tab = "chat"; // "chat" or "activity"
     this.hover = null; // the log row under the pointer: its Copy shows
     this.copied = null; // the row whose Copy was just clicked
@@ -64,7 +64,7 @@ export class Panel {
       this.pending = [];
       this.error = "";
       this.fetchedKey = null;
-      this.lastCount = -1;
+      this.logEnd = null;
       this.hover = null;
       this.copied = null;
     }
@@ -309,7 +309,7 @@ export class Panel {
     const on = this.tab === name;
     return h_flex().id(id).px(8).py(4).gap(6).items_center().text_size(12).font_semibold().cursor_pointer()
       .text_color(on ? t.foreground : t.muted).border_b(2).border_color(on ? t.accent : "#00000000")
-      .on_click((_e, c) => { this.tab = name; this.lastCount = -1; this.lastFeed = -1; c.notify(); })
+      .on_click((_e, c) => { this.tab = name; this.logEnd = null; this.feedEnd = null; c.notify(); })
       .child(label)
       .when(badge > 0, (el) => el.child(div().px(5).h(16).flex().items_center().rounded_full().bg(t.blocked).text_size(11).text_color(t.canvas).child(String(badge))));
   }
@@ -318,7 +318,8 @@ export class Panel {
   // and every line of text aligned with the name. Matt's turns sit in a shaded band across the panel.
   chatLog(t, a) {
     const { shown } = withPending(this.turns, this.pending);
-    const rows = groupLog(shown, a.name).map(({ m, head, key: id }) => {
+    const log = groupLog(shown, a.name);
+    const rows = log.map(({ m, head, key: id }) => {
       const who = speaker(m, a.name);
       const mine = m.role === "user" && !m.launch;
       const stamp = m.pending ? (m.unsure ? "Not confirmed" : "Sending…") : m.ts ? clock(new Date(m.ts)) : "";
@@ -341,9 +342,13 @@ export class Panel {
           .child(this.button(`copy-${id}`, this.copied === key ? "Copied" : "Copy", (_e, c) => this.copy(key, copyText(m), c), t))));
       return row;
     });
-    if (shown.length !== this.lastCount && shown.length > 0) {
-      this.lastCount = shown.length;
-      this.scroll.scroll_to_item(shown.length - 1);
+    // Follow the newest turn. The window holds at most 40 turns, so once it is full a new turn leaves the count
+    // unchanged: the newest row's key is what says something arrived (or that Matt just sent one). The kit
+    // cannot read the scroll offset, so this always jumps.
+    const end = log.length ? log[log.length - 1].key : null;
+    if (end !== this.logEnd && end !== null) {
+      this.logEnd = end;
+      this.scroll.scroll_to_item(log.length - 1);
     }
     // The rows are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest one out of reach.
@@ -355,8 +360,10 @@ export class Panel {
   // Every change since the office opened, oldest first, scrolled to the newest.
   activity(t) {
     const rows = feedRows(this.feed);
-    if (rows.length !== this.lastFeed) {
-      this.lastFeed = rows.length;
+    // Keyed on the newest row, not the count: the feed keeps its last 100 changes, so a full one stays 100 long.
+    const end = `${rows.length}|${rows[rows.length - 1].at}|${rows[rows.length - 1].text}`;
+    if (end !== this.feedEnd) {
+      this.feedEnd = end;
       this.feedScroll.scroll_to_item(rows.length - 1);
     }
     return v_flex().id("panel-activity").flex_1().min_h(0).gap(4).overflow_y_scroll().track_scroll(this.feedScroll)

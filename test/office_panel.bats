@@ -25,7 +25,7 @@ JS
 import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
 export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
-export const ScrollHandle = { new: () => ({ scroll_to_item() {} }) };
+export const ScrollHandle = { new: () => ({ scroll_to_item(i) { (globalThis.SCROLLS ||= []).push(i); } }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
 export const terminals = () => [];
@@ -232,6 +232,36 @@ click((cx) => { cx.timer = { after() {} }; input.handlers.submit({}, cx); });
 console.log(panel.preNl, JSON.stringify(calls() && calls()[0].a.slice(-1)));'
   [ "$status" -eq 0 ]
   [ "$output" = 'null ["xyz"]' ]
+}
+
+@test "scroll: the log follows the newest turn even when the 40-turn window is full, and Matt's own send" {
+  run panel_js '
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" };
+const turn = (i) => ({ role: i % 2 ? "assistant" : "user", text: "t" + i, ts: new Date(Date.UTC(2026, 10, 15, 10, i)).toISOString() });
+const draw = () => click((cx) => panel.render(th, {}, cx));
+panel.turns = Array.from({ length: 40 }, (_, i) => turn(i));
+draw(); draw();
+panel.turns = Array.from({ length: 40 }, (_, i) => turn(i + 1)); // one arrived, one left: still 40
+draw();
+panel.pending = [{ text: "mine" }];
+draw();
+console.log(JSON.stringify(globalThis.SCROLLS));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[39,39,40]" ]
+}
+
+@test "scroll: the activity feed follows its newest row when it is full" {
+  run panel_js '
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" };
+panel.tab = "activity";
+const draw = () => click((cx) => panel.render(th, {}, cx));
+panel.feed = Array.from({ length: 100 }, (_, i) => ({ at: "10:" + i, name: "amy", text: "e" + i, level: "info" }));
+draw(); draw();
+panel.feed = Array.from({ length: 100 }, (_, i) => ({ at: "10:" + (i + 1), name: "amy", text: "e" + (i + 1), level: "info" }));
+draw();
+console.log(JSON.stringify(globalThis.SCROLLS));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[100,100]" ]
 }
 
 @test "message box: it wraps and grows from one row to six" {
