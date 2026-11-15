@@ -159,6 +159,22 @@ export function groupLog(turns, agentName) {
 }
 
 /**
+ * The space round row `i` of a grouped log, from Maya's spec (changes-p1.md, Round 2): a new speaker starts 16 px
+ * under the last turn and a grouped turn 4 px under it. Matt's turns sit in a band that reaches 8 px above and 8 px
+ * below his group, so a band's edge is 8 px from its neighbour and 8 px from its own content. `mt` is outside the
+ * band, `pt` and `pb` inside the row (and so inside the band, where there is one).
+ */
+export function rowSpace(log, i) {
+  const mineAt = (r) => !!r && r.m.role === "user" && !r.m.launch;
+  const row = log[i], prev = log[i - 1], next = log[i + 1];
+  const mine = mineAt(row);
+  const pb = mine && !(next && !next.head && mineAt(next)) ? 8 : 0;
+  if (!row.head) return { mt: 0, pt: 4, pb };
+  if (mine) return { mt: i === 0 || mineAt(prev) ? 0 : 8, pt: 8, pb };
+  return { mt: 0, pt: i === 0 ? 8 : mineAt(prev) ? 8 : 16, pb };
+}
+
+/**
  * A key for a turn that stays with the turn when the 40-turn window slides: its role, time and text, plus a
  * count for an identical earlier turn in the same log (`seen` carries the counts). Not the position.
  */

@@ -7,11 +7,14 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
 import { bustEl } from "./draw.js";
-import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
+import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
 const COPIED_MS = 1500;
+// herdr's own UI font has a regular face only, so bold and italics (and semibold names) drew as plain text. Noto
+// Sans has them, and is the sans Maya's frames are drawn in. Where it is missing the default font is used, as before.
+const FONT = "Noto Sans";
 // Whether `now` is `was` with exactly one newline put in somewhere.
 export function oneNewline(was, now) {
   if (now.length !== was.length + 1) return false;
@@ -298,7 +301,7 @@ export class Panel {
     const composer = v_flex().flex_none().gap(8).px(12).pt(8).pb(12).border_t(1).border_color(t.border)
       .when(!!this.error, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.notSent ? `Not sent: ${this.error} Your message is back in the box.` : this.error)))
       .child(this.form(t, raw, why));
-    return v_flex().id("panel").size_full().overflow_hidden().gap(0).bg(t.canvas).border_l(1).border_color(t.border)
+    return v_flex().id("panel").size_full().overflow_hidden().gap(0).font_family(FONT).bg(t.canvas).border_l(1).border_color(t.border)
       .child(top)
       .child(tabs)
       .child(this.tab === "chat" ? this.chatLog(t, a) : this.activity(t))
@@ -325,24 +328,30 @@ export class Panel {
   chatLog(t, a) {
     const { shown } = withPending(this.turns, this.pending);
     const log = groupLog(shown, a.name);
-    const rows = log.map(({ m, head, key: id }) => {
+    const rows = log.map(({ m, head, key: id }, i) => {
       const who = speaker(m, a.name);
       const mine = m.role === "user" && !m.launch;
       const stamp = m.pending ? (m.unsure ? "Not confirmed" : "Sending…") : m.ts ? clock(new Date(m.ts)) : "";
       const body = m.launch
         ? div().text_size(12).text_color(t.muted).whitespace_normal().child(`Launch prompt · ${markdownOf(m)}`)
-        : TextView.markdown(`msg-${id}`, markdownOf(m)).selectable(true).text_size(13).text_color(t.foreground);
+        : TextView.markdown(`msg-${id}`, markdownOf(m)).selectable(true).font_family(FONT).text_size(13).line_height("19px").text_color(t.foreground);
       const key = `m-${id}`;
       const hovered = this.hover === key || this.copied === key;
-      const text = v_flex().flex_1().min_w(0).gap(2)
+      // Maya's spacing (changes-p1.md, Round 2): a new speaker starts 16 px under the last turn, a grouped turn 4 px;
+      // 4 px between the name row and the body; 10 px between photo and text (8 at 24 px). Matt's band is 8 px
+      // taller above and below his group, so its edge sits 8 px from the neighbour and 8 px from his own content.
+      const pic = this.width < 320 ? 24 : 32;
+      const sp = rowSpace(log, i);
+      const text = v_flex().flex_1().min_w(0).gap(4)
         .when(head, (el) => el.child(h_flex().gap(6).items_baseline()
-          .child(div().text_size(13).font_semibold().text_color(t.foreground).child(`${who}${viaMark(m)}`))
-          .child(div().text_size(12).text_color(m.unsure ? t.blocked : t.muted).child(stamp))))
+          .child(div().text_size(12).line_height("16px").font_semibold().text_color(t.foreground).child(`${who}${viaMark(m)}`))
+          .child(div().text_size(12).line_height("16px").text_color(m.unsure ? t.blocked : t.muted).child(stamp))))
         .child(body);
-      const row = h_flex().id(key).relative().w_full().gap(8).px(12).py(head ? 6 : 1).items_start()
+      const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
+        .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { if (h) this.hover = key; else if (this.hover === key) this.hover = null; c.notify(); })
-        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), this.width < 320 ? 24 : 32, t) : div().flex_none().w(this.width < 320 ? 24 : 32))
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t) : div().flex_none().w(pic))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
           .child(this.button(`copy-${id}`, this.copied === key ? "Copied" : "Copy", (_e, c) => this.copy(key, copyText(m), c), t))));
@@ -359,7 +368,7 @@ export class Panel {
     // The rows are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest one out of reach.
     const empty = this.fetchedKey === null && !shown.length ? "Loading the conversation…" : `No messages with ${a.name} yet. Anything you send goes to their terminal.`;
-    return v_flex().id("panel-log").flex_1().min_h(0).gap(0).overflow_y_scroll().track_scroll(this.scroll)
+    return v_flex().id("panel-log").flex_1().min_h(0).gap(0).pb(8).overflow_y_scroll().track_scroll(this.scroll)
       .children(rows.length ? rows : [div().px(12).text_size(12).text_color(t.muted).child(empty)]);
   }
 

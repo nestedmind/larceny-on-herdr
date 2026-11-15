@@ -295,6 +295,20 @@ console.log(k2.every((k, i) => k === k1[i + 1]), new Set(k1).size === 4);'
   [ "$output" = "true true" ]
 }
 
+@test "panel: the space between turns is Maya's: 16 new speaker, 4 grouped, bands 8 above and below" {
+  run chat_js '
+const T = (role, min, extra = {}) => ({ role, text: "x" + min, ts: new Date(Date.UTC(2026, 10, 15, 10, min)).toISOString(), ...extra });
+const log = chat.groupLog([T("assistant", 0), T("assistant", 1), T("user", 2), T("user", 3), T("assistant", 4), T("user", 30)], "Scofield");
+const sp = log.map((_, i) => chat.rowSpace(log, i));
+// What sits between the content of row i-1 and row i: the row above ends pb inside its band, then mt outside, then pt inside.
+const gaps = sp.slice(1).map((r, k) => sp[k].pb + r.mt + r.pt);
+console.log(JSON.stringify(log.map((r) => r.head)), JSON.stringify(gaps));
+console.log(JSON.stringify(sp.map((r) => [r.mt, r.pt, r.pb])));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[true,false,true,false,true,true] [4,16,4,16,16]' ]
+  [ "${lines[1]}" = '[[0,8,0],[0,4,0],[8,8,0],[0,4,8],[0,8,0],[8,8,8]]' ]
+}
+
 @test "panel: a turn's avatar is the floor figure of whoever wrote it" {
   run chat_js '
 const a = { rawName: "scofield", name: "Scofield" };

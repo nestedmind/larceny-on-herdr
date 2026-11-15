@@ -270,6 +270,12 @@ console.log(JSON.stringify(globalThis.SCROLLS));'
   [ "$output" = "1" ]
 }
 
+@test "font: the panel and its message text views use a family that has bold and italic faces" {
+  run grep -c 'font_family(FONT)' "$(mod_dir)/panel.js"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+}
+
 @test "message box: it wraps and grows from one row to six" {
   run panel_js 'console.log(JSON.stringify(input.grow));'
   [ "$status" -eq 0 ]
