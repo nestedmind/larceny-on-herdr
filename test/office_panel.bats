@@ -17,6 +17,9 @@ panel_js() {
   cat > "$d/node_modules/gpui-kit/index.js" <<'JS'
 const el = () => new Proxy({}, { get: () => () => el() });
 export const div = el;
+const pb = () => new Proxy({}, { get: () => () => pb() });
+export const PathBuilder = { fill: pb, stroke: pb };
+globalThis.window ||= { paint_path: el };
 JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
@@ -29,7 +32,7 @@ export const terminals = () => [];
 export const exec = (c, a, o) => new Promise((resolve, reject) => { (globalThis.CALLS ||= []).push({ c, a, resolve, reject }); });
 JS
   echo '{"type":"module"}' > "$d/package.json"
-  for f in panel chat crew; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in panel chat crew draw; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 import { Panel } from "./panel.mjs";
 const deadUses = [];

@@ -8,7 +8,7 @@
 // movers that carry a person across the floor. What the API cannot do is listed in office/README.md.
 
 import { div, PathBuilder } from "gpui-kit";
-import { look, hash, shiftOf, anchorOf } from "./crew.js";
+import { look, hash, shiftOf, anchorOf, CAST } from "./crew.js";
 
 // The prototype's floor palette (its --fl-* and --st-* tokens). The same in light and dark: dark
 // mode darkens the floor with the night shading instead.
@@ -220,6 +220,55 @@ export class Layer {
     return div().absolute().left(0).top(0).size_full()
       .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
   }
+}
+
+// ---------- the chat avatar ----------
+
+const BUST = 11.2; // the disc's width in floor units
+const BUSTS = new Map();
+
+// The points where the ellipse (cx, cy, rx, ry) and the circle (ox, oy, r) overlap, in order around
+// the overlap: every point of one outline that lies inside the other. The overlap of two convex
+// shapes is convex, so sorting by angle around its middle draws it. GPUI clips to rectangles, so
+// the shoulders are cut to the disc here, in the path, and nothing needs clipping.
+function lens(cx, cy, rx, ry, ox, oy, r, n = 72) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (2 * Math.PI * i) / n;
+    const e = [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
+    if (Math.hypot(e[0] - ox, e[1] - oy) <= r) pts.push(e);
+    const c = [ox + r * Math.cos(a), oy + r * Math.sin(a)];
+    if (((c[0] - cx) / rx) ** 2 + ((c[1] - cy) / ry) ** 2 <= 1) pts.push(c);
+  }
+  const mx = pts.reduce((t, q) => t + q[0], 0) / pts.length, my = pts.reduce((t, q) => t + q[1], 0) / pts.length;
+  return pts.sort((a, b) => Math.atan2(a[1] - my, a[0] - mx) - Math.atan2(b[1] - my, b[0] - mx));
+}
+
+/**
+ * The person's floor figure as a head-and-shoulders bust, facing you, on the counter-top grey
+ * (frame ok-cast). `ring` is the 1 px edge's colour. Same look(), long hair and headset as
+ * personEls; the head sits 1.7 units above the body so the shoulders show under it.
+ */
+export function bustEl(name, size, ring) {
+  const key = `${String(name).toLowerCase()}@${size}`;
+  let g = BUSTS.get(key);
+  if (!g) {
+    const id = String(name).toLowerCase();
+    const who = CAST.find((c) => c.id === id) || {};
+    const [hair, skin, shirt] = look(id || "?");
+    const c = BUST / 2, hy = 5.3, by = 7;
+    g = new Layer(size / BUST, 0, 0, BUST, BUST);
+    g.poly(lens(c, by, 6.2, 4.8, c, c, c), shirt);
+    if (who.long) g.circ(c, hy - 0.8, 4.3, hair);
+    g.circ(c, hy, 3.7, skin);
+    g.fan(c, hy - 0.4, 3.8, Math.PI * 0.95, Math.PI * 2.05, hair);
+    g.poly([[c + 3.6, hy - 1], [c - 3.6, hy - 1], [c - 3.5, hy - 0.4], [c + 3.5, hy - 0.4]], hair);
+    if (who.headset) g.ring(c, hy, 4.1, PAL.monitor, 0.8);
+    BUSTS.set(key, g);
+  }
+  return div().flex_none().relative().w(size).h(size).rounded_full().bg(PAL.counterTop)
+    .child(g.el())
+    .child(div().absolute().left(0).top(0).w(size).h(size).rounded_full().border_1().border_color(ring));
 }
 
 // ---------- the floor ----------

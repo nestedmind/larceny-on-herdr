@@ -6,11 +6,13 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { look } from "./crew.js";
+import { bustEl } from "./draw.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
+const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
 const COPIED_MS = 1500;
+const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
 
 export class Panel {
   // host: { loh: () => path or undefined, terminal: (agent, cx) => void, typed: (cx) => void (a key in the message box) }
@@ -37,6 +39,7 @@ export class Panel {
     this.tab = "chat"; // "chat" or "activity"
     this.hover = null; // the log row under the pointer: its Copy shows
     this.copied = null; // the row whose Copy was just clicked
+    this.focused = false; // the message box has the keyboard
     this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
   }
 
@@ -64,6 +67,9 @@ export class Panel {
       st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
       st.on("change", (_e, c) => { if (this.host.typed) this.host.typed(c); });
+      // The box's border follows the keyboard: accent at 2 px with focus, muted at rest.
+      st.on("focus", (_e, c) => { this.focused = true; c.notify(); });
+      st.on("blur", (_e, c) => { this.focused = false; c.notify(); });
       this.inputs.set(a.address, st);
     }
     this.inputs.get(a.address).focus();
@@ -207,11 +213,14 @@ export class Panel {
     const why = sendBlock(a);
 
     // Name, then role and state once; Terminal and Full terminal on their own row.
-    const head = h_flex().flex_none().items_center().gap(8)
-      .child(v_flex().flex_1().min_w(0).child(div().text_size(15).font_semibold().text_color(t.foreground).child(a.name))
-        .child(h_flex().gap(5).items_center().text_size(12).text_color(t.muted)
+    const state = `${STATE_WORDS[a.status] || cap(a.status)}${a.status === "blocked" && a.kind && a.kind !== "other" ? ` · ${a.kind}` : ""}`;
+    const head = h_flex().flex_none().items_center().gap(10)
+      .child(this.avatar(avatarName({ role: "assistant" }, raw), 36, t))
+      .child(v_flex().flex_1().min_w(0).child(div().text_size(15).line_height(20).font_semibold().text_color(t.foreground).child(a.name))
+        .child(h_flex().gap(5).items_center().text_size(12).line_height(16).text_color(t.muted)
+          .child(div().child(`${cap(a.role || "agent")} ·`))
           .child(div().w(8).h(8).rounded_full().bg(color))
-          .child(div().child(`${a.role || "agent"} · ${WORDS[a.status] || a.status}`))))
+          .child(div().child(state))))
       .child(this.button("panel-close", "Close", (_e, c) => this.close(c), t));
 
     const actions = h_flex().flex_none().gap(8)
@@ -234,7 +243,10 @@ export class Panel {
       .child(this.tabButton("tab-chat", "Chat", "chat", 0, t))
       .child(this.tabButton("tab-activity", "Crew activity", "activity", this.blocked, t))
       .child(div().flex_1())
-      .when(this.tab === "chat", (el) => el.child(this.button("panel-copy-all", this.copied === "all" ? "Copied" : "Copy all", (_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c), t)));
+      .when(this.tab === "chat", (el) => el.child(div().id("panel-copy-all").text_size(12).line_height(16).text_color(t.muted).cursor_pointer()
+        .hover((e) => e.text_color(t.foreground))
+        .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c))
+        .child(this.copied === "all" ? "Copied" : "Copy all")));
 
     return v_flex().id("panel").size_full().overflow_hidden().gap(8).p(12).bg(t.canvas).border_l(1).border_color(t.border)
       .child(head).child(actions).when(!!factRows, (el) => el.child(factRows)).when(!!notice, (el) => el.child(notice))
@@ -244,16 +256,10 @@ export class Panel {
       .child(this.form(t, raw, why));
   }
 
-  // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (hair, skin and shirt from
-  // the same look() that dresses the figure). Everything is drawn inside the circle and clipped to it. #35 puts a
+  // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (draw.js's bustEl). #35 puts a
   // photo in place of this one element: it takes the person's lower-case name and a size, nothing else.
   avatar(name, size, t) {
-    const [hair, skin, shirt] = look(name || "?");
-    const head = Math.round(size * 0.42), at = Math.round((size - head) / 2);
-    return div().flex_none().relative().w(size).h(size).rounded_full().overflow_hidden().bg(t.raised)
-      .child(div().absolute().left(Math.round(size * 0.14)).top(Math.round(size * 0.66)).w(Math.round(size * 0.72)).h(size).rounded_full().bg(shirt))
-      .child(div().absolute().left(at).top(Math.round(size * 0.2)).w(head).h(head).rounded_full().bg(skin))
-      .child(div().absolute().left(at).top(Math.round(size * 0.16)).w(head).h(Math.round(head * 0.45)).rounded_full().bg(hair));
+    return bustEl(name || "?", size, t.border);
   }
 
   tabButton(id, label, name, badge, t) {
@@ -316,15 +322,21 @@ export class Panel {
         .child(div().flex_1().min_w(0).text_size(12).text_color(e.level === "blocked" ? t.blocked : t.foreground).whitespace_normal().child(e.text))));
   }
 
-  // The message box: wraps and grows 1 to 6 rows, a border that reads at 3:1 (muted), the hint under it.
+  // The message box, as designed: 13 px on an 18 px line, 8 px inside the border (4 above and below), grows from
+  // 1 row (28 px) to 6 (118 px). Border: muted at rest, accent at 2 px with focus; the padding gives 1 px back so
+  // the box does not change size. Send is a solid button the height of the one-row box, at the box's bottom.
   form(t, a, why) {
-    const box = div().flex_1().min_w(0).border_1().border_color(t.muted).rounded(6).bg(t.surface)
+    const on = this.focused;
+    const box = div().flex_1().min_w(0).min_h(28).rounded(6).bg(t.surface).text_size(13).line_height(18).text_color(t.foreground)
+      .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
+      .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
       .on_key_down((e, c) => this.key(e, c))
-      .child(Textarea.new(this.inputs.get(a.address)));
+      .child(Textarea.new(this.inputs.get(a.address)).text_size(13).line_height(18).p(0).border_0());
+    const send = h_flex().id("panel-send").flex_none().h(28).px(14).items_center().justify_center().rounded(6).bg(t.solid)
+      .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)
+      .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
     return v_flex().flex_none().gap(4)
-      .child(h_flex().gap(6).items_end()
-        .child(box)
-        .child(this.button("panel-send", this.sending ? "Sending…" : "Send", (_e, c) => this.send(c), t).opacity(why || this.sending ? 0.5 : 1)))
+      .child(h_flex().gap(6).items_end().child(box).child(send))
       .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)));
   }
 }
