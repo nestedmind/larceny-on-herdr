@@ -253,3 +253,10 @@ console.log(walks, bad);'
   [ "$status" -eq 0 ]
   [ "$output" = "288 0" ]
 }
+
+@test "the wall screen says how many agents are running, in the singular for one, and the text fits the screen" {
+  run draw_js '
+console.log([0, 1, 4, 12].map(draw.agentsRunning).join(" | "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 agents running | 1 agent running | 4 agents running | 12 agents running" ]
+}

@@ -436,6 +436,11 @@ const pill = (text, x, y, k, bg, ink, size, center) => {
     .text_size(size).font_semibold().text_color(ink).whitespace_nowrap().child(text);
 };
 
+/** The wall screen's line: "1 agent running", "0 agents running", "4 agents running". */
+export function agentsRunning(n) {
+  return `${n} ${n === 1 ? "agent" : "agents"} running`;
+}
+
 export function labels(world, k, crewCount) {
   const out = [];
   const size = Math.max(8, Math.min(11, 5 * k));
@@ -456,7 +461,11 @@ export function labels(world, k, crewCount) {
     out.push(pill(r.label.toUpperCase(), r.x0 + dx + s.dx, dy + s.dy, k, PAL.label, PAL.labelInk, Math.max(7, size - 1)));
   }
   const p = wallScreen(world);
-  out.push(div().absolute().left((p.x + 4) * k).top((p.y + 1.5) * k).text_size(Math.max(6, 5 * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(`${crewCount} on the crew`));
+  // "4 agents running" is longer than the "4 on the crew" the screen was drawn for, so the text is sized to fit
+  // the screen's 34 usable units (about 0.56 of the text size per character), never above the old 5.
+  const said = agentsRunning(crewCount);
+  const unit = Math.min(5, 33 / (said.length * 0.56));
+  out.push(div().absolute().left((p.x + 4) * k).top((p.y + (11 - unit) / 2 - 1) * k).text_size(Math.max(5, unit * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(said));
   return out;
 }
 
