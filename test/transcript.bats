@@ -172,8 +172,8 @@ harness_session() {
   {
     printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
     printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"plain words"},"timestamp":"2026-11-15T01:00:00.000Z"}'
-    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<output-file>/tmp/claude-1000/scratchpad/b1.output</output-file>\n<status>completed</status>\n</task-notification>"},"timestamp":"2026-11-15T01:00:01.000Z"}'
-    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<channel source=\"plugin:discord:discord\" chat_id=\"1\" user=\"matt\" ts=\"x\">from discord</channel>"},"timestamp":"2026-11-15T01:00:02.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<output-file>/tmp/work/b1.output</output-file>\n<status>completed</status>\n</task-notification>"},"timestamp":"2026-11-15T01:00:01.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<channel source=\"plugin:discord:discord\" chat_id=\"1\" user=\"someone\" ts=\"x\">from discord</channel>"},"timestamp":"2026-11-15T01:00:02.000Z"}'
     printf '%s\n' '{"type":"queue-operation","operation":"enqueue","content":"I agree.","timestamp":"2026-11-15T01:00:03.000Z"}'
     printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"I agree.","commandMode":"prompt"},"origin":{"kind":"human"},"timestamp":"2026-11-15T01:00:04.000Z"}'
     printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>x</task-notification>"},"origin":{"kind":"task-notification"},"timestamp":"2026-11-15T01:00:05.000Z"}'
@@ -185,7 +185,7 @@ harness_session() {
   harness_session
   run "$LOH" transcript scofield
   ! grep -q 'task-notification' <<<"$output"
-  ! grep -q 'scratchpad' <<<"$output"
+  ! grep -q "b1.output" <<<"$output"
 }
 
 @test "transcript unwraps a Discord channel message into Matt's turn with via discord" {
