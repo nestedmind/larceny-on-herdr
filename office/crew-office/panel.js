@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, shownText, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, withPending } from "./chat.js";
+import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, shownText, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const FEED_SHOWN = 3;
@@ -192,7 +192,7 @@ export class Panel {
     const { shown } = withPending(this.turns, this.pending);
     const log = shown.map((m) => v_flex().gap(1).p(6).rounded(6)
       .bg(m.role === "user" && !m.launch ? t.accent + "33" : t.chrome).opacity(m.pending ? 0.6 : 1)
-      .child(div().text_size(10).text_color(t.muted).child(`${speaker(m, a.name)}${m.pending ? (m.unsure ? " · not confirmed" : " · sending…") : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
+      .child(div().text_size(10).text_color(t.muted).child(`${speaker(m, a.name)}${viaMark(m)}${m.pending ? (m.unsure ? " · not confirmed" : " · sending…") : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
       .child(div().text_size(m.launch ? 11 : 12).text_color(m.launch ? t.muted : t.foreground).whitespace_normal().child(shownText(m))));
     if (shown.length !== this.lastCount && shown.length > 0) {
       this.lastCount = shown.length;

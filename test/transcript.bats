@@ -166,3 +166,80 @@ launch_session() {
   run "$LOH" transcript scofield
   [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false,false,false,false]' ]
 }
+
+# a session with one line of each shape Claude Code writes besides plain turns
+harness_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"plain words"},"timestamp":"2026-11-15T01:00:00.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<output-file>/tmp/work/b1.output</output-file>\n<status>completed</status>\n</task-notification>"},"timestamp":"2026-11-15T01:00:01.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<channel source=\"plugin:discord:discord\" chat_id=\"1\" user=\"someone\" ts=\"x\">from discord</channel>"},"timestamp":"2026-11-15T01:00:02.000Z"}'
+    printf '%s\n' '{"type":"queue-operation","operation":"enqueue","content":"I agree.","timestamp":"2026-11-15T01:00:03.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"I agree.","commandMode":"prompt"},"origin":{"kind":"human"},"timestamp":"2026-11-15T01:00:04.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>x</task-notification>"},"origin":{"kind":"task-notification"},"timestamp":"2026-11-15T01:00:05.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-stdout>hi</local-command-stdout>"},"timestamp":"2026-11-15T01:00:06.000Z"}'
+  } >"$PROJ/h1.jsonl"
+}
+
+@test "transcript leaves out task notifications" {
+  harness_session
+  run "$LOH" transcript scofield
+  ! grep -q 'task-notification' <<<"$output"
+  ! grep -q "b1.output" <<<"$output"
+}
+
+@test "transcript unwraps a Discord channel message into Matt's turn with via discord" {
+  harness_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '.[] | select(.via == "discord") | [.role, .text, .ts]' <<<"$output")" = '["user","from discord","2026-11-15T01:00:02.000Z"]' ]
+}
+
+@test "transcript turns a human queued_command into Matt's turn at its timestamp" {
+  harness_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | select(.text == "I agree.") | [.role, .ts]]' <<<"$output")" = '[["user","2026-11-15T01:00:04.000Z"]]' ]
+}
+
+@test "transcript keeps a plain user line and drops other harness wrappers" {
+  harness_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | .text]' <<<"$output")" = '["plain words","from discord","I agree."]' ]
+}
+
+# the shapes Claude Code writes: origin inside the attachment, the prompt a string or an array
+queued_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"typed mid-turn","origin":{"kind":"human"}},"timestamp":"2026-11-15T02:00:01.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"array prompt"}],"origin":{"kind":"human"}},"timestamp":"2026-11-15T02:00:02.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<channel source=\"discord\" chat_id=\"1\">mid-turn discord</channel>","origin":{"kind":"channel"}},"timestamp":"2026-11-15T02:00:03.000Z"}'
+    printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>x</task-notification>","origin":{"kind":"task-notification"}},"timestamp":"2026-11-15T02:00:04.000Z"}'
+    printf '%s\n' '{"isSidechain":false,"type":"user","message":{"role":"user","content":"<channel source=\"discord\" chat_id=\"1\">short source</channel>"},"timestamp":"2026-11-15T02:00:05.000Z"}'
+  } >"$PROJ/q1.jsonl"
+}
+
+@test "transcript reads queued_command with origin inside the attachment, a string or array prompt, and a channel origin" {
+  queued_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = \
+    '[["typed mid-turn",""],["array prompt",""],["mid-turn discord","discord"],["short source","discord"]]' ]
+}
+
+# shapes seen in a real session: a Discord message that starts a turn is an isMeta user entry
+# with origin.kind channel; a compaction summary is a user entry flagged isCompactSummary
+meta_session() {
+  {
+    printf '%s\n' '{"type":"agent-setting","agentSetting":"larceny:coordinator","sessionId":"s1"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"origin":{"kind":"channel","server":"plugin:discord:discord"},"promptSource":"system","message":{"role":"user","content":"<channel source=\"plugin:discord:discord\" chat_id=\"1\">\nhello from discord\n</channel>"},"timestamp":"2026-11-15T03:00:01.000Z"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"message":{"role":"user","content":"some other meta text"},"timestamp":"2026-11-15T03:00:02.000Z"}'
+    printf '%s\n' '{"type":"user","isMeta":true,"isSidechain":false,"origin":{"kind":"channel"},"message":{"role":"user","content":"not a channel wrapper"},"timestamp":"2026-11-15T03:00:03.000Z"}'
+    printf '%s\n' '{"type":"user","isSidechain":false,"isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"This session is being continued from a previous conversation..."},"timestamp":"2026-11-15T03:00:04.000Z"}'
+    printf '%s\n' '{"type":"user","isSidechain":false,"message":{"role":"user","content":"after compaction"},"timestamp":"2026-11-15T03:00:05.000Z"}'
+  } >"$PROJ/m1.jsonl"
+}
+
+@test "transcript keeps a turn-starting Discord message (isMeta, origin channel) and drops compaction summaries" {
+  meta_session
+  run "$LOH" transcript scofield
+  [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = '[["hello from discord","discord"],["after compaction",""]]' ]
+}
