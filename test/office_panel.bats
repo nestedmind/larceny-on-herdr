@@ -211,10 +211,10 @@ console.log(calls() === undefined, JSON.stringify(input.text), panel.error);
 panel.sending = false; panel.error = "";
 input.text = "";
 sub({});
-console.log(JSON.stringify(input.text), panel.trace);'
+console.log(JSON.stringify(input.text), panel.trace.split(" | ").slice(-2).join(" | "));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = 'true "draft" Enter did not send: the last message is still going out.' ]
-  [ "${lines[1]}" = '"" submit event: plain enter · not sent: the box is empty' ]
+  [ "${lines[1]}" = '"" submit plain | not sent: the box is empty' ]
 }
 
 @test "message box: it wraps and grows from one row to six" {
