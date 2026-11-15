@@ -48,7 +48,6 @@ export class Panel {
     this.copied = null; // the row whose Copy was just clicked
     this.last = new Map(); // each box's text after its last change
     this.preNl = null; // the text before the newline the last Enter put in
-    this.trace = ""; this.events = []; // TEMPORARY: the last key event the box reported, shown under it for Matt's check; remove before merge
     this.focused = false; // the message box has the keyboard
     this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
   }
@@ -81,7 +80,6 @@ export class Panel {
         const v = st.value(), was = this.last.get(a.address) ?? "";
         // Any other change forgets it: only the very last edit being that newline counts.
         this.preNl = oneNewline(was, v) ? was : null;
-        this.note(`change ${v.length - was.length >= 0 ? "+" : ""}${v.length - was.length}${v.length === was.length + 1 && v.endsWith("\n") ? " newline" : ""}`);
         this.last.set(a.address, v);
         if (this.host.typed) this.host.typed(c);
       });
@@ -147,11 +145,9 @@ export class Panel {
     const a = this.agent;
     const st = a && this.inputs.get(a.address);
     // While a full-terminal window is open the keyboard belongs to that terminal, never to this box.
-    if (!a || !st) { this.note("send: no agent or box"); return; }
-    if (this.sending) { this.note("send: already sending"); return; }
-    if (this.host.busy && this.host.busy()) { this.note("send: a full terminal window has the keyboard"); cx.notify(); return; }
+    if (!a || !st || this.sending || (this.host.busy && this.host.busy())) return;
     const text = st.value().trim();
-    if (!text) { this.note("send: box empty"); return; }
+    if (!text) return;
     const why = sendBlock(a);
     if (why) { this.error = why; this.notSent = false; cx.notify(); return; }
     this.sending = true;
@@ -203,18 +199,10 @@ export class Panel {
     });
   }
 
-  // TEMPORARY: remember the last few events the box reported, newest last, for the live check.
-  note(what) {
-    this.events.push(what);
-    if (this.events.length > 5) this.events.shift();
-    this.trace = this.events.join(" | ");
-  }
-
   // The textarea's submit event: plain Enter sends, Ctrl+Enter (secondary) and Shift+Enter keep their newline.
   // A plain Enter always takes back the one newline the textarea put in, whether or not the message goes out.
   submitted(e, st, cx) {
     const keep = !!(e && (e.secondary || e.shift));
-    this.note(`submit ${keep ? (e.secondary ? "ctrl" : "shift") : "plain"}`);
     if (keep) { cx.notify(); return; }
     const v = st.value();
     if (this.preNl !== null && oneNewline(this.preNl, v)) st.set_value(this.preNl);
@@ -222,7 +210,6 @@ export class Panel {
     this.preNl = null;
     const a = this.agent;
     const why = this.sending ? "the last message is still going out" : this.host.busy && this.host.busy() ? "a full terminal window has the keyboard" : !st.value().trim() ? "the box is empty" : a && sendBlock(a) ? "the agent is waiting on a dialog" : "";
-    this.note(why ? `not sent: ${why}` : "sending");
     if (!why) this.send(cx);
     else if (!st.value().trim()) cx.notify();
     else { this.error = `Enter did not send: ${why}.`; this.notSent = false; cx.notify(); }
@@ -237,7 +224,6 @@ export class Panel {
   // A key in the message box, caught on the wrapper around it. Enter sends; Ctrl+Enter adds a line at the caret.
   key(e, cx) {
     const act = enterAction(e);
-    if (act) { this.note(`keydown ${act === "send" ? "enter" : "ctrl+enter"} reached wrapper`); cx.notify(); }
     const st = this.agent && this.inputs.get(this.agent.address);
     if (!act || !st) return;
     cx.stop_propagation();
@@ -388,14 +374,12 @@ export class Panel {
       .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
       .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
       .on_key_down((e, c) => this.key(e, c))
-      .on_key_up((e, c) => { if (e && e.key === "enter") { this.note(`keyup enter${e.modifiers && e.modifiers.control ? " ctrl" : ""} reached wrapper`); c.notify(); } })
       .child(Textarea.new(this.inputs.get(a.address)).text_size(13).line_height("18px").p(0).border_0());
     const send = h_flex().id("panel-send").flex_none().h(28).px(14).items_center().justify_center().rounded(6).bg(t.solid)
       .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)
       .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
     return v_flex().flex_none().gap(4)
       .child(h_flex().gap(6).items_end().child(box).child(send))
-      .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)))
-      .when(!!this.trace, (el) => el.child(div().text_size(11).whitespace_normal().text_color(t.muted).child(`trace (temporary): ${this.trace}`)));
+      .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)));
   }
 }

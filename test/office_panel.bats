@@ -211,10 +211,10 @@ console.log(calls() === undefined, JSON.stringify(input.text), panel.error);
 panel.sending = false; panel.error = "";
 input.text = "";
 sub({});
-console.log(JSON.stringify(input.text), panel.trace.split(" | ").slice(-2).join(" | "));'
+console.log(JSON.stringify(input.text), panel.sending);'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = 'true "draft" Enter did not send: the last message is still going out.' ]
-  [ "${lines[1]}" = '"" submit plain | not sent: the box is empty' ]
+  [ "${lines[1]}" = '"" false' ]
 }
 
 @test "layout: no line height in the panel is a bare number, which the kit reads as a multiplier" {
@@ -227,11 +227,11 @@ console.log(JSON.stringify(input.text), panel.trace.split(" | ").slice(-2).join(
 const change = (v) => { input.text = v; input.handlers.change({}, { notify() {} }); };
 change("ab"); change("ab\n"); // Ctrl+Enter put a newline in
 change("xyz");                  // then the box was cleared and retyped
-input.text = "xy\nz";           // a plain Enter with the caret before the z
+change("xy\nz");               // a plain Enter with the caret before the z: the newline goes in, then submit
 click((cx) => { cx.timer = { after() {} }; input.handlers.submit({}, cx); });
 console.log(panel.preNl, JSON.stringify(calls() && calls()[0].a.slice(-1)));'
   [ "$status" -eq 0 ]
-  [ "$output" = 'null ["xy\nz"]' ]
+  [ "$output" = 'null ["xyz"]' ]
 }
 
 @test "message box: it wraps and grows from one row to six" {
