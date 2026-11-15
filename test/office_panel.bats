@@ -24,7 +24,7 @@ JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
-export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
+export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
 export const ScrollHandle = { new: () => ({ scroll_to_item() {} }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
@@ -220,6 +220,18 @@ console.log(JSON.stringify(input.text), panel.trace.split(" | ").slice(-2).join(
 @test "layout: no line height in the panel is a bare number, which the kit reads as a multiplier" {
   run grep -nE 'line_height\([0-9.]+\)' "$(mod_dir)/panel.js"
   [ "$status" -eq 1 ]
+}
+
+@test "message box: a stale newline memory is never restored over newer text" {
+  run panel_js '
+const change = (v) => { input.text = v; input.handlers.change({}, { notify() {} }); };
+change("ab"); change("ab\n"); // Ctrl+Enter put a newline in
+change("xyz");                  // then the box was cleared and retyped
+input.text = "xy\nz";           // a plain Enter with the caret before the z
+click((cx) => { cx.timer = { after() {} }; input.handlers.submit({}, cx); });
+console.log(panel.preNl, JSON.stringify(calls() && calls()[0].a.slice(-1)));'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'null ["xy\nz"]' ]
 }
 
 @test "message box: it wraps and grows from one row to six" {

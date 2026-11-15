@@ -12,6 +12,13 @@ import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displ
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
 const COPIED_MS = 1500;
+// Whether `now` is `was` with exactly one newline put in somewhere.
+export function oneNewline(was, now) {
+  if (now.length !== was.length + 1) return false;
+  let i = 0;
+  while (i < was.length && was[i] === now[i]) i++;
+  return now[i] === "\n" && now.slice(i + 1) === was.slice(i);
+}
 const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
 
 export class Panel {
@@ -72,7 +79,8 @@ export class Panel {
       st.on("change", (_e, c) => {
         // Remember the text before a lone newline went in, so Enter's newline can be taken back out.
         const v = st.value(), was = this.last.get(a.address) ?? "";
-        if (v.length === was.length + 1 && v.split("\n").length === was.split("\n").length + 1) this.preNl = was;
+        // Any other change forgets it: only the very last edit being that newline counts.
+        this.preNl = oneNewline(was, v) ? was : null;
         this.note(`change ${v.length - was.length >= 0 ? "+" : ""}${v.length - was.length}${v.length === was.length + 1 && v.endsWith("\n") ? " newline" : ""}`);
         this.last.set(a.address, v);
         if (this.host.typed) this.host.typed(c);
@@ -209,7 +217,7 @@ export class Panel {
     this.note(`submit ${keep ? (e.secondary ? "ctrl" : "shift") : "plain"}`);
     if (keep) { cx.notify(); return; }
     const v = st.value();
-    if (this.preNl !== null && v.length === this.preNl.length + 1) st.set_value(this.preNl);
+    if (this.preNl !== null && oneNewline(this.preNl, v)) st.set_value(this.preNl);
     else if (v.endsWith("\n")) st.set_value(v.slice(0, -1));
     this.preNl = null;
     const a = this.agent;
