@@ -163,7 +163,7 @@ const insideTag = find(root, "tm-sheba") && all(find(root, "tm-sheba")).some((n)
 const insideFigure = all(find(root, "m-sheba")).some((n) => id(n) === "person-sheba");
 console.log(chain("m-sheba"), chain("tm-sheba"), insideTag, insideFigure);'
   [ "$status" -eq 0 ]
-  [ "$output" = "7 7 true true" ]
+  [ "$output" = "10 10 true true" ]
 }
 
 @test "a walk is handed over in one render: every link has its own start time, and the next render repeats it exactly" {
@@ -201,7 +201,7 @@ const root = render();
 const t = all(find(root, "m-sheba")).filter((x) => x.props.transitions && /^m-/.test(id(x)));
 console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1 && !a[1].delay)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "7 true" ]
+  [ "$output" = "10 true" ]
 }
 
 @test "a walk's timers only turn the walker or end the gait, and a walk ends after its last leg" {
@@ -232,7 +232,7 @@ const m = find(root, "m-sheba");
 const t = all(m).filter((x) => x.props.transitions && /^m-/.test(id(x)));
 console.log(w.legs.length, w.at.x === goal.x && w.at.y === goal.y, t.length, t.every((x) => x.props.transitions.every((a) => a[1].duration === 1)));'
   [ "$status" -eq 0 ]
-  [ "$output" = "0 true 7 true" ]
+  [ "$output" = "0 true 10 true" ]
 }
 
 @test "with the panel open and the stage not yet re-measured, the floor is fitted to the room beside it" {
@@ -415,7 +415,7 @@ console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goa
 
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
   run office_js '
-const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
+const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-(g[0-9]+-)?[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
 const going = (l) => l.some((x) => x[2] > 1);
 const rest = (l) => l.every((x) => x[0] === 0 && x[1] === 0);
 let prev = null, walks = 0, bad = 0;
@@ -997,4 +997,25 @@ const t = timers.filter((x) => !x.cancelled).map((x) => x.ms);
 console.log(t.some((ms) => ms > 39000 && ms <= 41000), asks());'
   [ "$status" -eq 0 ]
   [ "$output" = "true 1" ] || { echo "GOT: $output" >&2; false; }
+}
+
+@test "no walk reuses the link elements of the walk before it, and its links already exist at rest, so each one animates from zero" {
+  run office_js '
+const ids = (root, who) => all(find(root, who)).map(id).filter((x) => x && x !== who && x.startsWith(who + "-")).sort().join(",");
+render();
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+render(); later(3000); timers.length = 0;
+const one = render();
+const a = ids(one, "m-sheba"), ta = ids(one, "tm-sheba");
+timers.filter((t) => !t.cancelled).sort((x, y) => x.ms - y.ms).forEach((t) => t.fn({ notify() {} }));
+const rest = render(); later(2000); const rest2 = render();
+const b = ids(rest2, "m-sheba");
+terms()[1].labels.note = "escalation:x";
+render(); later(3000);
+const two = render();
+const c = ids(two, "m-sheba"), tc = ids(two, "tm-sheba");
+const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).length;
+console.log(a.split(",").length, share(a, c), share(ids(rest2, "m-sheba"), c) === c.split(",").length, share(ta, tc), ids(rest, "m-sheba") === b);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "9 0 true 0 true" ]
 }

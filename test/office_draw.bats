@@ -179,3 +179,77 @@ console.log(JSON.stringify(g.el().node.kids[0].node.path.cmds[0]));'
   [ "$status" -eq 0 ]
   [ "$output" = '["move_to",3,6]' ]
 }
+
+@test "the leads room's name is centred on the door line, at 112 units, and the other rooms' names stay at their corners" {
+  run draw_js '
+const world = (await import("./crew.mjs")).worldFor(["api", "web"]);
+const k = 2;
+const out = draw.labels(world, k, 10).map((e) => e.node);
+const find = (text) => out.find((n) => n.kids.includes(text));
+const lead = find("SCOFIELD · AMY"), kitchen = find("KITCHEN");
+const wide = (n, text) => text.length * (n.props.h[0] - 5) * 0.62 + 12;
+console.log(lead.props.left[0] + wide(lead, "SCOFIELD · AMY") / 2, 345 * k, lead.props.top[0] + lead.props.h[0] / 2, 112 * k, kitchen.props.left[0], kitchen.props.top[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "690 690 224 224 204 356" ]
+}
+
+@test "every walk between any two desk seats or room spots, as the renderer draws it, crosses a wall only through a door" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+let walks = 0, tooLong = 0;
+const bad = new Set();
+for (const [repos, aspect] of [[["api", "web"], 0], [["api", "web", "docs"], 2.2], [["api"], 1.2]]) {
+  const L = crew.worldFor(repos, aspect);
+  const t = 2.4, botY = L.corr.y + L.corr.h;
+  const walls = [];
+  for (const r of L.rooms) {
+    const wy = r.row === "top" ? L.corr.y - 1.2 : botY - 2.2;
+    walls.push({ x: r.x, y: wy, w: r.door - 9 - r.x, h: t }, { x: r.door + 9, y: wy, w: r.x + r.w - r.door - 9, h: t });
+    if (r.x > 0) walls.push({ x: r.x - t / 2, y: r.y, w: t, h: r.h });
+  }
+  const places = [...L.desks, L.mattDesk].map((d) => d.seat).concat(Object.values(L.spots).flat());
+  const hits = (a, b) => { for (let i = 0; i <= 300; i++) { const x = a.x + (b.x - a.x) * i / 300, y = a.y + (b.y - a.y) * i / 300; if (walls.some((w) => x > w.x + 0.3 && x < w.x + w.w - 0.3 && y > w.y + 0.3 && y < w.y + w.h - 0.3)) return true; } return false; };
+  for (const a of places) for (const b of places) {
+    if (a === b) continue;
+    walks++;
+    const legs = crew.legsOf(a, crew.pathTo(L, "p", a, b));
+    if (legs.length > draw.SLOTS) tooLong++;
+    // The renderer draws the walk as SLOTS links: link i moves by (dx, dy) from where the one before ended.
+    const links = crew.walkChain(a, legs, draw.SLOTS).links;
+    let at = a;
+    for (const l of links) { const to = { x: at.x + l.dx, y: at.y + l.dy }; if (hits(at, to)) bad.add(Math.round(a.x) + "," + Math.round(a.y) + " to " + Math.round(b.x) + "," + Math.round(b.y)); at = to; }
+    if (Math.abs(at.x - b.x) > 0.01 || Math.abs(at.y - b.y) > 0.01) bad.add("ends off the goal");
+  }
+}
+console.log(walks > 2000, tooLong, [...bad].length, [...bad].slice(0, 3).join(" | "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 0 0 " ]
+}
+
+@test "a walk from any kitchen spot to any ping pong spot, as drawn, goes out by the kitchen door, along the corridor and in by the ping pong door" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+let bad = 0, walks = 0;
+for (const repos of [["api"], ["api", "web"], []]) for (const aspect of [0, 1.2, 1.6, 2.2]) {
+  const L = crew.worldFor(repos, aspect);
+  const kit = L.rooms.find((r) => r.kind === "kitchen"), pong = L.rooms.find((r) => r.kind === "pong");
+  for (const a of L.spots.kitchen) for (const b of L.spots.pong) {
+    walks++;
+    const legs = crew.legsOf(a, crew.pathTo(L, "p", a, b));
+    let at = a; const pts = [];
+    for (const l of crew.walkChain(a, legs, draw.SLOTS).links) { at = { x: at.x + l.dx, y: at.y + l.dy }; pts.push(at); }
+    const corr = (p) => p.y >= L.corr.y && p.y <= L.corr.y + L.corr.h;
+    const inKitchen = (p) => p.x >= kit.x && p.x <= kit.x + kit.w && p.y >= kit.y && p.y <= kit.y + kit.h;
+    const inPong = (p) => p.x >= pong.x && p.x <= pong.x + pong.w && p.y >= pong.y && p.y <= pong.y + pong.h;
+    const first = pts[0], lane = pts.filter(corr);
+    // the first stop is the kitchen door, above the spot; the corridor is walked between the doors; the last stop is the spot
+    if (!(Math.abs(first.x - kit.door) < 0.01 && first.y < a.y && inKitchen(first))) bad++;
+    else if (lane.length !== 2 || lane[0].x !== kit.door || lane[1].x !== pong.door) bad++;
+    else if (!pts.every((p) => inKitchen(p) || corr(p) || inPong(p))) bad++;
+    else if (Math.abs(at.x - b.x) > 0.01 || Math.abs(at.y - b.y) > 0.01) bad++;
+  }
+}
+console.log(walks, bad);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "288 0" ]
+}

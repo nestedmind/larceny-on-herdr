@@ -161,7 +161,7 @@ const L = crew.layoutCrew([], ["api", "web"]);
 const r = L.rooms.filter(x => x.kind === "repo");
 console.log(r.map(x => x.label).join(","), L.desks.length, L.people.filter((p) => p.agent).length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "api,web 10 0" ]
+  [ "$output" = "api,web 12 0" ]
 }
 
 @test "a coder whose repo is not in the manifest still gets a room, after the manifest's" {

@@ -47,13 +47,23 @@ console.log(d.map((x) => [x.x, x.y, x.w, x.h, x.side, x.seat.x, x.seat.y].join("
   [ "$output" = "46,42,28,16,n,60,36 76,42,28,16,n,90,36 46,58,28,16,s,60,80 76,58,28,16,s,90,80" ]
 }
 
-@test "the leads room has a desk each for Scofield and Amy and Matt has his own" {
+@test "the leads room has a pod of four desks, Opemipo and Maya on top, Scofield and Amy below, and Matt has his own" {
   run crew_js "$HELPERS"'
 const L = crew.layoutCrew([], ["api", "web"]);
 const d = (k) => L.desks.find((x) => x.key === k);
-console.log(d("scofield").x, d("scofield").w, d("amy").seat.x, d("amy").seat.y, L.mattDesk.seat.x, L.mattDesk.seat.y, L.mattDesk.w);'
+console.log(["opemipo", "maya", "scofield", "amy"].map((k) => [d(k).room, d(k).cx, d(k).y, d(k).w, d(k).side, d(k).seat.x, d(k).seat.y].join(",")).join(" "), L.mattDesk.seat.x, L.mattDesk.seat.y, L.mattDesk.w);'
   [ "$status" -eq 0 ]
-  [ "$output" = "306 32 368 52 36 216 46" ]
+  [ "$output" = "leads,330,42,28,n,330,36 leads,360,42,28,n,360,36 leads,330,58,28,s,330,80 leads,360,58,28,s,360,80 36 216 46" ]
+}
+
+@test "the leads room's pod has the same shape as a repo room's, and its desk keys are the people's" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api"]);
+const lead = L.desks.filter((d) => d.room === "leads").map((d) => d.key).sort().join(",");
+const repo = L.desks.filter((d) => d.room === "repo:api").length;
+console.log(lead, repo, L.desks.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "amy,maya,opemipo,scofield 4 8" ]
 }
 
 @test "all twelve are drawn with no terminals, none of the ten agents at a desk" {
@@ -113,15 +123,16 @@ console.log(pos(a) === pos(b), P(b, "sucre").place);'
   [ "$output" = "true kitchen" ]
 }
 
-@test "Maya and Opemipo keep their home desks and coders never take them" {
+@test "Maya and Opemipo sit at their leads-room desks and a repo room offers all four desks to coders" {
   run crew_js "$HELPERS"'
 const ts = [T("maya", "idle", {role: "advisor"}), T("opemipo", "working", {role: "advisor"}),
-  ...[1, 2, 3, 4, 5].map((n) => T("c" + n, "working", {role: "coder", task: (n < 4 ? "api#" : "web#") + n}))];
+  ...[1, 2, 3, 4, 5, 6].map((n) => T("c" + n, "working", {role: "coder", task: (n < 5 ? "api#" : "web#") + n}))];
 const L = lay(ts, ["api", "web"]);
-const keys = L.people.filter((p) => p.desk).map((p) => p.id + ":" + p.desk);
-console.log(P(L, "maya").desk, P(L, "opemipo").desk, new Set(L.people.filter((p) => p.desk && p.id !== "matt").map((p) => p.desk)).size, L.people.filter((p) => p.desk && p.id !== "matt").length);'
+const seat = (id) => P(L, id).desk + "@" + P(L, id).x + "," + P(L, id).y + P(L, id).face;
+const apiDesks = L.people.filter((p) => p.desk && p.desk.startsWith("repo:api")).length;
+console.log(seat("maya"), seat("opemipo"), apiDesks);'
   [ "$status" -eq 0 ]
-  [ "$output" = "repo:web:3 repo:api:4 7 7" ]
+  [ "$output" = "maya@360,36s opemipo@330,36s 4" ]
 }
 
 @test "a fifth coder in a repo with no free desk waits in the lounge" {
@@ -140,7 +151,7 @@ const L = lay([T("yoda", "idle", {role: "advisor"}), T("sara", "working", {role:
 const f = (id) => { const p = P(L, id); return [p.place, p.x, p.y, p.face].join(","); };
 console.log(f("yoda"), f("sara"), f("scofield"), f("amy"));'
   [ "$status" -eq 0 ]
-  [ "$output" = "meeting,410,50,e meeting,460,50,w desk,322,52,n desk,368,52,n" ]
+  [ "$output" = "meeting,410,50,e meeting,460,50,w desk,330,80,n desk,360,80,n" ]
 }
 
 @test "Scofield and Amy stay at their desks when idle or done, with a dark screen" {
@@ -179,14 +190,14 @@ console.log(pl.filter((x) => x === "desk").length, pl.filter((x) => x === "loung
   [ "$output" = "4 1" ]
 }
 
-@test "a helper's home desk is held only while the helper runs" {
+@test "a helper running or not costs the coders no desk in a repo room" {
   run crew_js "$HELPERS"'
 const coders = [1, 2, 3, 4].map((n) => T("c" + n, "working", {role: "coder", task: "r#" + n}));
 const off = lay(coders, ["r"]), on = lay([...coders, T("opemipo", "idle", {role: "advisor"}), T("maya", "idle", {role: "advisor"})], ["r"]);
 const n = (L) => L.people.filter((p) => p.agent && p.id.startsWith("x:") && p.place === "desk").length;
-console.log(n(off), n(on), P(on, "opemipo").place);'
+console.log(n(off), n(on), P(on, "opemipo").place, P(on, "opemipo").desk);'
   [ "$status" -eq 0 ]
-  [ "$output" = "4 2 desk" ]
+  [ "$output" = "4 4 desk opemipo" ]
 }
 
 @test "Scofield and Amy are in the lounge when they have no terminal" {
@@ -244,7 +255,7 @@ console.log(bad.length, bad.join(","));'
 @test "a walk inside one room goes straight to the spot" {
   run crew_js "$HELPERS"'
 const L = crew.layoutCrew([], ["api", "web"]);
-console.log(JSON.stringify(crew.pathTo(L, "sucre", {x: 60, y: 36}, {x: 90, y: 80})));'
+console.log(JSON.stringify(crew.pathTo(L, "sucre", {x: 60, y: 80}, {x: 90, y: 80})));'
   [ "$status" -eq 0 ]
   [ "$output" = '[{"x":90,"y":80}]' ]
 }
@@ -366,11 +377,12 @@ console.log(crew.startPlan(P(L, "scofield"), [], "/ws/sandbox").ask);'
 @test "desks go to working and blocked coders before idle ones" {
   run crew_js "$HELPERS"'
 const ts = [T("maya", "idle", {role: "advisor"}), T("opemipo", "idle", {role: "advisor"}),
-  T("sucre", "idle", {role: "coder", task: "r#1"}), T("mahone", "idle", {role: "coder", task: "r#2"}), T("sheba", "working", {role: "coder", task: "r#3"})];
+  T("sucre", "idle", {role: "coder", task: "r#1"}), T("mahone", "idle", {role: "coder", task: "r#2"}), T("whip", "idle", {role: "coder", task: "r#3"}),
+  T("sheba", "working", {role: "coder", task: "r#4"}), T("c5", "working", {role: "coder", task: "r#5"})];
 const L = lay(ts, ["r"]);
-console.log(P(L, "sheba").place, ["sucre", "mahone"].filter((id) => P(L, id).desk !== null).length);'
+console.log(P(L, "sheba").place, L.people.find((p) => p.id.startsWith("x:")).place, ["sucre", "mahone", "whip"].filter((id) => P(L, id).desk !== null).length);'
   [ "$status" -eq 0 ]
-  [ "$output" = "desk 1" ]
+  [ "$output" = "desk desk 2" ]
 }
 
 @test "the start form handles keys only while the office's own focus handle is focused" {
@@ -403,4 +415,46 @@ const r = crew.stackTags([
 console.log(r.get("a"), r.get("b"), r.get("c"), r.get("d"), r.get("e"));'
   [ "$status" -eq 0 ]
   [ "$output" = "100 118 27 45 10" ]
+}
+
+@test "a walk from a top-row seat leaves by the outer aisle, 7 units outside the desk and 92 down" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api", "web"]);
+const d = (k) => L.desks.find((x) => x.key === k);
+const o = d("opemipo"), m = d("maya");
+const out = (a, b) => JSON.stringify(crew.pathTo(L, "x", a.seat, b));
+console.log(out(o, {x: 232, y: 250}).slice(0, 61));
+console.log(out(m, {x: 232, y: 250}).slice(0, 61));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[{"x":309,"y":36},{"x":309,"y":92},{"x":345,"y":110},{"x":345' ]
+  [ "${lines[1]}" = '[{"x":381,"y":36},{"x":381,"y":92},{"x":345,"y":110},{"x":345' ]
+}
+
+@test "a walk to a top-row seat comes in by the outer aisle, and one to a bottom-row seat does not" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api", "web"]);
+const d = (k) => L.desks.find((x) => x.key === k);
+const from = {x: 232, y: 250};
+const p = crew.pathTo(L, "x", from, d("opemipo").seat), q = crew.pathTo(L, "x", from, d("scofield").seat);
+console.log(JSON.stringify(p.slice(-4)));
+console.log(JSON.stringify(q.slice(-2)));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[{"x":345,"y":110},{"x":309,"y":92},{"x":309,"y":36},{"x":330,"y":36}]' ]
+  [ "${lines[1]}" = '[{"x":345,"y":110},{"x":330,"y":80}]' ]
+}
+
+@test "no walk to or from any pod seat crosses a desk, in the leads room and in a repo room" {
+  run crew_js "$HELPERS"'
+const L = crew.layoutCrew([], ["api", "web"]);
+const hits = (a, b, d) => { for (let i = 0; i <= 200; i++) { const x = a.x + (b.x - a.x) * i / 200, y = a.y + (b.y - a.y) * i / 200; if (x > d.x && x < d.x + d.w && y > d.y && y < d.y + d.h) return true; } return false; };
+const outside = [{x: 232, y: 250}, {x: 60, y: 250}];
+let bad = 0, walks = 0;
+for (const d of L.desks.filter((x) => x.room !== "matt")) for (const o of outside) for (const [a, b] of [[o, d.seat], [d.seat, o]]) {
+  const pts = [a, ...crew.pathTo(L, "x", a, b)];
+  walks++;
+  for (let i = 1; i < pts.length; i++) for (const e of L.desks) if (hits(pts[i - 1], pts[i], e)) bad++;
+}
+console.log(bad, walks);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 48" ]
 }

@@ -416,3 +416,30 @@ console.log(P(last(play([[0, d]])), "sucre").place);'
   run crew_js "$HELPERS"'console.log(JSON.stringify(crew.prsCall({cwd: "/ws"}, "/bin/loh")), crew.PRS_EVERY_MS);'
   [ "$output" = '{"cmd":"/bin/loh","args":["status","--prs"],"options":{"cwd":"/ws","timeout":30000}} 120000' ]
 }
+
+@test "Maya idle past the idle time goes to the lounge, and sits at her leads-room desk again when she works" {
+  run crew_js "$HELPERS"'
+const m = (st) => [T("maya", st, {role: "advisor"})];
+const a = play([[0, m("working")], [10, m("idle")], [10 + 180, m("idle")], [300, m("working")]]);
+console.log(a.map((L) => at(L, "maya")).join(" "), P(a[2], "maya").mug);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk:maya desk:maya lounge:- desk:maya true" ]
+}
+
+@test "Opemipo idle under the idle time stays at his desk" {
+  run crew_js "$HELPERS"'
+const o = (st) => [T("opemipo", st, {role: "advisor"})];
+const a = play([[0, o("working")], [10, o("idle")], [10 + 179, o("idle")]]);
+console.log(a.map((L) => at(L, "opemipo")).join(" "), last(a).wakeIn);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk:opemipo desk:opemipo desk:opemipo 1000" ]
+}
+
+@test "Maya away keeps her desk to herself: nobody else is seated there" {
+  run crew_js "$HELPERS"'
+const ts = [T("maya", "idle", {role: "advisor"}), ...[1, 2, 3, 4].map((n) => T("c" + n, "working", {role: "coder", task: "api#" + n}))];
+const L = last(play([[0, ts], [500, ts]], ["api"]));
+console.log(at(L, "maya"), L.people.filter((p) => p.desk === "maya").length, L.people.filter((p) => p.desk && p.desk.startsWith("repo:api")).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "lounge:- 0 4" ]
+}

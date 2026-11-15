@@ -356,11 +356,22 @@ const mkDesk = (key, room, cx, y, side, w = 28) => ({
   seat: { x: cx, y: side === "n" ? y - 6 : y + DESK_H + 6 },
 });
 
-export function repoDesks(room) {
+// A pod of four desks centred on the room's middle: two facing south on top, two facing north below. `keys` name them
+// top left, top right, bottom left, bottom right.
+function podDesks(room, keys) {
   const { dx, dy } = shiftOf(room);
-  const px = room.x0 + REPO_W / 2 + dx;
-  return [mkDesk(`${room.key}:1`, room.key, px - 15, 42 + dy, "n"), mkDesk(`${room.key}:2`, room.key, px + 15, 42 + dy, "n"),
-    mkDesk(`${room.key}:3`, room.key, px - 15, 58 + dy, "s"), mkDesk(`${room.key}:4`, room.key, px + 15, 58 + dy, "s")];
+  const px = room.x0 + room.w0 / 2 + dx;
+  return [mkDesk(keys[0], room.key, px - 15, 42 + dy, "n"), mkDesk(keys[1], room.key, px + 15, 42 + dy, "n"),
+    mkDesk(keys[2], room.key, px - 15, 58 + dy, "s"), mkDesk(keys[3], room.key, px + 15, 58 + dy, "s")];
+}
+
+export function repoDesks(room) {
+  return podDesks(room, [1, 2, 3, 4].map((n) => `${room.key}:${n}`));
+}
+
+/** The leads room's pod: Opemipo and Maya on top, Scofield and Amy below. Each desk's key is its person's id. */
+export function leadsDesks(room) {
+  return podDesks(room, ["opemipo", "maya", "scofield", "amy"]);
 }
 
 /**
@@ -408,8 +419,7 @@ export function worldFor(repoNames = [], aspect = 0) {
   const desks = [];
   for (const r of rooms.filter((x) => x.kind === "repo")) desks.push(...repoDesks(r));
   const leads = room("leads");
-  const ld = (x) => at(leads, leads.x0 + x, 30);
-  desks.push(mkDesk("scofield", "leads", ld(22).x, ld(22).y, "s", 32), mkDesk("amy", "leads", ld(68).x, ld(68).y, "s", 32));
+  desks.push(...leadsDesks(leads));
   const mattAt = at(room("matt"), 36, 194);
   const mattDesk = mkDesk("matt", "matt", mattAt.x, mattAt.y, "s", 46);
 
@@ -451,16 +461,30 @@ export function laneFor(id, world) {
   return mid + ((hash(String(id)) % 5) - 2) * 3;
 }
 
+/**
+ * The way out of a top-row pod seat and back in: sideways to the aisle 7 units outside the desk, then down it to the
+ * aisle below the pod (50 below the desk's top), so no one walks over a desk. Empty for any other point.
+ */
+export function aisleOf(world, p) {
+  const d = world.desks.find((x) => x.side === "n" && x.room !== "matt" && Math.abs(x.seat.x - p.x) < 0.01 && Math.abs(x.seat.y - p.y) < 0.01);
+  if (!d) return [];
+  const mid = world.rooms.find((r) => r.key === d.room);
+  const left = d.cx < mid.x0 + mid.w0 / 2 + shiftOf(mid).dx;
+  const x = left ? d.x - 7 : d.x + d.w + 7;
+  return [{ x, y: d.seat.y }, { x, y: d.y + 50 }];
+}
+
 /** Door-to-door waypoints from one point to another (the destination is the last one). */
 export function pathTo(world, id, from, to) {
   const lane = laneFor(id, world);
   const rf = roomAt(world, from.x, from.y);
   const rt = roomAt(world, to.x, to.y);
-  if (rf && rf === rt) return [{ x: to.x, y: to.y }];
-  const pts = [];
+  const out = aisleOf(world, from), into = aisleOf(world, to).reverse();
+  if (rf && rf === rt) return [...out, ...into, { x: to.x, y: to.y }];
+  const pts = [...out];
   if (rf) { const d = doorInner(rf); pts.push(d, { x: d.x, y: lane }); } else pts.push({ x: from.x, y: lane });
   if (rt) { const d = doorInner(rt); pts.push({ x: d.x, y: lane }, d); } else pts.push({ x: to.x, y: lane });
-  pts.push({ x: to.x, y: to.y });
+  pts.push(...into, { x: to.x, y: to.y });
   return pts;
 }
 
@@ -747,20 +771,19 @@ export function newMemory() {
   return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map() };
 }
 
-const SLOT_HOME = { opemipo: { room: 0, slot: 3 }, maya: { room: 1, slot: 2 } };
 const AWAY = ["lounge", "kitchen"];
 const KITCHEN = ["kitchen", "lounge"];
 
 /**
  * Everyone, placed from real state. All twelve are always there. Where each stands (ticket #26):
  *  - a session that is open: at its own desk while working, blocked, or after its turn ends. Scofield, Amy, Yoda,
- *    Sara and a coder with no ticket go to the lounge once idle for `idleMs` (the kitchen when the lounge is full);
+ *    Sara, Maya, Opemipo and a coder with no ticket go to the lounge once idle for `idleMs` (the kitchen when the lounge is full);
  *    a coder with a ticket stays at its desk;
  *  - a coder with a PR and no work in hand is waiting on its review: in the kitchen with a mug, at ping pong after
  *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
  *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
  *    clear ends in the lounge after REST_MS;
- *  - no session: the lounge. Maya and Opemipo sit at their home desks while they run;
+ *  - no session: the lounge;
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
  * moves. `opts.now` is the time in ms and `opts.idleMs` the idle time. `wakeIn` in the result is when time alone changes
@@ -830,30 +853,19 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     }
     mem.cleared.delete(p.id);
     const sitting = p.busy || p.recent;
-    if (!p.busy && p.recent && !(p.role === "coder" && ticket) && !(p.id in SLOT_HOME)) wakes.push(idleMs - p.idleFor);
+    if (!p.busy && p.recent && !(p.role === "coder" && ticket)) wakes.push(idleMs - p.idleFor);
     if (p.role === "coder") {
       if (ticket) p.mode = p.busy ? "desk" : /^escalation:/.test(a.note) ? "esc" : a.pr ? "wait" : "desk";
       else p.mode = sitting ? "deskfree" : "away";
-    } else if (p.id in SLOT_HOME) p.mode = "home";
-    else if (p.id === "scofield" || p.id === "amy" || p.id === "yoda" || p.id === "sara") p.mode = sitting ? "home" : "away";
+    } else if (["scofield", "amy", "yoda", "sara", "maya", "opemipo"].includes(p.id)) p.mode = sitting ? "home" : "away";
     else p.mode = "away";
     if (p.mode === "wait") stillWait.add(p.id);
   }
   for (const id of [...mem.wait.keys()]) if (!stillWait.has(id)) mem.wait.delete(id);
   for (const id of [...mem.cleared.keys()]) if (!live.has(id)) mem.cleared.delete(id);
 
-  // Home desks for the helpers, then the coders' free slots in each repo room.
-  const homes = {};
-  if (repoRooms.length) {
-    // A home desk is held only while its helper runs, so it never costs a coder a desk otherwise.
-    for (const [id, h] of Object.entries(SLOT_HOME)) {
-      if (!by(id).running) continue;
-      const r = repoRooms[Math.min(h.room, repoRooms.length - 1)];
-      homes[id] = repoDesks(r)[h.slot].key;
-    }
-  }
-  const taken = new Set(Object.values(homes));
-  const slots = new Map(repoRooms.map((r) => [r.key, repoDesks(r).map((d) => d.key).filter((k) => !taken.has(k))]));
+  // The coders' free desks in each repo room: all four, for the leads have their own room.
+  const slots = new Map(repoRooms.map((r) => [r.key, repoDesks(r).map((d) => d.key)]));
 
   const sit = (p, d) => { p.desk = d.key; p.place = "desk"; p.x = d.seat.x; p.y = d.seat.y; p.face = d.side === "n" ? "s" : "n"; };
   const coders = people.filter((p) => p.role === "coder" && p.agent);
@@ -913,7 +925,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
         if (p.id === "yoda" || p.id === "sara") {
           const m = world.meetSeats[p.id];
           p.place = "meeting"; p.x = m.x; p.y = m.y; p.face = m.face;
-        } else sit(p, deskBy.get(homes[p.id] || p.id));
+        } else sit(p, deskBy.get(p.id));
         break;
       case "desk":
       case "deskfree":
