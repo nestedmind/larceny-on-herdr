@@ -302,6 +302,14 @@ console.log(crew.officePane(ps, {}, "crew-office-dev"), crew.officePane(ps, {}, 
   [ "$output" = "crew-office-dev crew-office crew-office" ]
 }
 
+@test "each mod's full-terminal window has its own key, so one does not replace the other" {
+  run crew_js '
+const a = { address: "t1", name: "x", rawName: "x" };
+console.log(crew.fullTerminalOverlay(a, null, "term-1", "crew-office-dev").key, crew.fullTerminalOverlay(a, null, "term-1").key);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office-dev-terminal crew-office-terminal" ]
+}
+
 @test "the full-terminal window reopens the mod it came from" {
   run crew_js '
 const a = { address: "t1", name: "x", rawName: "x" };

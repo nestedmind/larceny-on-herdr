@@ -621,7 +621,7 @@ export function lightsValue(on) {
 export function fullTerminalOverlay(agent, loh, termId, mod = "crew-office") {
   return {
     kind: "window",
-    key: "crew-office-terminal",
+    key: `${mod}-terminal`,
     width: 1,
     height: 1,
     at: { x: 0, y: 0 },
