@@ -67,6 +67,11 @@ export class Panel {
       st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
       st.on("change", (_e, c) => { if (this.host.typed) this.host.typed(c); });
+      // Enter inside the textarea never reaches a wrapper's on_key_down: the textarea takes it as its own
+      // action, inserts the newline and then emits "submit" with the modifiers (kit: InputEvent). So a plain
+      // Enter is a send here, and Ctrl/Shift+Enter keeps the newline. send() trims the text, so the newline
+      // Enter just put in is not sent; if it lands after the box was cleared, it is cleared again.
+      st.on("submit", (e, c) => this.submitted(e, st, c));
       // The box's border follows the keyboard: accent at 2 px with focus, muted at rest.
       st.on("focus", (_e, c) => { this.focused = true; c.notify(); });
       st.on("blur", (_e, c) => { this.focused = false; c.notify(); });
@@ -176,6 +181,18 @@ export class Panel {
       this.fetchedKey = null;
       cx.notify();
     });
+  }
+
+  // The textarea's submit event: plain Enter sends, Ctrl+Enter (secondary) and Shift+Enter keep their newline.
+  submitted(e, st, cx) {
+    if (e && (e.secondary || e.shift)) return;
+    this.send(cx);
+    if (cx.timer) {
+      cx.timer.after(40, (c) => {
+        if (st.value() === "\n") st.set_value("");
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
   }
 
   // A key in the message box, caught on the wrapper around it. Enter sends; Ctrl+Enter adds a line at the caret.

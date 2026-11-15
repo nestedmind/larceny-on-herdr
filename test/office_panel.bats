@@ -24,7 +24,7 @@ JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
-export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on() {}, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
+export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
 export const ScrollHandle = { new: () => ({ scroll_to_item() {} }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
@@ -184,6 +184,21 @@ click((cx) => panel.key({ key: "a", modifiers: { shift: false, control: false, a
 console.log(calls() === undefined, (globalThis.STOPS || []).length, JSON.stringify(input.text));'
   [ "$status" -eq 0 ]
   [ "$output" = 'true 0 ""' ]
+}
+
+@test "message box: Enter inside the textarea arrives as a submit event: plain Enter sends, Ctrl and Shift keep the newline" {
+  run panel_js '
+const sub = (e) => click((cx) => { cx.timer = { after() {} }; input.handlers.submit(e, cx); });
+input.text = "one\n";
+sub({ secondary: true });
+sub({ shift: true });
+console.log(calls() === undefined, JSON.stringify(input.text));
+input.text = "hello\n";
+sub({ secondary: false });
+console.log(calls().length, JSON.stringify(calls()[0].a.slice(-1)), JSON.stringify(input.text));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = 'true "one\n"' ]
+  [ "${lines[1]}" = '1 ["hello"] ""' ]
 }
 
 @test "message box: it wraps and grows from one row to six" {
