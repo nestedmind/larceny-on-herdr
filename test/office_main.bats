@@ -415,7 +415,7 @@ console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goa
 
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
   run office_js '
-const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
+const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-(g[0-9]+-)?[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
 const going = (l) => l.some((x) => x[2] > 1);
 const rest = (l) => l.every((x) => x[0] === 0 && x[1] === 0);
 let prev = null, walks = 0, bad = 0;
@@ -997,4 +997,25 @@ const t = timers.filter((x) => !x.cancelled).map((x) => x.ms);
 console.log(t.some((ms) => ms > 39000 && ms <= 41000), asks());'
   [ "$status" -eq 0 ]
   [ "$output" = "true 1" ] || { echo "GOT: $output" >&2; false; }
+}
+
+@test "no walk reuses the link elements of the walk before it, and its links already exist at rest, so each one animates from zero" {
+  run office_js '
+const ids = (root, who) => all(find(root, who)).map(id).filter((x) => x && x !== who && x.startsWith(who + "-")).sort().join(",");
+render();
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+render(); later(3000); timers.length = 0;
+const one = render();
+const a = ids(one, "m-sheba"), ta = ids(one, "tm-sheba");
+timers.filter((t) => !t.cancelled).sort((x, y) => x.ms - y.ms).forEach((t) => t.fn({ notify() {} }));
+const rest = render(); later(2000); const rest2 = render();
+const b = ids(rest2, "m-sheba");
+terms()[1].labels.note = "escalation:x";
+render(); later(3000);
+const two = render();
+const c = ids(two, "m-sheba"), tc = ids(two, "tm-sheba");
+const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).length;
+console.log(a.split(",").length, share(a, c), share(ids(rest2, "m-sheba"), c) === c.split(",").length, share(ta, tc), ids(rest, "m-sheba") === b);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "9 0 true 0 true" ]
 }

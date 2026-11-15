@@ -597,10 +597,12 @@ export const SLOTS = 9;
 export function mover(prefix, at, chain, k, walking, leaf) {
   const instant = { duration: 1 };
   const slide = (el, policy) => el.transition("left", policy).transition("top", policy);
+  // Each walk has links of its own (chain.gen counts the walks), so no element carries what an earlier walk left on it.
+  const gen = chain.gen === undefined ? "" : `g${chain.gen}-`;
   let inner = leaf;
   for (let i = chain.links.length - 1; i >= 0; i--) {
     const l = chain.links[i];
-    const el = div().id(`${prefix}-${i}`).absolute().left(l.dx * k).top(l.dy * k).w(0).h(0).child(inner);
+    const el = div().id(`${prefix}-${gen}${i}`).absolute().left(l.dx * k).top(l.dy * k).w(0).h(0).child(inner);
     inner = slide(el, walking ? { duration: l.ms, delay: l.delay, easing: "linear" } : instant);
   }
   return slide(div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner), instant);

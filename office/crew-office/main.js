@@ -442,14 +442,14 @@ export default class CrewOffice extends View {
       here.add(p.id);
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
-      if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [] }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [], gen: 0 }; this.walks.set(p.id, w); }
+      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
       else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
-      out.set(p.id, { rest: restAt(w.at, goal, walking), walking, from: walking ? w.from : w.at, chain: walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), x: pos.x, y: pos.y, face });
+      out.set(p.id, { rest: restAt(w.at, goal, walking), walking, from: walking ? w.from : w.at, chain: { ...walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), gen: w.gen }, x: pos.x, y: pos.y, face });
     }
     for (const id of [...this.walks.keys()]) if (!here.has(id)) { this.stopWalk(this.walks.get(id)); this.walks.delete(id); }
     return out;
@@ -506,7 +506,7 @@ export default class CrewOffice extends View {
       const last = i === legs.length - 1;
       w.tasks.push(this.acx.timer.after(last ? at + ARRIVE_SLACK : at, (c) => {
         if (w.legs !== legs) return;
-        if (last) { w.at = goal; w.legs = []; w.i = 0; w.settling = true; } else w.i = i + 1;
+        if (last) { w.at = goal; w.legs = []; w.i = 0; w.settling = true; w.gen++; } else w.i = i + 1;
         try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
       }));
     });
