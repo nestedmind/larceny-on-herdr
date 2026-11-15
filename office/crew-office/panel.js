@@ -39,6 +39,9 @@ export class Panel {
     this.tab = "chat"; // "chat" or "activity"
     this.hover = null; // the log row under the pointer: its Copy shows
     this.copied = null; // the row whose Copy was just clicked
+    this.last = new Map(); // each box's text after its last change
+    this.preNl = null; // the text before the newline the last Enter put in
+    this.trace = ""; // TEMPORARY: the last key event the box reported, shown under it for Matt's check; remove before merge
     this.focused = false; // the message box has the keyboard
     this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
   }
@@ -66,7 +69,13 @@ export class Panel {
       st.set_soft_wrap(true);
       st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
-      st.on("change", (_e, c) => { if (this.host.typed) this.host.typed(c); });
+      st.on("change", (_e, c) => {
+        // Remember the text before a lone newline went in, so Enter's newline can be taken back out.
+        const v = st.value(), was = this.last.get(a.address) ?? "";
+        if (v.length === was.length + 1 && v.split("\n").length === was.split("\n").length + 1) this.preNl = was;
+        this.last.set(a.address, v);
+        if (this.host.typed) this.host.typed(c);
+      });
       // Enter inside the textarea never reaches a wrapper's on_key_down: the textarea takes it as its own
       // action, inserts the newline and then emits "submit" with the modifiers (kit: InputEvent). So a plain
       // Enter is a send here, and Ctrl/Shift+Enter keeps the newline. send() trims the text, so the newline
@@ -184,9 +193,21 @@ export class Panel {
   }
 
   // The textarea's submit event: plain Enter sends, Ctrl+Enter (secondary) and Shift+Enter keep their newline.
+  // A plain Enter always takes back the one newline the textarea put in, whether or not the message goes out.
   submitted(e, st, cx) {
-    if (e && (e.secondary || e.shift)) return;
-    this.send(cx);
+    const keep = !!(e && (e.secondary || e.shift));
+    this.trace = `submit event: ${keep ? (e.secondary ? "ctrl+enter" : "shift+enter") : "plain enter"}`;
+    if (keep) { cx.notify(); return; }
+    const v = st.value();
+    if (this.preNl !== null && v.length === this.preNl.length + 1) st.set_value(this.preNl);
+    else if (v.endsWith("\n")) st.set_value(v.slice(0, -1));
+    this.preNl = null;
+    const a = this.agent;
+    const why = this.sending ? "the last message is still going out" : this.host.busy && this.host.busy() ? "a full terminal window has the keyboard" : !st.value().trim() ? "the box is empty" : a && sendBlock(a) ? "the agent is waiting on a dialog" : "";
+    this.trace += why ? ` · not sent: ${why}` : " · sending";
+    if (!why) this.send(cx);
+    else if (!st.value().trim()) cx.notify();
+    else { this.error = `Enter did not send: ${why}.`; this.notSent = false; cx.notify(); }
     if (cx.timer) {
       cx.timer.after(40, (c) => {
         if (st.value() === "\n") st.set_value("");
@@ -198,6 +219,7 @@ export class Panel {
   // A key in the message box, caught on the wrapper around it. Enter sends; Ctrl+Enter adds a line at the caret.
   key(e, cx) {
     const act = enterAction(e);
+    if (act) { this.trace = `key event: ${act === "send" ? "enter" : "ctrl+enter"} reached the wrapper`; cx.notify(); }
     const st = this.agent && this.inputs.get(this.agent.address);
     if (!act || !st) return;
     cx.stop_propagation();
@@ -354,6 +376,7 @@ export class Panel {
       .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
     return v_flex().flex_none().gap(4)
       .child(h_flex().gap(6).items_end().child(box).child(send))
-      .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)));
+      .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)))
+      .when(!!this.trace, (el) => el.child(div().text_size(11).text_color(t.muted).child(`trace (temporary): ${this.trace}`)));
   }
 }

@@ -201,6 +201,22 @@ console.log(calls().length, JSON.stringify(calls()[0].a.slice(-1)), JSON.stringi
   [ "${lines[1]}" = '1 ["hello"] ""' ]
 }
 
+@test "message box: a plain Enter that cannot send still takes its newline back out and says why" {
+  run panel_js '
+const sub = (e) => click((cx) => { cx.timer = { after() {} }; input.handlers.submit(e, cx); });
+input.text = "draft\n";
+panel.sending = true;
+sub({});
+console.log(calls() === undefined, JSON.stringify(input.text), panel.error);
+panel.sending = false; panel.error = "";
+input.text = "";
+sub({});
+console.log(JSON.stringify(input.text), panel.trace);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = 'true "draft" Enter did not send: the last message is still going out.' ]
+  [ "${lines[1]}" = '"" submit event: plain enter · not sent: the box is empty' ]
+}
+
 @test "message box: it wraps and grows from one row to six" {
   run panel_js 'console.log(JSON.stringify(input.grow));'
   [ "$status" -eq 0 ]
