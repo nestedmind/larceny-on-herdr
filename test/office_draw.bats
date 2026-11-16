@@ -180,6 +180,18 @@ console.log(divs > 60, polys > 20, g.paths.filter((p) => p.div && !(p.div.w > 0 
   [ "$output" = "true true 0" ]
 }
 
+@test "a working person's status ring is a bordered rounded_full div that a dimmed person's draws dimmed and an idle person has none" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const L = crew.layoutCrew([], ["api"], 0);
+const all = (n) => [n, ...n.kids.flatMap((x) => all(x.node))];
+const ring = (p) => { const f = draw.personEls(p, 2, "s", false, L, true); return f.flatMap((e) => all(e.node)).filter((n) => "rounded_full" in n.props && n.props.border_color).map((n) => [n.props.border[0], n.props.border_color[0], n.props.w[0]]); };
+const base = { role: "coder", key: "x", name: "x", id: "x", kind: "other" };
+console.log(JSON.stringify(ring({ ...base, state: "working" })), JSON.stringify(ring({ ...base, state: "idle" })), JSON.stringify(ring({ ...base, state: "working", dim: true })));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[3,"#3fae69",36.6]] [] [[3,"#3fae69b3",36.6]]' ]
+}
+
 @test "every shape on the floor has a colour, for up to six repos at several shapes of pane" {
   run draw_js '
 const crew = await import("./crew.mjs");

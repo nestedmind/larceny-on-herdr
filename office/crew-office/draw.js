@@ -580,6 +580,12 @@ const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
     .loop("top", { from: (fy - 1.6) * k, to: (ty - 1.6) * k, period: 534 });
 };
 
+/** The status ring round a person: a rounded_full div with a border, which herdr draws smoothly (a stroked arc is not anti-aliased). Its line is 1.5 units wide, centred 8.4 from the person. */
+export function statusRing(x, y, k, colour) {
+  const R = 8.4 + 0.75;
+  return div().absolute().left((x - R) * k).top((y - R) * k).w(2 * R * k).h(2 * R * k).rounded_full().border(1.5 * k).border_color(colour);
+}
+
 /**
  * One person, seen from above: the prototype's person(). `face` is where they look (n, s, e, w) and
  * `walking` swings their arms and bobs them; `rest` is that they are standing on their goal, which typing needs. Returns the elements to put in the person's wrapper.
@@ -596,7 +602,6 @@ export function personEls(p, k, face, walking, world, rest = false) {
   const kind = p.kind || "other";
   const ringCol = p.state === "blocked" ? BLOCKED[kind][0] : STATE_RING[p.state];
   const under = box();
-  if (ringCol) under.ring(x, y, 8.4, ringCol, 1.5);
   const fy = face === "n" ? -1 : 1;
   const side = face === "e" ? 1 : face === "w" ? -1 : 0;
   const hands = [];
@@ -638,7 +643,7 @@ export function personEls(p, k, face, walking, world, rest = false) {
   if (p.paddle) body.circ(x + p.paddle * 6, y - 1.5, 2.4, PAL.paddle);
   // A raised hand for a question or a permission prompt only.
   if (p.state === "blocked" && kind !== "other") { body.circ(x + 6, y - 7.5, 1.7, skin); body.line(x + 4, y - 2, x + 5.6, y - 6.4, shirt, 1.6); }
-  const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).child(under.el()).children(hands).child(body.el());
+  const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).children(ringCol ? [statusRing(x, y, k, ringCol + a)] : []).child(under.el()).children(hands).child(body.el());
   out.push(walking ? figure.loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : figure);
   // The bubble over a question or a permission prompt; a flag over anything else that blocks.
   // A person at the top row of a pod gets it higher, clear of the name tag.
