@@ -7,7 +7,7 @@
 // Motion is native only: .loop() for gaits, typing and the ball, .transition() (with delays) on the
 // movers that carry a person across the floor. What the API cannot do is listed in office/README.md.
 
-import { div, PathBuilder } from "gpui-kit";
+import { div, svg, PathBuilder } from "gpui-kit";
 import { look, hash, shiftOf, anchorOf, isLong } from "./crew.js";
 
 // The prototype's floor palette (its --fl-* and --st-* tokens). The same in light and dark: dark
@@ -104,14 +104,21 @@ export class Layer {
   constructor(k, x, y, w, h, alpha = "", pct = false) {
     this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.pct = pct;
     this.s = pct ? 1 : k; this.merge = false; this.plan = null; this.paths = null;
-    this.dx = 0; this.dy = 0; this.divs = false;
+    this.dx = 0; this.dy = 0; this.divs = false; this.mod = null;
   }
   /**
    * Draw this percentage layer's circles and rounded rectangles as rounded divs, which herdr draws
    * smoothly, and not as polygons, whose corners and steps show. (An ellipse that is not a circle
-   * stays a polygon: a div's radius would make it a pill.)
+   * stays a polygon unless `svgs` says where the mod's ellipse images are: a div's radius would make it a pill.)
    */
   rounded() { this.divs = true; return this; }
+  /**
+   * Draw this rounded layer's ellipses as images from the mod's own `ellipses/` folder, one file per shape
+   * ("<width>x<height>.svg", in world units, so the picture has the ellipse's own proportions), tinted with the
+   * shape's colour. herdr draws an svg smoothly where it does not smooth a path. `mod` (a function, as the name
+   * is settled after the mod starts) gives the folder's name under herdr's mods/.
+   */
+  svgs(mod) { this.mod = mod; return this; }
   /** Draw this layer's neighbouring same-colour shapes as one path each. */
   merged() { this.merge = true; this.plan = null; this.paths = null; return this; }
   /** The same shapes at another scale. A percentage layer keeps its paths. */
@@ -139,9 +146,10 @@ export class Layer {
     return this;
   }
   // A rounded div: its box in world units, its corner radius in world units (-1: a circle).
-  addDiv(x, y, w, h, r, fill) {
+  // `svg`: the file in ellipses/ that draws it instead, an ellipse.
+  addDiv(x, y, w, h, r, fill, svg) {
     const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
-    this.ops.push({ cmds: [], fill: c, stroke: 0, div: { x, y, w, h, r } });
+    this.ops.push({ cmds: [], fill: c, stroke: 0, div: svg ? { x, y, w, h, r, svg } : { x, y, w, h, r } });
     this.plan = null; this.paths = null;
     return this;
   }
@@ -169,6 +177,7 @@ export class Layer {
   ell(x, y, rx, ry, fill) {
     const X = this.X(x), Y = this.Y(y), RX = rx * this.s, RY = ry * this.s;
     if (this.pct && this.divs && rx === ry) return this.addDiv(X - RX, Y - RY, 2 * RX, 2 * RY, -1, fill);
+    if (this.pct && this.divs && this.mod) return this.addDiv(X - RX, Y - RY, 2 * RX, 2 * RY, 0, fill, `${2 * rx}x${2 * ry}.svg`);
     if (this.pct) {
       const pts = [];
       // (A rounded layer's ellipses are few, so they get many sides: their corners would show as facets.)
@@ -233,7 +242,9 @@ export class Layer {
     if (!g.div) return window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full();
     const { x, y, w, h, r } = g.div;
     const P = (v, whole) => Math.round((v / whole) * 1e6) / 1e4 + "%";
-    const el = div().absolute().left(P(x, this.w)).top(P(y, this.h)).w(P(w, this.w)).h(P(h, this.h)).bg(g.fill);
+    const box = div().absolute().left(P(x, this.w)).top(P(y, this.h)).w(P(w, this.w)).h(P(h, this.h));
+    if (g.div.svg) return box.child(svg(`mods/${this.mod()}/ellipses/${g.div.svg}`).size_full().text_color(g.fill));
+    const el = box.bg(g.fill);
     return r < 0 ? el.rounded_full() : el.rounded(r * this.k);
   }
   /**
@@ -375,9 +386,9 @@ function deskArt(g, d, mat) {
  * The rooms, walls, furniture and floors: everything that does not move. Built once per plan: its
  * paths are percentages of its box, so a new scale (`at(k)`) only resizes the box.
  */
-export function floorLayer(world, k) {
+export function floorLayer(world, k, mod = () => "crew-office") {
   const { W, H, corr } = world;
-  const g = new Layer(k, 0, 0, W, H, "", true).merged().rounded();
+  const g = new Layer(k, 0, 0, W, H, "", true).merged().rounded().svgs(mod);
   const R = (kind) => world.rooms.find((r) => r.kind === kind);
   const repos = world.rooms.filter((r) => r.kind === "repo");
   const leads = R("leads"), meet = R("meet"), matt = R("matt"), kitchen = R("kitchen"), lounge = R("lounge"), pong = R("pong"), rest = R("rest");

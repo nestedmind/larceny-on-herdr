@@ -22,6 +22,7 @@ function el() {
   return p;
 }
 export const div = el;
+export const svg = (path) => { const e = el(); e.node.svg = path; return e; };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.path = path; e.node.fill = fill; return e; } };
 const mk = (stroke) => { const cmds = []; const b = new Proxy({}, { get: (t, k) => k === "build" ? () => { log.builds++; return { cmds, stroke }; } : (...a) => { cmds.push([k, ...a]); return b; } }); return b; };
 export const PathBuilder = { fill: () => mk(0), stroke: (w) => mk(w) };
@@ -157,15 +158,37 @@ console.log(kids.length, !!kids[0].path, !!kids[2].path, JSON.stringify([c.props
   [ "$output" = '3 true true [["45%"],["40%"],["10%"],["20%"]] true' ]
 }
 
-@test "a rounded layer draws a rounded rectangle as a div whose radius follows the scale, and an ellipse stays a polygon of 120 corners" {
+@test "a rounded layer draws a rounded rectangle as a div whose radius follows the scale" {
   run draw_js '
-const g = new draw.Layer(2, 0, 0, 100, 50, "", true).rounded().rr(10, 5, 20, 10, 3, "#334455").ell(50, 25, 6, 3, "#556677");
-const a = g.el().node.kids.map((e) => e.node);
-const r2 = JSON.stringify(a[0].props.rounded);
+const g = new draw.Layer(2, 0, 0, 100, 50, "", true).rounded().rr(10, 5, 20, 10, 3, "#334455");
+const r2 = JSON.stringify(g.el().node.kids[0].node.props.rounded);
 const r5 = JSON.stringify(g.at(5).el().node.kids[0].node.props.rounded);
-console.log(r2, r5, !!a[1].path, a[1].path.cmds.length);'
+console.log(r2, r5);'
   [ "$status" -eq 0 ]
-  [ "$output" = '[6] [15] true 121' ]
+  [ "$output" = '[6] [15]' ]
+}
+
+@test "a rounded layer draws an ellipse as an svg of its own shape, placed by percentages and tinted with its colour" {
+  run draw_js '
+const g = new draw.Layer(2, 0, 0, 100, 50, "", true).rounded().svgs(() => "crew-office-x").ell(50, 25, 6, 3, "#556677");
+const box = g.el().node.kids[0].node;
+const s = box.kids[0].node;
+console.log(JSON.stringify([box.props.left, box.props.top, box.props.w, box.props.h]), s.svg, JSON.stringify(s.props.text_color), !!box.path);'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["44%"],["44%"],["12%"],["12%"]] mods/crew-office-x/ellipses/12x6.svg ["#556677"] false' ]
+}
+
+@test "the floor draws no ellipse as a polygon, and every ellipse it draws has its svg file" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const fs = await import("node:fs");
+const g = draw.floorLayer(crew.layoutCrew([], ["api", "web"], 1.6), 1);
+g.build();
+const files = g.paths.filter((p) => p.div && p.div.svg).map((p) => p.div.svg);
+const have = (f) => fs.existsSync(process.env.REPO_ROOT + "/office/crew-office/ellipses/" + f);
+console.log(files.length >= 3, files.every(have), files.sort().join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 16x11.2.svg,22x16.svg,60x38.svg" ]
 }
 
 @test "the floor's circles and rounded rectangles are divs, not polygons" {
