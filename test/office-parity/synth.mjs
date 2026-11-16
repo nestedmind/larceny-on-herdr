@@ -28,6 +28,7 @@ const L = crew.layoutCrew(crew.crewOf(j.terminals, crew.pickWorkspace(j.terminal
 const fault = parseFloat(opt("fault", "1"));
 const hide = (opt("hide", "") || "").split(",");
 const paths = office.draw.floorLayer(L, 1).ops.map((o) => {
+  if (o.div && o.div.svg) return `<ellipse cx="${o.div.x + o.div.w / 2}" cy="${o.div.y + o.div.h / 2}" rx="${o.div.w / 2}" ry="${o.div.h / 2}" fill="${o.fill}"/>`;
   if (o.div) {
     const { x, y, w, h, r } = o.div, rad = r < 0 ? Math.min(w, h) / 2 : r;
     return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" fill="${o.fill}"/>`;

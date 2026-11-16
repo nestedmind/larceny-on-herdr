@@ -109,7 +109,11 @@ export default class CrewOffice extends View {
     this.anim = false;
     this.handle = cx.focus_handle();
     this.acx = cx;
-    nameMod(() => this.recoverFs());
+    // (The floor's ellipse images are found by this name, so the floor draws again once it is settled.)
+    nameMod(() => {
+      this.recoverFs();
+      try { this.acx.notify(this.floorView); } catch (_) { /* the view was reloaded or closed */ }
+    });
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -825,7 +829,7 @@ export default class CrewOffice extends View {
       }
     }
     // (A first render after a reload also has the whole crew to draw, so with no floor yet the drawing list waits for the second.)
-    if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k);
+    if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k, () => MOD);
     this.floor.waited = true;
     let building = true;
     if (this.floor.layer) {
