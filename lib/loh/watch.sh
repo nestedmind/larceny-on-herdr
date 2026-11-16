@@ -4,7 +4,10 @@
 # Follows `hc events --json --label crew=<crew>` and notifies when
 #   - an agent becomes blocked: "<Name> needs you", body "<kind>: <msg>";
 #   - an agent's `note` label becomes "escalation:<text>" (what
-#     `loh card note=escalation:...` sets): "<Name> escalates", body <text>.
+#     `loh card note=escalation:...` sets): "<Name> escalates", body <text>;
+#   - an agent's `note` label becomes "undelivered:<text>" (what a queued
+#     `loh say --queue` sets when it finally cannot deliver): "<Name>'s message
+#     was not delivered", body <text>.
 # Bodies are cut to 120 characters. An agent is notified once per block, and an
 # escalation once per distinct note. An event only tells us *which* terminal
 # changed, so the status, kind, msg and note are read with `hc get`, which is
@@ -128,6 +131,9 @@ check() {
 
   if [[ "$note" == escalation:* && "$note" != "${!nv:-}" && "$mode" != "snap" ]]; then
     notify "$name escalates" "$(cut_body "${note#escalation:}")"
+  fi
+  if [[ "$note" == undelivered:* && "$note" != "${!nv:-}" && "$mode" != "snap" ]]; then
+    notify "$name's message was not delivered" "$(cut_body "${note#undelivered:}")"
   fi
   printf -v "$nv" '%s' "$note"
 }
