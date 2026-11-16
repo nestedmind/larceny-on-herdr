@@ -47,7 +47,11 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
   | A coder with a PR and nothing in hand (waiting on its review) | The kitchen, with a mug; ping pong after about 15 s, or about 2 s when someone is alone at the table |
   | A coder that has escalated (its note starts with `escalation:`, set by `loh card note=...`) | Ping pong |
   | Compacting (`ctx=compact`) or just cleared (`ctx=clear`) | The rest room, with `zz`. After a compaction, back at the desk. After a clear, the lounge once the rest is over (4 s) |
+  | Sent to a room (`place=lounge`, `kitchen`, `pong`, `rest`, `meeting`, set by `loh card place=<room>`) and the turn has ended | That room, at once, and it stays there until the agent's next prompt starts a turn (the status-card hook clears the label). A coder with a ticket keeps its desk meanwhile |
+  | `place=desk` (back to your desk) | At its desk until the idle time has run out, counted from the render that first sees the label |
+  | In a meeting (`meeting=1`, set by `loh card meeting=1`) | The meeting room, working or idle, until the label is cleared (`loh card meeting=`). A new prompt does not clear it. Each agent in the meeting takes its own seat |
   | No session | The lounge, faded |
+  | Matt, while any agent has `meeting=1` | The meeting room, in a free chair, whatever his typing signs say |
   | Matt | At his desk for 3 minutes after his last sign of activity in herdr (see below); otherwise away in the lounge with a mug |
 
   - **Idle time.** Counted from the render that first sees a person not working or blocked, and a `done` that turns `idle` does not restart it. A person first seen idle counts from `status_ms` when herdr gives it (a mod's `terminals()` is the `hc ls` shape and may not), else from the first sight. The default is 3 minutes. Two settings change it: the `idleMinutes` prop (a number of minutes), and `idle_minutes:` in the workspace manifest, which the office reads from `loh status --settings`. The prop wins; a value that is not a positive number is ignored.
@@ -93,6 +97,8 @@ Set by `loh`, the status-card hooks and the lock. The office shows what is there
 | `task` | `<repo>#<n>`: the repo room and the ticket on the tag |
 | `step`, `pr`, `round`, `note` | Lines on the name tag (cut to 60 characters) |
 | `with_matt` | `1` shows "with Matt" and rings the person |
+| `place` | A room Matt sent the agent to: `lounge`, `kitchen`, `pong`, `rest`, `meeting` or `desk`. `loh card place=` takes the names as said ("ping pong", "rest room", "meeting room") and refuses any other. The office honours it once the turn has ended; the next prompt clears it |
+| `meeting` | `1` while the agent is in a meeting with Matt. Not cleared by a new prompt |
 | `ctx` | `compact` while the context compacts, `clear` after a clear: the person is in the rest room. The status-card hooks write it (PreCompact, and SessionStart for the sources `compact` and `clear`); the next turn removes it |
 
 Status comes from the terminal itself (`idle`, `working`, `blocked`, `done`). For a blocked agent the kind (`permission` or `question`) is read from the terminal's report; if herdr-app does not expose it, the bubble shows `!`.

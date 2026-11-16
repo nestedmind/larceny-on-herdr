@@ -218,12 +218,14 @@ TEST_CWD="$cwd"
 case "$event" in
   UserPromptSubmit)
     # A new turn ends any compact or clear mark: the office reads ctx= and sends the agent back to its desk.
+    # place= goes too: a room Matt sent the agent to holds until the next turn starts, and then new work brings it back to its desk.
+    # meeting stays: a meeting lasts across turns until it is cleared.
     # The answer to an escalation arrives as a prompt, so a note that starts with escalation: goes in the same call; any other note stays.
     note="$(current_note)"
     if [[ "$note" == escalation:* ]]; then
-      label "step=reading the prompt" "ctx=" "note="
+      label "step=reading the prompt" "ctx=" "place=" "note="
     else
-      label "step=reading the prompt" "ctx="
+      label "step=reading the prompt" "ctx=" "place="
     fi
     ;;
   PreCompact)
