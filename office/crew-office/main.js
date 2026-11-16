@@ -85,7 +85,7 @@ class Floor extends View {
     const s = FLOORS.get(this.id);
     if (!s || !s.layer) return div();
     // What this view last drew, so the office knows whether a newly finished floor needs another render.
-    s.drawn = s.layer;
+    s.drawn = s.layer; s.drawnK = s.layer.k;
     this.layer = s.layer;
     return s.layer.fillEl();
   }
@@ -797,8 +797,9 @@ export default class CrewOffice extends View {
     // paths are percentages). A plan that finished since it last drew is handed over, and the view is asked, one tick on,
     // to render once more. The view's first render, when it is first mounted, draws what is handed over by then.
     const handed = FLOORS.get(this.floorId);
-    handed.layer = this.shown.layer;
-    if (handed.drawn && handed.drawn !== handed.layer && !this.floorAsked) {
+    // (A rounded div's radius is in pixels, so a new scale asks the view to render again.)
+    handed.layer = this.shown.layer.at(k);
+    if (handed.drawn && (handed.drawn !== handed.layer || handed.drawnK !== k) && !this.floorAsked) {
       this.floorAsked = true;
       this.acx.timer.after(1, (c) => {
         this.floorAsked = false;

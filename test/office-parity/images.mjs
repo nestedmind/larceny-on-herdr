@@ -11,6 +11,7 @@ const S = 2; // px per world unit, as the prototype's canvas
 const svgOf = (r, look) => {
   const { L, k, ops } = r;
   const paths = ops.map((o) => {
+    if (o.div) return `<rect x="${o.div.x}" y="${o.div.y}" width="${o.div.w}" height="${o.div.h}" rx="${o.div.r < 0 ? Math.min(o.div.w, o.div.h) / 2 : o.div.r}" fill="${o.fill}"/>`;
     const d = o.cmds.map((c) => (c[0] === "close" ? "Z" : (c[0] === "move_to" ? "M" : "L") + c[1].toFixed(2) + " " + c[2].toFixed(2))).join("");
     return `<path d="${d}" fill="${o.fill}"/>`;
   }).join("");
