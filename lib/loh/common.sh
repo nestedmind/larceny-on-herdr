@@ -288,3 +288,77 @@ start_and_prompt() {
   esac
   hc send "$name" "$prompt"
 }
+
+# ---------------------------------------------------------------------------
+# Crew names: larceny's docs/crew-resolution.md
+# ---------------------------------------------------------------------------
+
+# _crew_key <key>: print the key's resolved value and return 0, or return 1
+# when no repo sets it. Repos are tried in manifest order. A repo's own
+# .larceny/config.md wins; else, when that file says `crew: global`, the
+# global file (LARCENY_CONFIG_DIR or ~/.config/larceny/global-config.md).
+# Both files are read on every call. Needs manifest_load first.
+_crew_key() {
+  local key="$1" i cfg v mode
+  local global="${LARCENY_CONFIG_DIR:-$HOME/.config/larceny}/global-config.md"
+  for i in "${!REPO_NAMES[@]}"; do
+    cfg="$(repo_dir "$i")/.larceny/config.md"
+    [[ -r "$cfg" ]] || continue
+    v="$(config_values "$cfg" "$key" | head -n 1)"
+    if [[ -n "$v" ]]; then
+      printf '%s' "$v"
+      return 0
+    fi
+    mode="$(config_values "$cfg" crew | head -n 1)"
+    if [[ "$mode" == global* && -r "$global" ]]; then
+      v="$(config_values "$global" "$key" | head -n 1)"
+      if [[ -n "$v" ]]; then
+        printf '%s' "$v"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+# crew_load: resolve the crew into globals. Needs manifest_load first.
+#   CREW_COORDINATOR CREW_REVIEWER CREW_ADVISOR CREW_TEACHER CREW_PERSON
+#   CREW_CODERS[] (the coders in roster order, without the coordinator)
+# Shipped names when nothing sets a key; CREW_PERSON is empty then.
+# shellcheck disable=SC2034 # read by the commands that source this file
+crew_load() {
+  local v roster name first=1
+  CREW_COORDINATOR="Scofield"
+  CREW_CODERS=(Sucre Mahone Sheba Whip)
+  CREW_REVIEWER="Amy"
+  CREW_ADVISOR="Yoda"
+  CREW_TEACHER="Sara"
+  CREW_PERSON=""
+  if v="$(_crew_key coders)" && [[ "$v" != default ]]; then
+    CREW_CODERS=()
+    IFS=',' read -r -a roster <<<"$v"
+    for name in "${roster[@]}"; do
+      name="$(_manifest_value "$name")"
+      [[ -n "$name" ]] || continue
+      if [[ -n "$first" ]]; then
+        CREW_COORDINATOR="$name"
+        first=""
+      else
+        CREW_CODERS+=("$name")
+      fi
+    done
+  fi
+  if v="$(_crew_key reviewer)" && [[ "$v" != default ]]; then CREW_REVIEWER="$v"; fi
+  if v="$(_crew_key advisor)" && [[ "$v" != default ]]; then CREW_ADVISOR="$v"; fi
+  if v="$(_crew_key teacher)" && [[ "$v" != default ]]; then CREW_TEACHER="$v"; fi
+  if v="$(_crew_key person)"; then CREW_PERSON="$v"; fi
+  return 0
+}
+
+# agent_name <name>: the herdr terminal name for a crew name (lower case).
+# Dies when the result is not a plain name hc can take.
+agent_name() {
+  local n="${1,,}"
+  [[ "$n" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "crew name '$1' cannot be a terminal name (letters, digits, '.', '_' and '-' only)"
+  printf '%s' "$n"
+}
