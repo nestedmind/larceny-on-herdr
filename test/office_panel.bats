@@ -17,6 +17,7 @@ panel_js() {
   cat > "$d/node_modules/gpui-kit/index.js" <<'JS'
 const el = () => new Proxy({}, { get: () => () => el() });
 export const div = el;
+export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return el(); };
 const pb = () => new Proxy({}, { get: () => () => pb() });
 export const PathBuilder = { fill: pb, stroke: pb };
 globalThis.window ||= { paint_path: el };
@@ -29,10 +30,12 @@ export const ScrollHandle = { new: () => ({ scroll_to_item(i) { (globalThis.SCRO
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
 export const terminals = () => [];
+export const home = () => process.env.PHOME || "/nohome";
+export const appHome = () => (process.env.PHOME || "/nohome") + "/.config/herdr-app";
 export const exec = (c, a, o) => new Promise((resolve, reject) => { (globalThis.CALLS ||= []).push({ c, a, resolve, reject }); });
 JS
   echo '{"type":"module"}' > "$d/package.json"
-  for f in panel chat crew draw; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in panel chat crew draw photos; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 import { Panel } from "./panel.mjs";
 const deadUses = [];
@@ -316,4 +319,57 @@ click((cx) => { panel.render(th, {}, cx); panel.tab = "activity"; panel.render(t
 console.log("drawn");'
   [ "$status" -eq 0 ]
   [ "$output" = "drawn" ]
+}
+
+# Photos (#35): the avatar is the person's photo when the folder has one, else the floor figure.
+photo_home() {
+  local h="$BATS_TEST_TMPDIR/phome"
+  mkdir -p "$h/.config/larceny/photos"
+  printf '\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\1\x2c\0\0\2\x58\x08\x02\0\0\0' > "$h/.config/larceny/photos/yoda.png"
+  printf 'not a picture' > "$h/.config/larceny/photos/sara.png"
+  printf '%s' "$h"
+}
+
+@test "photos: a person with a photo gets it as an image from the larceny folder; one with none, or an unreadable one, gets the floor figure" {
+  local h; h="$(photo_home)"
+  PHOME="$h" run panel_js '
+const t = { raised: "a", border: "b" };
+click((cx) => panel.loadPhotos(cx));
+await settle();
+const before = (globalThis.IMAGES || []).length;
+panel.avatar("Yoda", 36, t); const afterYoda = globalThis.IMAGES.length;
+panel.avatar("sara", 36, t); panel.avatar("matt", 36, t); panel.avatar("", 36, t);
+console.log(JSON.stringify([[...panel.photos.keys()], before, afterYoda, globalThis.IMAGES.length, globalThis.IMAGES[0], taskErrors]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["yoda"],0,1,1,"../larceny/photos/yoda.png",[]]' ]
+}
+
+@test "photos: a photo added while the office is open shows on the next read, and nothing is read again before then" {
+  local h; h="$(photo_home)"
+  PHOME="$h" run panel_js '
+const fs = await import("node:fs/promises");
+click((cx) => panel.loadPhotos(cx)); await settle();
+await fs.writeFile(process.env.PHOME + "/.config/larceny/photos/amy.png", await fs.readFile(process.env.PHOME + "/.config/larceny/photos/yoda.png"));
+click((cx) => panel.loadPhotos(cx)); await settle();
+const early = [...panel.photos.keys()].sort();
+panel.photosAt -= 61000;
+click((cx) => panel.loadPhotos(cx)); await settle();
+console.log(JSON.stringify([early, [...panel.photos.keys()].sort(), taskErrors]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["yoda"],["amy","yoda"],[]]' ]
+}
+
+@test "photos: a photo's crop shows in how the image is placed; with no folder at all the panel still draws" {
+  local h; h="$(photo_home)"
+  PHOME="$h" run panel_js '
+click((cx) => panel.loadPhotos(cx)); await settle();
+console.log(JSON.stringify(panel.photos.get("yoda")));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"path":"'"$h"'/.config/larceny/photos/yoda.png","w":300,"h":600,"crop":null}' ]
+  PHOME="$BATS_TEST_TMPDIR/empty" run panel_js '
+click((cx) => panel.loadPhotos(cx)); await settle();
+panel.avatar("yoda", 36, { raised: "a", border: "b" });
+console.log(JSON.stringify([panel.photos.size, taskErrors]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[0,[]]' ]
 }

@@ -30,6 +30,7 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 | `crew` | Workspace to show. Default: the `crew` label with the most live terminals |
 | `loh` | Path of the `loh` command to run on click and to list repos. Default: `loh` on herdr-app's PATH |
 | `dir` | A folder inside the workspace, used to find it (repo list, `loh up`) when no agent is running |
+| `photos` | Folder of people's photos. Default: `~/.config/larceny/photos/`, then `~/.config/herdr-app/photos/` |
 | `idleMinutes` | Minutes a person sits at their desk after a turn ends before going to the lounge. Default: the workspace's `idle_minutes` (`loh status --settings`), else 3 |
 
 ## What it shows
@@ -136,3 +137,14 @@ herdr-app check office/crew-office
 ```
 
 `bats test/office.bats` runs this when `herdr-app` is on PATH and skips it otherwise. It also checks the placement logic in `crew.js` with node.
+
+## Photos
+
+The chat panel shows a person's photo in a circle with a thin border: 36 px in the panel header, 32 px in the chat log (24 px on a narrow panel). The floor name tags have none.
+
+- **Where they live.** One file per person, named after them in lower case: `yoda.jpg`, `sara.png`, `amy.webp`. JPEG, PNG, WebP and GIF are read. The office looks in the `photos` prop's folder, then `~/.config/larceny/photos/`, then `~/.config/herdr-app/photos/`; the first folder with a readable picture for a name wins. Nothing image-related is committed to the repo.
+- **No photo.** Someone with no file, or whose file cannot be read or is not a picture, shows their own floor figure, head and shoulders (Waffles her dog). Matt too.
+- **New photos.** The folders are read again every minute, so a photo added while the office is open appears within a minute, without reopening the tab.
+- **Crop.** By default the largest centred square (from the top for a portrait). An optional `<name>.crop` beside the photo holds one line, `x y size`: the square's centre and its size, as fractions of the picture's short edge (`0.5 0.3 0.6`). A missing or malformed sidecar falls back to the default.
+- **Names.** The cast's names today; the resolved crew once that lands.
+- **Folder outside herdr's.** herdr-app loads an image by a path relative to its own folder, so a photo in `~/.config/larceny/photos/` is addressed as `../larceny/photos/<file>`. If your herdr-app does not load images from there, put the photos in `~/.config/herdr-app/photos/`.
