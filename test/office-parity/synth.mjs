@@ -32,7 +32,7 @@ const paths = office.draw.floorLayer(L, 1).ops.map((o) => {
   return `<path d="${d}" fill="${o.fill}"/>`;
 }).join("");
 const people = L.people.filter((p) => p.id !== "dog" && !hide.includes(p.id)).map((p) => {
-  const [hair, skin, shirt] = crew.look(p.id.startsWith("x:") ? p.name : p.id);
+  const [hair, skin, shirt] = crew.look(p.role === "owner" ? "owner" : p.key || p.name);
   const x = p.x * fault;
   return `<g opacity="${p.dim ? 0.7 : 1}"><ellipse cx="${x}" cy="${p.y}" rx="6.2" ry="4.8" fill="${shirt}"/><circle cx="${x}" cy="${p.y}" r="3.7" fill="${skin}"/><circle cx="${x}" cy="${p.y}" r="3" fill="${hair}"/></g>`;
 }).join("");

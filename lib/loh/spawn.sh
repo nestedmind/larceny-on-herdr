@@ -39,6 +39,7 @@ need jq
 need git
 need gh
 manifest_load
+crew_load
 repo_lookup "$repo"
 i="$REPO_I"
 github="${REPO_GITHUBS[i]}"
@@ -109,6 +110,9 @@ rules="${rules%$'\n'}"
 
 prompt="$(<"$LOH_ROOT/lib/loh/prompts/coder.md")"
 prompt="${prompt//'{{coder}}'/$coder}"
+prompt="${prompt//'{{reviewer_name}}'/$CREW_REVIEWER}"
+prompt="${prompt//'{{reviewer}}'/$(agent_name "$CREW_REVIEWER")}"
+prompt="${prompt//'{{coordinator}}'/$(agent_name "$CREW_COORDINATOR")}"
 prompt="${prompt//'{{workspace}}'/$WS_NAME}"
 prompt="${prompt//'{{github}}'/$github}"
 prompt="${prompt//'{{ticket}}'/$ticket}"

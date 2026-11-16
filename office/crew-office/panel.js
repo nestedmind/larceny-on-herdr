@@ -32,6 +32,7 @@ export class Panel {
   // host: { loh: () => path or undefined, terminal: (agent, cx) => void, typed: (cx) => void (a key in the message box) }
   constructor(host) {
     this.host = host;
+    this.person = () => (host.person && host.person()) || ""; // the owner's name from the crew config, "" when none
     this.address = null; // the selected agent
     this.agent = null; // its latest record from crewOf
     this.turns = []; // parsed transcript
@@ -325,7 +326,7 @@ export class Panel {
       .child(this.button("panel-full-terminal", "Full terminal", (_e, c) => this.host.fullTerminal(raw, c), t).flex_1().justify_center());
 
     // Facts the header does not carry: ticket, PR, step, note, lock.
-    const facts = cardRows(a, WORDS).filter(([k]) => k !== "Role" && k !== "State" && !(k === "Step" && (a.step === "idle" || a.step === a.status)));
+    const facts = cardRows(a, WORDS, this.person()).filter(([k]) => k !== "Role" && k !== "State" && !(k === "Step" && (a.step === "idle" || a.step === a.status)));
     const factRows = facts.length ? v_flex().flex_none().gap(2).children(facts.map(([k, v]) => h_flex().gap(8)
       .child(div().w(52).text_size(12).text_color(t.muted).child(k))
       .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(v)))) : null;
@@ -342,7 +343,7 @@ export class Panel {
       .child(div().flex_1())
       .when(this.tab === "chat", (el) => el.child(div().id("panel-copy-all").text_size(12).line_height("16px").text_color(t.muted).cursor_pointer()
         .hover((e) => e.text_color(t.foreground))
-        .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c))
+        .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name, this.person()), c))
         .child(this.copied === "all" ? "Copied" : "Copy all")));
 
     // Header, tabs and log run edge to edge (the log's rows carry their own 12 px, so Matt's band reaches both
@@ -364,9 +365,9 @@ export class Panel {
   // `bg` is the colour behind the avatar. GPUI's overflow_hidden clips to the rectangle, not to rounded corners, so the
   // circle is cut by a mask: a ring twice the avatar's size whose hole is the circle, in the background colour, laid
   // over the picture (its outer circle, radius `size`, reaches past the square's corners).
-  avatar(name, size, t, bg = t.canvas) {
+  avatar(name, size, t, bg = t.canvas, owner = false) {
     const p = name ? this.photos.get(String(name).toLowerCase()) : null;
-    if (!p) return bustEl(name || "?", size, t.border);
+    if (!p) return bustEl(name || "?", size, t.border, owner ? "owner" : "");
     const at = placement(size, p.w, p.h, squareOf(p.w, p.h, p.crop));
     return div().flex_none().relative().w(size).h(size).overflow_hidden().bg(t.raised)
       .child(image(imagePath(appHome(), p.path)).absolute().left(at.left).top(at.top).w(at.width).h(at.height))
@@ -387,9 +388,9 @@ export class Panel {
   // and every line of text aligned with the name. Matt's turns sit in a shaded band across the panel.
   chatLog(t, a) {
     const { shown } = withPending(this.turns, this.pending);
-    const log = groupLog(shown, a.name);
+    const log = groupLog(shown, a.name, this.person());
     const rows = log.map(({ m, head, key: id }, i) => {
-      const who = speaker(m, a.name);
+      const who = speaker(m, a.name, this.person());
       const mine = m.role === "user" && !m.launch;
       const stamp = m.pending ? (m.unsure ? "Not confirmed" : "Sending…") : m.ts ? clock(new Date(m.ts)) : "";
       const body = m.launch
@@ -411,7 +412,7 @@ export class Panel {
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
-        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t, mine ? t.raised : t.canvas) : div().flex_none().w(pic))
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a, this.person()), pic, t, mine ? t.raised : t.canvas, m.role === "user" && !m.launch) : div().flex_none().w(pic))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
           .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));

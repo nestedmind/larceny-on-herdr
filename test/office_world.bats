@@ -399,7 +399,7 @@ console.log(crew.anchorCwd(c, {dir: "/d"}), crew.anchorCwd([], {dir: "/d"}), cre
 
 @test "people colours are the prototype's, and anyone else gets a stable colour by name" {
   run crew_js "$HELPERS"'
-console.log(crew.look("sheba").join(","), crew.look("matt")[2], crew.look("zed").join() === crew.look("zed").join());'
+console.log(crew.look("sheba").join(","), crew.look("owner")[2], crew.look("zed").join() === crew.look("zed").join());'
   [ "$status" -eq 0 ]
   [ "$output" = "#4a2618,#8d5a3b,#8e4fa8 #e0603f true" ]
 }

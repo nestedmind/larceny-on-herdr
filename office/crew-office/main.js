@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -113,6 +113,8 @@ export default class CrewOffice extends View {
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
+    // The crew's names, as `loh crew --json` last said (null until it has: the shipped names).
+    this.names = null;
     // The idle time the workspace sets (`idle_minutes` in its manifest, through `loh status --settings`); the idleMinutes prop wins.
     this.idleMinutes = undefined;
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
@@ -161,7 +163,7 @@ export default class CrewOffice extends View {
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
     this.termWin = null; // the one this copy opened: { id, agent, loh, at, seen }
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW });
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW, person: () => (this.names && this.names.person) || "" });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar
@@ -206,7 +208,7 @@ export default class CrewOffice extends View {
   // Ask loh for the workspace's repos (the mod never reads the manifest itself). It runs in a
   // folder inside the workspace: an agent's, else the `dir` prop. A failure keeps the last list. It is asked on a change of
   // workspace, folder or crew size, and every REPOS_EVERY_MS besides, so a repo added to or removed from the manifest shows up.
-  // Each ask is two local loh calls (the repo list and the settings): they read files, and no network is used.
+  // Each ask is three local loh calls (the repo list, the settings and the crew's names): they read files, and no network is used.
   loadRepos(crew, workspace, cx) {
     const dir = this.workspaceDir(crew);
     if (!dir) return;
@@ -232,6 +234,13 @@ export default class CrewOffice extends View {
       if (sr.code !== 0) return;
       const minutes = idleMinutesOf(sr.stdout);
       if (minutes !== this.idleMinutes) { this.idleMinutes = minutes; cx.notify(); }
+      // The crew's names (`loh crew --json`): a failure or an older loh keeps the last names, and nothing else here waits on it.
+      const n = crewCall({ cwd: dir }, (props() || {}).loh);
+      let nr = null;
+      try { nr = await exec(n.cmd, n.args, n.options); } catch (_) { return; }
+      if (nr.code !== 0) return;
+      const names = namesOf(nr.stdout);
+      if (names && JSON.stringify(names) !== JSON.stringify(this.names)) { this.names = names; cx.notify(); }
     });
   }
 
@@ -542,7 +551,7 @@ export default class CrewOffice extends View {
 
   // A click on someone who is not running: say what would start them, and ask first.
   offerStart(p, cx) {
-    const plan = startPlan(p, this.repos, this.workspaceDir(this.crewNow));
+    const plan = startPlan(p, this.repos, this.workspaceDir(this.crewNow), this.names);
     this.offer = { person: p, plan, repo: plan.kind === "spawn" ? (plan.repos[0] || "") : "", ticket: "" };
     this.handle.focus();
     cx.notify();
@@ -642,7 +651,7 @@ export default class CrewOffice extends View {
       .child(div().text_size(11).font_semibold().text_color(F.chipInk).truncate().child(a.name))
       .when(where !== "", (el) => el.child(div().text_size(9.5).text_color(F.chipInk).truncate().child(where)))
       .child(div().text_size(9.5).text_color(color).truncate().child(step))
-      .when(a.withMatt, (el) => el.child(div().px(4).rounded(4).bg(t.accent).text_size(9).font_semibold().text_color(t.accent_foreground).child("with Matt")));
+      .when(a.withMatt, (el) => el.child(div().px(4).rounded(4).bg(t.accent).text_size(9).font_semibold().text_color(t.accent_foreground).child(`with ${(this.names && this.names.person) || "owner"}`)));
   }
 
   bar(t, n, view) {
@@ -732,7 +741,7 @@ export default class CrewOffice extends View {
     if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattLast = now;
     this.lastFocus = here;
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
-      mem: this.mem, now,
+      mem: this.mem, now, names: this.names,
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
       mattSeated: mattSeatedAt(now, this.mattLast),
       mattTyping: mattTypingAt(now, this.mattLast),

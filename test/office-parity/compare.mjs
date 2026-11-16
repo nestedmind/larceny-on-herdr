@@ -284,7 +284,7 @@ export function comparePalette(officePal, protoPal, look) {
   const out = [];
   // Each person's hair, skin and shirt (the prototype's --p-<id>-* tokens) against the office's look(id).
   for (const [id, c] of Object.entries(protoPal.people || {})) {
-    const have = look(id);
+    const have = look(id === "matt" ? "owner" : id);
     ["hair", "skin", "shirt"].forEach((part, i) => { if (String(have[i]).toLowerCase() !== String(c[part]).toLowerCase()) out.push({ check: "palette", id: `${id}.${part}`, field: "colour", got: have[i], want: c[part], off: Infinity }); });
   }
   const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();

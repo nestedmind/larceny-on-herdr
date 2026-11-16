@@ -243,3 +243,16 @@ setup() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Usage: loh spawn"* ]]
 }
+
+@test "spawn tells the coder the configured reviewer and coordinator" {
+  printf 'coders: Mia, Ana\nreviewer: Gretchen\n' >>"$WS/api/.larceny/config.md"
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" == *'loh say gretchen "PR #<n> ready for review'* ]]
+  [[ "$log" == *"Gretchen reviews on GitHub"* ]]
+  [[ "$log" == *"Merge only after Gretchen's reply"* ]]
+  [[ "$log" == *'Do not run `loh say mia`'* ]]
+  [[ "$log" != *"loh say amy"* && "$log" != *"loh say scofield"* && "$log" != *"Amy"* ]]
+}

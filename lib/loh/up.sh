@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# loh up: start the workspace's standing agents, scofield and amy, unless they
-# are already live. Usage: loh up
+# loh up: start the workspace's standing agents, the coordinator and the
+# reviewer (scofield and amy unless the crew config names others, see loh
+# crew), unless they are already live. Usage: loh up
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -13,6 +14,9 @@ fi
 need hc
 need jq
 manifest_load
+crew_load
+COORD="$(agent_name "$CREW_COORDINATOR")"
+REVIEWER="$(agent_name "$CREW_REVIEWER")"
 
 # repo_summary: one line per repo for the founding prompts.
 repo_summary() {
@@ -32,6 +36,8 @@ Before anything else, load these with the Skill tool: $1 and larceny-on-herdr:he
 
 The workspace's repos:
 $(repo_summary)
+
+The crew's terminals: coordinator $COORD, reviewer $REVIEWER.
 
 Each repo keeps its own .larceny/config.md. Address other agents by name with \`loh say <name> "<text>"\`.
 EOF
@@ -72,10 +78,10 @@ start_standing() {
   echo "started $name"
 }
 
-start_standing scofield coordinator larceny:coordinator larceny:coordinator \
+start_standing "$COORD" coordinator larceny:coordinator larceny:coordinator \
   "You are the coordinator: you write and dispatch tickets with \`loh spawn <coder> <repo> <ticket>\` and track the crew." \
   "$WS_SCOFIELD_ARGS"
-start_standing amy reviewer larceny:reviewer larceny:adversarial-review \
+start_standing "$REVIEWER" reviewer larceny:reviewer larceny:adversarial-review \
   "You are the reviewer: coders message you by name when a PR is ready, and you review it against its ticket." \
   "$WS_AMY_ARGS"
 
