@@ -46,7 +46,7 @@ export const run = () => {};
 export const appHome = () => "/h/herdr-app";
 export const exec = () => new Promise(() => {});
 export const notify = () => {};
-export const props = () => ({ crew: "parity" });
+export const props = () => ({ crew: "parity", seed: 1 });
 export const theme = () => new Proxy({}, { get: () => "#808080" });
 export const settings = () => ({ dark: false });
 export const layout = () => ({}); export const shared = () => null; export const setShared = () => {};

@@ -378,9 +378,10 @@ console.log(crew.restAt({x: 5, y: 6}, g, false), crew.restAt({x: 1, y: 6}, g, fa
   run crew_js "$HELPERS"'
 const i = [T("amy", "idle", {role: "reviewer"})];
 const a = play([[0, i], [100, i], [181, i]]);
-console.log(a[0].wakeIn, a[1].wakeIn, a[2].wakeIn);'
+// Past the idle time only the next wander of Yoda and Sara or the next walk of Waffles is left (5 to 15 minutes away).
+console.log(a[0].wakeIn, a[1].wakeIn, a[2].wakeIn >= 30000 && a[2].wakeIn <= 900000);'
   [ "$status" -eq 0 ]
-  [ "$output" = "180000 80000 null" ]
+  [ "$output" = "180000 80000 true" ]
 }
 
 # A coder whose pull request ended (the hook or loh status --prs clears pr and sets prdone=1) is no longer waiting on review.

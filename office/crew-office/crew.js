@@ -876,9 +876,71 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map(), desk: new Map() };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
 }
 
+/** How long Yoda and Sara stay in a room with no session, and how long Waffles sleeps between walks: 5 to 15 minutes, random each time. */
+export const WANDER_MIN = 5 * 60000;
+export const WANDER_MAX = 15 * 60000;
+/** How long Waffles stays at each stop of a walk, in ms. */
+export const DOG_STOP_MS = 30000;
+/** A small seeded random source (mulberry32), for tests and for layouts given none: the same seed gives the same numbers. */
+export function seededRand(seed = 1) {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const WANDER_ROOMS = ["lounge", "kitchen", "pong"];
+
+// A random wait of 5 to 15 minutes, in ms.
+const nextWander = (rand) => Math.round(WANDER_MIN + rand() * (WANDER_MAX - WANDER_MIN));
+
+/**
+ * Where someone with no session who wanders (Yoda, Sara) is now: the chain of rooms to take a spot from. Each stay is a
+ * one-shot wake time pushed on `wakes`; at its end they move to another of the lounge, the kitchen and ping pong, never
+ * the meeting room (that is for a real meeting). Nothing repeats on a timer: the next move is only known to the next render.
+ */
+function wanderChain(mem, id, now, rand, wakes) {
+  let w = mem.wander.get(id);
+  if (!w) w = { room: WANDER_ROOMS[Math.floor(rand() * WANDER_ROOMS.length)], until: now + nextWander(rand) };
+  else if (now >= w.until) {
+    const others = WANDER_ROOMS.filter((r) => r !== w.room);
+    w = { room: others[Math.floor(rand() * others.length)], until: now + nextWander(rand) };
+  }
+  mem.wander.set(id, w);
+  wakes.push(w.until - now);
+  return w.room === "pong" ? ["pong", "lounge", "kitchen"] : w.room === "kitchen" ? KITCHEN : AWAY;
+}
+
+/**
+ * Waffles: asleep on her bed until her next walk (5 to 15 minutes after the last one began), then one or two stops among
+ * Matt's room, the kitchen and the lounge, DOG_STOP_MS each, and back to bed. Returns { stop } (a point and the way she faces)
+ * while she is on a walk, else null. Her wake times go on `wakes`.
+ */
+function dogWalk(mem, now, rand, wakes, stops) {
+  let d = mem.dog;
+  if (!d) d = mem.dog = { next: now + nextWander(rand), trip: null };
+  if (d.trip && now >= d.trip.until) {
+    d.trip.i += 1;
+    if (d.trip.i >= d.trip.stops.length) d.trip = null; else d.trip.until = now + DOG_STOP_MS;
+  }
+  if (!d.trip && now >= d.next) {
+    const pool = [0, 1, 2];
+    const picked = [];
+    for (let n = 1 + Math.floor(rand() * 2); n > 0; n--) picked.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+    d.trip = { stops: picked, i: 0, until: now + DOG_STOP_MS };
+    d.next = now + nextWander(rand);
+  }
+  wakes.push((d.trip ? d.trip.until : d.next) - now);
+  return d.trip ? stops[d.trip.stops[d.trip.i]] : null;
+}
+
+// Who `loh start <name>` can start: the standing personas that are not Scofield and Amy.
+const PERSONAS = ["yoda", "sara", "maya", "opemipo"];
 const AWAY = ["lounge", "kitchen"];
 const KITCHEN = ["kitchen", "lounge"];
 
@@ -903,6 +965,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const now = typeof opts.now === "number" ? opts.now : 0;
   const idleMs = opts.idleMs > 0 ? opts.idleMs : IDLE_MS;
   const mem = opts.mem || newMemory();
+  // The office passes Math.random; with none given the numbers are fixed, so a layout is the same every time.
+  const rand = typeof opts.rand === "function" ? opts.rand : (mem.rand ||= seededRand(1));
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
   const world = worldFor([...repoList, ...extraRepos], aspect, opts.names);
   const cast = castFor(opts.names);
@@ -925,11 +989,12 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     p.running = !!p.agent;
     p.state = p.agent ? p.agent.status : "off";
     p.kind = p.agent ? p.agent.kind : null;
-    p.dim = !p.running && p.id !== "matt" && p.id !== "dog";
+    p.dim = !p.running && p.id !== "matt" && p.id !== "dog" && !PERSONAS.includes(p.id);
     p.desk = null; p.place = null; p.face = "s"; p.spot = null; p.mug = false; p.paddle = 0; p.dir = 1; p.mode = null;
   }
   const by = (id) => people.find((p) => p.id === id);
   const wakes = [];
+  for (const id of [...mem.wander.keys()]) if (by(id) && by(id).running) mem.wander.delete(id);
 
   // When each turn ended. Someone is busy while working or blocked or changing context; the idle time counts from the
   // render that first saw them not busy, and a done that turns idle does not restart it. Not seen before: counted from now.
@@ -1031,7 +1096,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
 
   // Standing places first: desks, the meeting table, Matt.
   const needSpot = [];
-  const need = (p, chain) => needSpot.push({ p, chain });
+  const need = (p, chain, wander) => needSpot.push({ p, chain, wander });
   for (const p of people) {
     if (p.id === "dog") continue;
     if (p.id === "matt") {
@@ -1039,7 +1104,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       else if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
-    if (!p.running) { need(p, AWAY); continue; }
+    if (!p.running) { if (p.id === "yoda" || p.id === "sara") need(p, wanderChain(mem, p.id, now, rand, wakes), true); else need(p, AWAY); continue; }
     switch (p.mode) {
       case "rest": need(p, ["rest"]); break;
       case "lounge": need(p, AWAY); break;
@@ -1097,7 +1162,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms. Someone whose
   // chain starts at the table but who holds a spot elsewhere (a coder who lost the race for the table) keeps that spot
   // only until the table has a free place: `upgrade` has them try it first below.
-  for (const n of needSpot) {
+  // (Someone who wanders keeps no ping pong spot: they give way to those who wait on a review, and take what is free.)
+  for (const n of needSpot.filter((x) => !(x.wander && (mem.spots.get(x.p.id) || {}).room === "pong"))) {
     const h = mem.spots.get(n.p.id);
     if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) {
       used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room;
@@ -1113,6 +1179,12 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       if (up) { used.delete(n.upgrade.room + ":" + n.upgrade.idx); got = up; where = "pong"; }
     }
     if (!got) for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
+    // Someone who wanders to the lounge or the kitchen is seen there even when every spot is held: they stand beside one.
+    if (n.wander && chain[0] !== "pong" && where !== chain[0]) {
+      if (got) used.delete(where + ":" + got.idx);
+      const s = spots[chain[0]][hash(p.id) % spots[chain[0]].length];
+      got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = chain[0];
+    }
     if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = "lounge"; }
     p.place = where; p.x = got.x; p.y = got.y; p.face = got.face || "s";
     if (where === "pong") { p.spot = "pong:" + got.idx; p.paddle = got.idx === 0 ? 1 : -1; }
@@ -1123,8 +1195,13 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   mem.pos = new Map(people.filter((p) => p.place).map((p) => [p.id, { x: p.x, y: p.y }]));
 
   // Waffles: asleep on her bed, or sitting beside Matt while an agent is blocked and needs him.
+  // Matt's room, the kitchen and the lounge are where she walks to now and then; a blocked agent wins over a walk.
   const dog = by("dog");
-  if (people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = matt.x + 11; dog.y = matt.y + 5; dog.dir = -1; } else { dog.state = "sleep"; dog.x = world.bed.x; dog.y = world.bed.y; }
+  const ms = world.mattDesk.seat, kit = spots.kitchen[4], lng = spots.lounge[7];
+  const walk = dogWalk(mem, now, rand, wakes, [{ x: ms.x + 11, y: ms.y + 5, dir: -1 }, { x: kit.x + 8, y: kit.y + 4, dir: 1 }, { x: lng.x + 8, y: lng.y + 6, dir: 1 }]);
+  if (people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = matt.x + 11; dog.y = matt.y + 5; dog.dir = -1; }
+  else if (walk) { dog.state = "sit"; dog.x = walk.x; dog.y = walk.y; dog.dir = walk.dir; }
+  else { dog.state = "sleep"; dog.x = world.bed.x; dog.y = world.bed.y; }
   dog.place = "dog";
 
   // Name tags sit below a person, above one who sits at the top row of a pod.
@@ -1175,13 +1252,14 @@ export function stackTags(items) {
 /**
  * What a click on a person who is not running can offer. `loh up` starts Scofield and Amy. A coder
  * starts with `loh spawn <coder> <repo> <ticket>`: the offer lists `repos` (the manifest's) and
- * takes a ticket number. loh has no command for anyone else.
+ * takes a ticket number. `loh start` starts Yoda, Sara, Maya and Opemipo. loh has no command for anyone else.
  */
 export function startPlan(p, repos = [], dir = "", names = null) {
   const nm = names || DEFAULT_NAMES;
   if (!p || p.running) return { kind: "running" };
   if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: dir ? `Start ${nm.coordinator} and ${nm.reviewer} in ${dir}?` : `Start ${nm.coordinator} and ${nm.reviewer} with loh up?`, hint: "loh up" };
   if (p.role === "coder") return { kind: "spawn", coder: p.id, repos: [...repos], hint: `loh spawn ${p.id} <repo> <ticket>` };
+  if (PERSONAS.includes(p.id)) return { kind: "start", persona: p.id, ask: dir ? `Start ${p.name} in ${dir}?` : `Start ${p.name} with loh start?`, hint: `loh start ${p.id}` };
   return { kind: "none", hint: `loh has no command to start ${p.name}` };
 }
 
@@ -1197,6 +1275,7 @@ export function validTicket(s) {
 export function startCall(plan, cwd, loh, choice) {
   if (!plan) return null;
   if (plan.kind === "up") return { cmd: loh || "loh", args: ["up"], options: { cwd: cwd || undefined, timeout: 60000 } };
+  if (plan.kind === "start") return { cmd: loh || "loh", args: ["start", plan.persona], options: { cwd: cwd || undefined, timeout: 120000 } };
   if (plan.kind === "spawn" && choice && plan.repos.includes(choice.repo) && validTicket(choice.ticket)) {
     // spawn fetches, makes a worktree and reads the issue, so it gets longer than the lock calls.
     return { cmd: loh || "loh", args: ["spawn", plan.coder, choice.repo, String(choice.ticket)], options: { cwd: cwd || undefined, timeout: 180000 } };

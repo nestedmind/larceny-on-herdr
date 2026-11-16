@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -48,7 +48,7 @@ const lohQueue = serialQueue();
 
 function lohRun(c, a, what) {
   const warn = (why) => notify({ title: `Could not ${what} ${a.name}`, body: String(why || "").slice(0, 200), level: "warning" });
-  return exec(c.cmd, c.args, c.options).then((r) => { if (r.code !== 0) warn(r.stderr || `loh exited ${r.code}`); }).catch((e) => warn(e && e.message));
+  return exec(c.cmd, c.args, c.options).then((r) => { if (r.code !== 0) { warn(r.stderr || `loh exited ${r.code}`); return false; } return true; }).catch((e) => { warn(e && e.message); return false; });
 }
 
 function holders() {
@@ -272,6 +272,14 @@ export default class CrewOffice extends View {
 
   // Render again in `ms`, once: the earliest wish wins. Time alone changes things (an idle time ends, a wait for a review
   // ends, Matt stops typing), and herdr renders only when something changes.
+  // The random source for the wandering: Math.random, or the numbers the `seed` prop fixes (so a run can be repeated).
+  random() {
+    const seed = (props() || {}).seed;
+    if (typeof seed !== "number" || !Number.isFinite(seed)) return Math.random;
+    if (!this.seeded || this.seeded.seed !== seed) this.seeded = { seed, rand: seededRand(seed) };
+    return this.seeded.rand;
+  }
+
   wakeIn(ms) {
     const at = Date.now() + ms;
     if (this.wake && this.wake.at <= at) return;
@@ -294,7 +302,7 @@ export default class CrewOffice extends View {
   // Run loh lock / unlock in the agent's own folder. It exits non-zero when loh or the command
   // is missing or no workspace is found: say so instead of failing silently.
   runLoh(c, a, what) {
-    lohRun(c, a, what);
+    return lohRun(c, a, what);
   }
 
   fail(a, e) {
@@ -571,8 +579,20 @@ export default class CrewOffice extends View {
     if (!call) return; // a coder still needs a repo and a ticket: keep the form open
     this.offer = null;
     if (!dir) notify({ title: "Could not start", body: "No folder to find the workspace from. Set the dir prop to a folder in the workspace.", level: "warning" });
-    else this.runLoh(call, { name: o.plan.kind === "spawn" ? o.person.name : "the crew" }, "start");
+    else {
+      const started = this.runLoh(call, { name: o.plan.kind === "spawn" || o.plan.kind === "start" ? o.person.name : "the crew" }, "start");
+      // A persona started from the office opens its chat once loh has started it, as a click on a running agent does.
+      if (o.plan.kind === "start") started.then((ok) => { if (ok) this.openStarted(o.person.id); });
+    }
     cx.notify();
+  }
+
+  // Open the chat on a persona that has just been started, once herdr lists its terminal.
+  // (The click's cx is dead by then, so the chat opens from a timer's own.)
+  openStarted(id) {
+    let a = null;
+    try { a = crewOf(terminals(), pickWorkspace(terminals(), (props() || {}).crew)).find((x) => String(x.rawName || x.name || "").toLowerCase() === id); } catch (_) { /* no listing */ }
+    if (a && this.acx) this.acx.timer.after(0, (c) => { try { this.panel.select(a, c); this.open(a, c); } catch (_) { /* the view was reloaded or closed */ } });
   }
 
   // Keys while a coder's form is open: digits make the ticket, Enter starts, Esc cancels.
@@ -592,7 +612,7 @@ export default class CrewOffice extends View {
     const o = this.offer;
     if (!o) return null;
     const button = (id, label, bg, fg, onClick) => h_flex().id(id).px(8).py(2).rounded(5).bg(bg).text_size(12).text_color(fg).cursor_pointer().hover((e) => e.opacity(0.85)).on_click(onClick).child(label);
-    const cancel = button("offer-no", o.plan.kind === "up" || o.plan.kind === "spawn" ? "Cancel" : "Dismiss", t.raised, t.foreground, (_e, cx) => { this.offer = null; cx.notify(); });
+    const cancel = button("offer-no", o.plan.kind === "up" || o.plan.kind === "start" || o.plan.kind === "spawn" ? "Cancel" : "Dismiss", t.raised, t.foreground, (_e, cx) => { this.offer = null; cx.notify(); });
     if (o.plan.kind === "spawn") {
       // Start <coder> on a repo from the manifest and a ticket number; nothing runs until Start.
       const ready = !!startCall(o.plan, "x", "loh", { repo: o.repo, ticket: o.ticket });
@@ -609,7 +629,7 @@ export default class CrewOffice extends View {
         .child(button("offer-yes", "Start", ready ? t.solid : t.raised, ready ? t.solid_foreground : t.muted, (_e, cx) => this.confirmStart(cx)))
         .child(cancel);
     }
-    const asks = o.plan.kind === "up";
+    const asks = o.plan.kind === "up" || o.plan.kind === "start";
     return h_flex().id("offer").px(12).py(6).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .child(div().flex_1().text_size(12).text_color(t.foreground).child(asks ? o.plan.ask : `${o.plan.hint}.`))
       .when(asks, (el) => el.child(button("offer-yes", "Start", t.solid, t.solid_foreground, (_e, cx) => this.confirmStart(cx))))
@@ -741,7 +761,7 @@ export default class CrewOffice extends View {
     if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattLast = now;
     this.lastFocus = here;
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
-      mem: this.mem, now, names: this.names,
+      mem: this.mem, now, names: this.names, rand: this.random(),
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
       mattSeated: mattSeatedAt(now, this.mattLast),
       mattTyping: mattTypingAt(now, this.mattLast),
