@@ -22,6 +22,9 @@ const BUILD_MS = 12;
 const ARRIVE_SLACK = 60;
 // How long a walker stands at rest, movers put back, between the end of one walk and the start of the next.
 const SETTLE_MS = 50;
+// Where the floor pictures go, under herdr's folder, and how many stay there.
+const FLOOR_DIR = "crew-office-floors";
+const FLOOR_FILES = 12;
 // The name tag's own slide, for when the tags restack at rest.
 const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
@@ -111,7 +114,11 @@ export default class CrewOffice extends View {
     this.anim = false;
     this.handle = cx.focus_handle();
     this.acx = cx;
-    nameMod(() => this.recoverFs());
+    // (The floor's ellipse images are found by this name, so the floor draws again once it is settled.)
+    nameMod(() => {
+      this.recoverFs();
+      try { this.acx.notify(this.floorView); } catch (_) { /* the view was reloaded or closed */ }
+    });
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -476,19 +483,38 @@ export default class CrewOffice extends View {
   }
 
   // The floor is the same for as long as the plan is, but drawn as paths it was painted again on every animated frame
-  // (about a third of a frame's time). Its SVG goes in herdr's own folder, named by the plan, once; image() then loads it
-  // and the renderer keeps it. Returns the path image() takes when the file is there, else null (the floor view draws).
-  floorPicture(key, layer, L) {
-    let p = this.pics.get(key);
+  // (about a third of a frame's time). Its SVG goes once into a folder of its own in herdr's folder, named by the plan and
+  // the picture's size; image() then loads it and the renderer keeps it. herdr rasterises an image at its own size, so the
+  // picture is written at a whole number of pixels a world unit, at least twice the scale, and a new size means a new file;
+  // until that one is there the last one for the plan stays. Returns the path image() takes when there is a file, else
+  // null (the floor view draws). At most FLOOR_FILES pictures stay in the folder.
+  floorPicture(key, layer, L, k) {
+    const per = Math.max(2, Math.ceil(2 * k));
+    const id = `${key}|${per}`;
+    let p = this.pics.get(id);
     if (!p) {
-      const file = `${appHome()}/${floorSvgName(key)}`;
-      p = { rel: imagePath(appHome(), file), ready: false };
-      this.pics.set(key, p);
-      Promise.resolve().then(() => fs.writeFile(file, floorSvg(layer, L.W, L.H)))
-        .then(() => { p.ready = true; try { this.acx.timer.after(1, (c) => c.notify()); } catch (_) { /* the view was reloaded or closed */ } })
-        .catch(() => { /* no file: the floor view keeps drawing it */ });
+      const dir = `${appHome()}/${FLOOR_DIR}`;
+      const name = floorSvgName(key, per);
+      p = { key, rel: imagePath(appHome(), `${dir}/${name}`), name, ready: false };
+      this.pics.set(id, p);
+      // Built and written in a task of its own, not in this render: building the text of a big floor takes a while.
+      this.acx.timer.after(1, (c) => {
+        fs.mkdir(dir, { recursive: true })
+          .then(() => fs.writeFile(`${dir}/${name}`, floorSvg(layer, L.W, L.H, per)))
+          .then(() => { p.ready = true; try { c.notify(); } catch (_) { /* the view was reloaded or closed */ } })
+          .then(() => fs.readdir(dir))
+          .then((names) => {
+            const mine = new Set([...this.pics.values()].map((q) => q.name));
+            const stale = names.filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f) && !mine.has(f));
+            const over = names.filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f)).length - FLOOR_FILES;
+            return Promise.all(stale.slice(0, Math.max(0, over)).map((f) => fs.unlink(`${dir}/${f}`).catch(() => {})));
+          })
+          .catch(() => { /* no file: the floor view keeps drawing it */ });
+      });
     }
-    return p.ready ? p.rel : null;
+    if (p.ready) return p.rel;
+    const same = [...this.pics.values()].filter((q) => q.key === key && q.ready).pop();
+    return same ? same.rel : null;
   }
 
   // Where each person is drawn this render. A person whose place changed walks there door to door:
@@ -844,7 +870,7 @@ export default class CrewOffice extends View {
       }
     }
     // (A first render after a reload also has the whole crew to draw, so with no floor yet the drawing list waits for the second.)
-    if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k);
+    if (!this.floor.layer && (this.shown || this.floor.waited)) this.floor.layer = floorLayer(L, k, () => MOD);
     this.floor.waited = true;
     let building = true;
     if (this.floor.layer) {
@@ -962,7 +988,7 @@ export default class CrewOffice extends View {
     // One box for the whole floor: the floor view, the people, the click targets and the tags are all placed in it at k.
     // The view sits in a box of that same size (not in one that takes its size from its content or the stage).
     // The finished floor as a picture, once its file is there; until then (or if the file cannot be written) the floor view draws it.
-    const pic = this.floorPicture(this.shown.key, this.shown.layer, L);
+    const pic = this.floorPicture(this.shown.key, this.shown.layer, L, k);
     const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H))
       .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
     const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)

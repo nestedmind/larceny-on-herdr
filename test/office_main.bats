@@ -30,6 +30,7 @@ function el() {
 }
 export const div = el;
 export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return div(); };
+export const svg = () => div();
 export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
@@ -1196,19 +1197,44 @@ const fs = await import("node:fs/promises");
 const os = await import("node:os");
 const home = await fs.mkdtemp(os.tmpdir() + "/loh-home-");
 const views = (root) => all(root.node).filter((n) => id(n) === "floor-box").map((n) => n.kids.length + ":" + (n.kids[0] && n.kids[0].node ? "div" : "?"));
-// A home it cannot write to: the floor view keeps drawing.
-office.pics.clear(); globalThis.APP_HOME = home + "/missing/dir"; globalThis.IMAGES = [];
-render(); await new Promise((r) => setTimeout(r, 30)); render();
+// A home it cannot write to (a file where the folder should go): the floor view keeps drawing.
+await fs.writeFile(home + "/afile", "x");
+office.pics.clear(); globalThis.APP_HOME = home + "/afile"; globalThis.IMAGES = [];
+const tick = () => { for (const t of timers.splice(0)) if (!t.cancelled && t.ms === 1) t.fn(cx); };
+render(); tick(); await new Promise((r) => setTimeout(r, 30)); render();
 const noFile = globalThis.IMAGES.length;
 // A home it can write to: the first render asks for the file, a later one draws it.
 office.pics.clear(); globalThis.APP_HOME = home; globalThis.IMAGES = [];
 render();
 const before = globalThis.IMAGES.length;
-await new Promise((r) => setTimeout(r, 50));
+tick();
+await new Promise((r) => setTimeout(r, 80));
 render();
-const names = (await fs.readdir(home)).filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f));
-const text = names.length ? await fs.readFile(home + "/" + names[0], "utf8") : "";
-console.log(noFile, before, globalThis.IMAGES.length, names.length, globalThis.IMAGES[0] === names[0], text.startsWith("<svg") && text.endsWith("</svg>"));'
+const names = (await fs.readdir(home + "/crew-office-floors")).filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f));
+const text = names.length ? await fs.readFile(home + "/crew-office-floors/" + names[0], "utf8") : "";
+// The picture is drawn at its own size, a whole number of pixels a world unit that is at least twice the scale.
+const size = /width="([0-9.]+)" height="([0-9.]+)"/.exec(text);
+const per = size ? Number(size[1]) / Number(/viewBox="0 0 ([0-9.]+) /.exec(text)[1]) : 0;
+console.log(noFile, before, globalThis.IMAGES.length, names.length, globalThis.IMAGES[0] === "crew-office-floors/" + names[0], text.startsWith("<svg") && text.endsWith("</svg>"), Math.abs(per - Math.round(per)) < 0.01 && per >= 2 && per <= 8);'
   [ "$status" -eq 0 ]
-  [ "$output" = "0 0 1 1 true true" ]
+  [ "$output" = "0 0 1 1 true true true" ]
+}
+
+@test "no more than a dozen floor pictures stay in herdr's folder, the one just written among them, and nothing else there is touched" {
+  run office_js '
+const fs = await import("node:fs/promises");
+const os = await import("node:os");
+const home = await fs.mkdtemp(os.tmpdir() + "/loh-home-");
+await fs.mkdir(home + "/crew-office-floors");
+for (let i = 0; i < 20; i++) await fs.writeFile(home + "/crew-office-floors/crew-office-floor-" + String(i).padStart(8, "0") + ".svg", "old");
+await fs.writeFile(home + "/crew-office-floors/notes.txt", "mine");
+office.pics.clear(); globalThis.APP_HOME = home; globalThis.IMAGES = [];
+render();
+for (const t of timers.splice(0)) if (!t.cancelled && t.ms === 1) t.fn(cx);
+await new Promise((r) => setTimeout(r, 120));
+const names = await fs.readdir(home + "/crew-office-floors");
+const svgs = names.filter((f) => f.endsWith(".svg"));
+console.log(svgs.length <= 12, svgs.filter((f) => !/^crew-office-floor-0000/.test(f)).length === 1, names.includes("notes.txt"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true" ]
 }
