@@ -324,13 +324,13 @@ console.log("drawn");'
 # Photos (#35): the avatar is the person's photo when the folder has one, else the floor figure.
 photo_home() {
   local h="$BATS_TEST_TMPDIR/phome"
-  mkdir -p "$h/.config/larceny/photos"
-  printf '\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\1\x2c\0\0\2\x58\x08\x02\0\0\0' > "$h/.config/larceny/photos/yoda.png"
-  printf 'not a picture' > "$h/.config/larceny/photos/sara.png"
+  mkdir -p "$h/.config/herdr-app/photos"
+  printf '\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\1\x2c\0\0\2\x58\x08\x02\0\0\0' > "$h/.config/herdr-app/photos/yoda.png"
+  printf 'not a picture' > "$h/.config/herdr-app/photos/sara.png"
   printf '%s' "$h"
 }
 
-@test "photos: a person with a photo gets it as an image from the larceny folder; one with none, or an unreadable one, gets the floor figure" {
+@test "photos: a person with a photo gets it as an image from the herdr-app folder; one with none, or an unreadable one, gets the floor figure" {
   local h; h="$(photo_home)"
   PHOME="$h" run panel_js '
 const t = { raised: "a", border: "b" };
@@ -341,7 +341,7 @@ panel.avatar("Yoda", 36, t); const afterYoda = globalThis.IMAGES.length;
 panel.avatar("sara", 36, t); panel.avatar("matt", 36, t); panel.avatar("", 36, t);
 console.log(JSON.stringify([[...panel.photos.keys()], before, afterYoda, globalThis.IMAGES.length, globalThis.IMAGES[0], taskErrors]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["yoda"],0,1,1,"../larceny/photos/yoda.png",[]]' ]
+  [ "$output" = '[["yoda"],0,1,1,"photos/yoda.png",[]]' ]
 }
 
 @test "photos: a photo added while the office is open shows on the next read, and nothing is read again before then" {
@@ -349,7 +349,7 @@ console.log(JSON.stringify([[...panel.photos.keys()], before, afterYoda, globalT
   PHOME="$h" run panel_js '
 const fs = await import("node:fs/promises");
 click((cx) => panel.loadPhotos(cx)); await settle();
-await fs.writeFile(process.env.PHOME + "/.config/larceny/photos/amy.png", await fs.readFile(process.env.PHOME + "/.config/larceny/photos/yoda.png"));
+await fs.writeFile(process.env.PHOME + "/.config/herdr-app/photos/amy.png", await fs.readFile(process.env.PHOME + "/.config/herdr-app/photos/yoda.png"));
 click((cx) => panel.loadPhotos(cx)); await settle();
 const early = [...panel.photos.keys()].sort();
 panel.photosAt -= 61000;
@@ -365,7 +365,7 @@ console.log(JSON.stringify([early, [...panel.photos.keys()].sort(), taskErrors])
 click((cx) => panel.loadPhotos(cx)); await settle();
 console.log(JSON.stringify(panel.photos.get("yoda")));'
   [ "$status" -eq 0 ]
-  [ "$output" = '{"path":"'"$h"'/.config/larceny/photos/yoda.png","w":300,"h":600,"crop":null}' ]
+  [ "$output" = '{"path":"'"$h"'/.config/herdr-app/photos/yoda.png","w":300,"h":600,"crop":null}' ]
   PHOME="$BATS_TEST_TMPDIR/empty" run panel_js '
 click((cx) => panel.loadPhotos(cx)); await settle();
 panel.avatar("yoda", 36, { raised: "a", border: "b" });

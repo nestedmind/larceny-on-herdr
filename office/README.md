@@ -30,7 +30,7 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 | `crew` | Workspace to show. Default: the `crew` label with the most live terminals |
 | `loh` | Path of the `loh` command to run on click and to list repos. Default: `loh` on herdr-app's PATH |
 | `dir` | A folder inside the workspace, used to find it (repo list, `loh up`) when no agent is running |
-| `photos` | Folder of people's photos. Default: `~/.config/larceny/photos/`, then `~/.config/herdr-app/photos/` |
+| `photos` | A folder of people's photos under herdr-app's own folder, read before the default. Default: `~/.config/herdr-app/photos/` |
 | `idleMinutes` | Minutes a person sits at their desk after a turn ends before going to the lounge. Default: the workspace's `idle_minutes` (`loh status --settings`), else 3 |
 
 ## What it shows
@@ -142,9 +142,9 @@ herdr-app check office/crew-office
 
 The chat panel shows a person's photo in a circle with a thin border: 36 px in the panel header, 32 px in the chat log (24 px on a narrow panel). The floor name tags have none.
 
-- **Where they live.** One file per person, named after them in lower case: `yoda.jpg`, `sara.png`, `amy.webp`. JPEG, PNG, WebP and GIF are read. The office looks in the `photos` prop's folder, then `~/.config/larceny/photos/`, then `~/.config/herdr-app/photos/`; the first folder with a readable picture for a name wins. Nothing image-related is committed to the repo.
+- **Where they live.** One file per person, named after them in lower case: `yoda.jpg`, `sara.png`, `amy.webp`. JPEG, PNG, WebP and GIF are read. The office looks in `~/.config/herdr-app/photos/`, after the `photos` prop's folder when that is set to one under herdr-app's folder; the first folder with a readable picture for a name wins. Nothing image-related is committed to the repo.
 - **No photo.** Someone with no file, or whose file cannot be read or is not a picture, shows their own floor figure, head and shoulders (Waffles her dog). Matt too.
 - **New photos.** The folders are read again at most once a minute, on the office's next render (it wakes every minute for its repo list), so a photo added while the office is open appears without reopening the tab.
 - **Crop.** By default the largest centred square (from the top for a portrait). An optional `<name>.crop` beside the photo holds one line, `x y size`: the square's centre as fractions of the picture's width and height, and its side as a fraction of the short edge (`0.5 0.3 0.6`). A missing or malformed sidecar falls back to the default.
 - **Names.** The cast's names today; the resolved crew once that lands.
-- **Folder outside herdr's.** herdr-app loads an image by a path relative to its own folder, so a photo in `~/.config/larceny/photos/` is addressed as `../larceny/photos/<file>`. If your herdr-app does not load images from there, put the photos in `~/.config/herdr-app/photos/`.
+- **Why that folder.** herdr-app's `image()` loads only from inside herdr-app's own folder: a path outside it, relative (`../`) or absolute, draws nothing. So the photos live in `~/.config/herdr-app/photos/`.

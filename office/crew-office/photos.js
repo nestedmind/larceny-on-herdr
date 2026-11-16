@@ -1,17 +1,24 @@
 // People's photos for the chat panel (ticket #35). Pure parts and one folder scan, with no herdr imports so they
-// run under node in the tests. The photos live in a folder on the person's machine, one file per person named
+// run under node in the tests. The photos live in a folder under herdr-app's own, one file per person named
 // after them (`yoda.jpg`, `sara.png`), and nothing image-related is committed to the repo: anyone without a photo
 // gets their floor figure (draw.js bustEl).
 
 export const PHOTO_EXTS = ["jpg", "jpeg", "png", "webp", "gif"];
 
-/** The folders to look in, first match wins: the `photos` prop, then ~/.config/larceny/photos, then herdr-app's own. */
+/**
+ * The folders to look in, first match wins: the `photos` prop, then ~/.config/herdr-app/photos. herdr's image() loads
+ * only from inside herdr-app's own folder, so the prop counts only when it names a folder under it (`~` and a path
+ * relative to herdr-app's folder are understood); any other value, or one with a `..`, is ignored.
+ */
 export function photoDirs(home, appHome, prop) {
+  const base = appHome.replace(/\/+$/, "");
   const out = [];
-  const add = (d) => { if (d && !out.includes(d)) out.push(d.replace(/\/+$/, "") || "/"); };
-  if (typeof prop === "string" && prop.trim()) add(prop.trim().replace(/^~(?=\/|$)/, home));
-  add(`${home}/.config/larceny/photos`);
-  add(`${appHome}/photos`);
+  if (typeof prop === "string" && prop.trim()) {
+    let d = prop.trim().replace(/^~(?=\/|$)/, home).replace(/\/+$/, "");
+    if (!d.startsWith("/")) d = `${base}/${d}`;
+    if (d.startsWith(`${base}/`) && !d.split("/").includes("..") && d !== `${base}/photos`) out.push(d);
+  }
+  out.push(`${base}/photos`);
   return out;
 }
 

@@ -48,10 +48,10 @@ setup() { mkdir -p "$BATS_TEST_TMPDIR/dir"; }
   [ "$output" = '{"width":72,"height":36,"left":-18,"top":0}' ]
 }
 
-@test "photoDirs: the prop first, then the larceny folder, then herdr-app's own" {
-  run photos_js 'console.log(JSON.stringify([P.photoDirs("/h","/h/.config/herdr-app"), P.photoDirs("/h","/h/.config/herdr-app","~/pics/"), P.photoDirs("/h","/h/.config/herdr-app","  ")]));'
+@test "photoDirs: herdr-app's photos folder, after a prop folder only when it is under herdr-app's own" {
+  run photos_js 'const A = "/h/.config/herdr-app"; console.log(JSON.stringify([P.photoDirs("/h", A), P.photoDirs("/h", A, "~/.config/herdr-app/crew/"), P.photoDirs("/h", A, "crew-photos"), P.photoDirs("/h", A, "~/pics"), P.photoDirs("/h", A, "/h/.config/larceny/photos"), P.photoDirs("/h", A, "crew/../../x"), P.photoDirs("/h", A, "/h/.config/herdr-app-evil/p"), P.photoDirs("/h", A, "  ")]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["/h/.config/larceny/photos","/h/.config/herdr-app/photos"],["/h/pics","/h/.config/larceny/photos","/h/.config/herdr-app/photos"],["/h/.config/larceny/photos","/h/.config/herdr-app/photos"]]' ]
+  [ "$output" = '[["/h/.config/herdr-app/photos"],["/h/.config/herdr-app/crew","/h/.config/herdr-app/photos"],["/h/.config/herdr-app/crew-photos","/h/.config/herdr-app/photos"],["/h/.config/herdr-app/photos"],["/h/.config/herdr-app/photos"],["/h/.config/herdr-app/photos"],["/h/.config/herdr-app/photos"],["/h/.config/herdr-app/photos"]]' ]
 }
 
 @test "scanPhotos: found with its crop; no file means no entry; unreadable, empty and not-a-picture files are skipped; a bad sidecar gives no crop" {
@@ -80,9 +80,9 @@ console.log(JSON.stringify([[...m.keys()].sort(), m.get("yoda").w, (await P.scan
 }
 
 @test "imagePath is relative to herdr-app's folder" {
-  run photos_js 'console.log(JSON.stringify([P.imagePath("/h/.config/herdr-app", "/h/.config/herdr-app/photos/a.jpg"), P.imagePath("/h/.config/herdr-app", "/h/.config/larceny/photos/a.jpg")]));'
+  run photos_js 'console.log(JSON.stringify(P.imagePath("/h/.config/herdr-app", "/h/.config/herdr-app/photos/a.jpg")));'
   [ "$status" -eq 0 ]
-  [ "$output" = '["photos/a.jpg","../larceny/photos/a.jpg"]' ]
+  [ "$output" = '"photos/a.jpg"' ]
 }
 
 @test "squareOf: Maya's Yoda sidecar 0.60 0.42 0.84 on the 1456x720 picture crops at x=571.2, y=0, side 604.8" {
