@@ -457,3 +457,90 @@ console.log(row(a[1])); console.log(row(a[4])); console.log(row(a[5]));'
   [ "${lines[1]}" = "pong.pong:0 desk pong.pong:1" ]
   [ "${lines[2]}" = "pong.pong:0 kitchen pong.pong:1" ]
 }
+
+# ---- Matt sends someone to a room (ticket #47): the place label, and meetings ----
+
+@test "place=rest sends an agent whose turn has ended to the rest room at once, and a new turn brings it back" {
+  run crew_js "$HELPERS"'
+const w = [T("scofield", "working", {role: "coordinator"})];
+const d = (l) => [T("scofield", "done", {role: "coordinator", ...l})];
+const a = play([[0, w], [10, d({})], [11, d({place: "rest"})], [12, [T("scofield", "working", {role: "coordinator", place: "rest"})]], [13, [T("scofield", "working", {role: "coordinator"})]]]);
+console.log(a.map((L) => at(L, "scofield")).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk:scofield desk:scofield rest:- desk:scofield desk:scofield" ]
+}
+
+@test "place sends an idle agent to each room, and the person stays past the idle time" {
+  run crew_js "$HELPERS"'
+const r = ["kitchen", "pong", "rest", "meeting", "lounge"];
+console.log(r.map((x) => { const L = last(play([[0, [T("amy", "idle", {role: "reviewer", place: x})]], [1000, [T("amy", "idle", {role: "reviewer", place: x})]]])); return P(L, "amy").place; }).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "kitchen pong rest meeting lounge" ]
+}
+
+@test "place works for Maya, Opemipo, Yoda, Sara and a coder" {
+  run crew_js "$HELPERS"'
+const ts = [T("maya", "idle", {place: "kitchen"}), T("opemipo", "idle", {place: "kitchen"}), T("yoda", "idle", {role: "advisor", place: "kitchen"}), T("sara", "idle", {role: "teacher", place: "kitchen"}), T("sucre", "idle", {role: "coder", task: "api#3", place: "kitchen"})];
+const L = last(play([[0, ts]]));
+console.log(["maya", "opemipo", "yoda", "sara", "sucre"].map((i) => P(L, i).place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "kitchen kitchen kitchen kitchen kitchen" ]
+}
+
+@test "a coder with a ticket that is sent away keeps its desk and nobody else is given it" {
+  run crew_js "$HELPERS"'
+const s = (st, l) => T("sucre", st, {role: "coder", task: "api#3", ...l});
+const a = play([[0, [s("working")]], [5, [s("idle", {place: "rest"}), T("mahone", "working", {role: "coder", task: "api#4"})]], [9, [s("idle", {place: "lounge"}), T("mahone", "working", {role: "coder", task: "api#4"})]]]);
+const L = last(a);
+console.log(P(L, "sucre").place, P(L, "sucre").desk, P(L, "mahone").desk);'
+  [ "$status" -eq 0 ]
+  [[ "$output" == "lounge repo:api:1 repo:api:2" ]]
+}
+
+@test "place=desk keeps an agent seated until the idle time runs out from the moment the label appears" {
+  run crew_js "$HELPERS"'
+const i = [T("scofield", "idle", {role: "coordinator"})];
+const k = [T("scofield", "idle", {role: "coordinator", place: "desk"})];
+const a = play([[0, i], [200, i], [201, k], [201 + 179, k], [201 + 180, k]]);
+console.log(a.map((L) => P(L, "scofield").place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "desk lounge desk desk lounge" ]
+}
+
+@test "crewOf reads place only for a known room, and meeting only as 1" {
+  run crew_js "$HELPERS"'
+const c = crew.crewOf([T("a", "idle", {place: "lounge", meeting: "1"}), T("b", "idle", {place: "roof", meeting: "0"})], "w");
+console.log(c.map((x) => x.place + "/" + x.meeting).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "lounge/true /false" ]
+}
+
+@test "a meeting agent stays in the meeting room through a working turn and past the idle time" {
+  run crew_js "$HELPERS"'
+const m = (st) => [T("scofield", st, {role: "coordinator", meeting: "1"})];
+const a = play([[0, m("idle")], [5, m("working")], [10, m("done")], [10000, m("idle")]]);
+console.log(a.map((L) => P(L, "scofield").place).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "meeting meeting meeting meeting" ]
+}
+
+@test "Matt is in the meeting room, facing the agent, while any agent has the meeting label, whatever his typing says" {
+  run crew_js "$HELPERS"'
+const m = [T("scofield", "idle", {role: "coordinator", meeting: "1"})];
+const L = last(play([[0, m, {mattSeated: true, mattTyping: true}], [1, m, {mattSeated: true, mattTyping: true}]]));
+const n = last(play([[0, [T("scofield", "idle", {role: "coordinator"})], {mattSeated: false}]]));
+console.log(P(L, "matt").place, P(n, "matt").place, L.screens.matt, Math.abs(P(L, "matt").x - P(L, "scofield").x) < 80);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "meeting lounge dim true" ]
+}
+
+@test "two agents join one meeting and take different seats; ending it returns both and Matt" {
+  run crew_js "$HELPERS"'
+const mk = (l) => [T("scofield", "idle", {role: "coordinator", ...l}), T("maya", "working", {...l})];
+const a = play([[0, mk({meeting: "1"})], [1, mk({meeting: "1"})], [2, mk({})]]);
+const m = a[1];
+const s1 = P(m, "scofield"), s2 = P(m, "maya");
+console.log(s1.place, s2.place, s1.x !== s2.x || s1.y !== s2.y, at(a[2], "scofield"), at(a[2], "maya"), P(a[2], "matt").place);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "meeting meeting true desk:scofield desk:maya lounge" ]
+}

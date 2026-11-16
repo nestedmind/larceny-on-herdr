@@ -29,6 +29,7 @@ function el() {
   return p;
 }
 export const div = el;
+export const image = () => div();
 export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
@@ -46,6 +47,7 @@ EOF
 const mk = (n, status) => ({ address: "t" + n, name: n, state: "live", agent: "claude", status, labels: { crew: "sandbox", role: n === "scofield" ? "coordinator" : "coder", task: n === "scofield" ? "" : "api#" + n.length, step: "reading" } });
 globalThis.TERMS = [mk("scofield", "working"), mk("sheba", "working"), mk("sucre", "idle")];
 globalThis.SELECTED = [];
+export const home = () => "/nohome";
 export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
@@ -62,7 +64,7 @@ export const window = () => ({ fullscreen: false });
 export const focused = () => globalThis.FOCUS || null;
 EOF
   echo '{"type":"module"}' > "$d/package.json"
-  for f in crew draw panel chat main; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in crew draw panel chat photos main; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];

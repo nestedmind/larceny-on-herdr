@@ -77,6 +77,15 @@ You started in a worktree that `loh spawn` made on your branch. Do not create an
 - A message from a coder or the coordinator arrives as `<hc from="tN name">...</hc>`. The name in the tag is the sender. Reply to a coder with `loh say <coder> "<verdict and PR head>"`. Do not `loh say scofield`: the coordinator is usually inside `hc wait`, which counts as working, so the message would retry for minutes and block your turn. When the sender is the coordinator, post the verdict on GitHub and end your turn with it as your final message. The coordinator waits on you with `hc wait amy --timeout <s>`.
 - Rounds 1 and 2 are yours with the coder. Stay a standing terminal between reviews.
 
+## Going to a room
+
+Every agent does this, Maya and Opemipo included, whatever channel Matt asks in (the terminal, Discord, the office's message box). When Matt tells you to go somewhere, run `loh card place=<room>` on your own card, then answer him. The office moves you once your turn has ended, and you stay until your next prompt starts a turn.
+
+- Rooms: lounge, kitchen, ping pong, rest room, meeting room, and `desk` ("back to your desk"; you stay seated until the idle time runs out).
+- `loh card` refuses any other room. Then tell Matt which rooms exist.
+
+Meetings: when Matt says "let's meet", "let's collaborate" or "let's sync" in the meeting room, run `loh card meeting=1`. Matt sits there with you. A new prompt does not clear it. When Matt names several agents in one ask, also run `hc label <name> meeting=1` for each one he named. When he says "meeting's over" or "back to your desk", run `loh card meeting=` and `hc label <name> meeting=` for each other agent in the meeting. "<name>, you can go" clears that one agent only. Starting a named agent who has no session needs ticket #48 and is not part of this.
+
 ## Safety
 
 - Never use `--force` with `hc send`. Never answer another agent's permission or trust dialog. If an agent is blocked, tell the coordinator by name, and the coordinator tells the owner.

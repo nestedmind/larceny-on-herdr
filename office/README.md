@@ -30,6 +30,7 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 | `crew` | Workspace to show. Default: the `crew` label with the most live terminals |
 | `loh` | Path of the `loh` command to run on click and to list repos. Default: `loh` on herdr-app's PATH |
 | `dir` | A folder inside the workspace, used to find it (repo list, `loh up`) when no agent is running |
+| `photos` | A folder of people's photos under herdr-app's own folder, read before the default. Default: `~/.config/herdr-app/photos/` |
 | `idleMinutes` | Minutes a person sits at their desk after a turn ends before going to the lounge. Default: the workspace's `idle_minutes` (`loh status --settings`), else 3 |
 
 ## What it shows
@@ -47,7 +48,11 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
   | A coder with a PR and nothing in hand (waiting on its review) | The kitchen, with a mug; ping pong after about 15 s, or about 2 s when someone is alone at the table |
   | A coder that has escalated (its note starts with `escalation:`, set by `loh card note=...`) | Ping pong |
   | Compacting (`ctx=compact`) or just cleared (`ctx=clear`) | The rest room, with `zz`. After a compaction, back at the desk. After a clear, the lounge once the rest is over (4 s) |
+  | Sent to a room (`place=lounge`, `kitchen`, `pong`, `rest`, `meeting`, set by `loh card place=<room>`) and the turn has ended | That room, at once, and it stays there until the agent's next prompt starts a turn (the status-card hook clears the label). A coder with a ticket keeps its desk meanwhile |
+  | `place=desk` (back to your desk) | At its desk until the idle time has run out, counted from the render that first sees the label |
+  | In a meeting (`meeting=1`, set by `loh card meeting=1`) | The meeting room, working or idle, until the label is cleared (`loh card meeting=`). A new prompt does not clear it. Each agent in the meeting takes its own seat |
   | No session | The lounge, faded |
+  | Matt, while any agent has `meeting=1` | The meeting room, in a free chair, whatever his typing signs say |
   | Matt | At his desk for 3 minutes after his last sign of activity in herdr (see below); otherwise away in the lounge with a mug |
 
   - **Idle time.** Counted from the render that first sees a person not working or blocked, and a `done` that turns `idle` does not restart it. A person first seen idle counts from `status_ms` when herdr gives it (a mod's `terminals()` is the `hc ls` shape and may not), else from the first sight. The default is 3 minutes. Two settings change it: the `idleMinutes` prop (a number of minutes), and `idle_minutes:` in the workspace manifest, which the office reads from `loh status --settings`. The prop wins; a value that is not a positive number is ignored.
@@ -93,6 +98,8 @@ Set by `loh`, the status-card hooks and the lock. The office shows what is there
 | `task` | `<repo>#<n>`: the repo room and the ticket on the tag |
 | `step`, `pr`, `round`, `note` | Lines on the name tag (cut to 60 characters) |
 | `with_matt` | `1` shows "with Matt" and rings the person |
+| `place` | A room Matt sent the agent to: `lounge`, `kitchen`, `pong`, `rest`, `meeting` or `desk`. `loh card place=` takes the names as said ("ping pong", "rest room", "meeting room") and refuses any other. The office honours it once the turn has ended; the next prompt clears it |
+| `meeting` | `1` while the agent is in a meeting with Matt. Not cleared by a new prompt |
 | `ctx` | `compact` while the context compacts, `clear` after a clear: the person is in the rest room. The status-card hooks write it (PreCompact, and SessionStart for the sources `compact` and `clear`); the next turn removes it |
 
 Status comes from the terminal itself (`idle`, `working`, `blocked`, `done`). For a blocked agent the kind (`permission` or `question`) is read from the terminal's report; if herdr-app does not expose it, the bubble shows `!`.
@@ -136,3 +143,15 @@ herdr-app check office/crew-office
 ```
 
 `bats test/office.bats` runs this when `herdr-app` is on PATH and skips it otherwise. It also checks the placement logic in `crew.js` with node.
+
+## Photos
+
+The chat panel shows a person's photo in a circle with a thin border: 36 px in the panel header, 32 px in the chat log (24 px on a narrow panel). The floor name tags have none.
+
+- **Where they live.** One file per person, named after them in lower case: `yoda.jpg`, `sara.png`, `amy.webp`. JPEG, PNG, WebP and GIF are read. The office looks in `~/.config/herdr-app/photos/`, after the `photos` prop's folder when that is set to one under herdr-app's folder; the first folder with a readable picture for a name wins. Nothing image-related is committed to the repo.
+- **No photo.** Someone with no file, or whose file cannot be read or is not a picture, shows their own floor figure, head and shoulders (Waffles her dog). Matt too.
+- **New photos.** The folders are read again at most once a minute, on the office's next render (it wakes every minute for its repo list), so a photo added while the office is open appears without reopening the tab.
+- **Crop.** By default the largest centred square (from the top for a portrait). An optional `<name>.crop` beside the photo holds one line, `x y size`: the square's centre as fractions of the picture's width and height, and its side as a fraction of the short edge (`0.5 0.3 0.6`). A missing or malformed sidecar falls back to the default.
+- **Small copies.** herdr's `image()` draws without smoothing, so a picture of about 1000 px shrunk to a 32 px avatar is grainy. The office runs `loh photos thumbs <folder>` for each photo folder after it has read it (so at most once a minute), and draws from the small copy it writes, `.thumbs/<name>.<crop>.png` in that folder: 128 px square, the crop already applied. Until a copy exists, or when it cannot be made, the picture itself is drawn as before. A copy is made again when its picture changes or its crop changes. It needs `magick` (ImageMagick) or python3 with PIL on the machine that runs `loh`; with neither, the full pictures are drawn and nothing else is lost.
+- **Names.** The cast's names today; the resolved crew once that lands.
+- **Why that folder.** herdr-app's `image()` loads only from inside herdr-app's own folder: a path outside it, relative (`../`) or absolute, draws nothing. So the photos live in `~/.config/herdr-app/photos/`.
