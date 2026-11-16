@@ -171,7 +171,8 @@ export class Layer {
     if (this.pct && this.divs && rx === ry) return this.addDiv(X - RX, Y - RY, 2 * RX, 2 * RY, -1, fill);
     if (this.pct) {
       const pts = [];
-      const n = sidesFor(Math.max(rx, ry));
+      // (A rounded layer's ellipses are few, so they get many sides: their corners would show as facets.)
+      const n = this.divs ? (Math.max(rx, ry) < 6 ? 36 : 120) : sidesFor(Math.max(rx, ry));
       for (let i = 0; i < n; i++) { const a = (2 * Math.PI * i) / n; pts.push([X + RX * Math.cos(a), Y + RY * Math.sin(a)]); }
       return this.add([["move_to", ...pts[0]], ...pts.slice(1).map((p) => ["line_to", ...p]), ["close"]], fill);
     }

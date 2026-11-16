@@ -157,15 +157,15 @@ console.log(kids.length, !!kids[0].path, !!kids[2].path, JSON.stringify([c.props
   [ "$output" = '3 true true [["45%"],["40%"],["10%"],["20%"]] true' ]
 }
 
-@test "a rounded layer draws a rounded rectangle as a div whose radius follows the scale, and an ellipse stays a polygon" {
+@test "a rounded layer draws a rounded rectangle as a div whose radius follows the scale, and an ellipse stays a polygon of 120 corners" {
   run draw_js '
 const g = new draw.Layer(2, 0, 0, 100, 50, "", true).rounded().rr(10, 5, 20, 10, 3, "#334455").ell(50, 25, 6, 3, "#556677");
 const a = g.el().node.kids.map((e) => e.node);
 const r2 = JSON.stringify(a[0].props.rounded);
 const r5 = JSON.stringify(g.at(5).el().node.kids[0].node.props.rounded);
-console.log(r2, r5, !!a[1].path, a[1].path.cmds.length > 10);'
+console.log(r2, r5, !!a[1].path, a[1].path.cmds.length);'
   [ "$status" -eq 0 ]
-  [ "$output" = '[6] [15] true true' ]
+  [ "$output" = '[6] [15] true 121' ]
 }
 
 @test "the floor's circles and rounded rectangles are divs, not polygons" {
