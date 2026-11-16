@@ -34,12 +34,12 @@ Rules for this repo:
 
 Use `loh say <name> "<text>"`. Names are agents' herdr names, not pane ids.
 
-- When your PR is open, run `loh say amy "PR #<n> ready for review: {{github}}#{{ticket}}"`. Amy reviews on GitHub and replies to you by name. Rounds 1 and 2 stay between you and Amy. Then end your turn; Amy's reply arrives as a new turn.
-- If a finding is still open after round 2, or you are blocked, end your turn with the escalation (what is open, and your position) as your final message. Before you end the turn, run `loh card note="escalation:<one line>"`, so `loh watch` notifies the owner. Do not run `loh say scofield`: the coordinator waits in `hc wait --children any`, which counts as working, so a message would not be delivered. Its wait returns when your turn ends.
+- When your PR is open, run `loh say {{reviewer}} "PR #<n> ready for review: {{github}}#{{ticket}}"`. {{reviewer_name}} reviews on GitHub and replies to you by name. Rounds 1 and 2 stay between you and {{reviewer_name}}. Then end your turn; {{reviewer_name}}'s reply arrives as a new turn.
+- If a finding is still open after round 2, or you are blocked, end your turn with the escalation (what is open, and your position) as your final message. Before you end the turn, run `loh card note="escalation:<one line>"`, so `loh watch` notifies the owner. Do not run `loh say {{coordinator}}`: the coordinator waits in `hc wait --children any`, which counts as working, so a message would not be delivered. Its wait returns when your turn ends.
 
 ## Finish
 
 1. Open one PR for the ticket with `loh gh {{coder}} pr create`, closing the ticket with "Closes #{{ticket}}" last in the body.
-2. Merge only after Amy's reply approves the current head. It arrives as a new turn: from Amy herself, or, in rounds 3 to 5, as a `loh say` from the coordinator passing on her verdict. Verify it with `loh gh {{coder}} pr view <n> --json reviews,headRefOid`: a formal review by Amy's account on the current head. No approval, no merge.
+2. Merge only after {{reviewer_name}}'s reply approves the current head. It arrives as a new turn: from {{reviewer_name}} herself, or, in rounds 3 to 5, as a `loh say` from the coordinator passing on her verdict. Verify it with `loh gh {{coder}} pr view <n> --json reviews,headRefOid`: a formal review by {{reviewer_name}}'s account on the current head. No approval, no merge.
 3. Merge with `loh gh {{coder}} pr merge <n> --squash --delete-branch`, which deletes the remote branch. Then remove your worktree from outside it and delete the local branch with `git branch -D {{branch}}`, as the coder skill describes. Then check the remote branch is gone: `git ls-remote --heads origin {{branch}}` must print nothing. If it prints a line, delete it with `loh gh {{coder}} api -X DELETE repos/{{github}}/git/refs/heads/{{branch}}`.
-4. Report the PR number and the head SHA as your final message and end your turn. Do not run `loh say scofield`.
+4. Report the PR number and the head SHA as your final message and end your turn. Do not run `loh say {{coordinator}}`.

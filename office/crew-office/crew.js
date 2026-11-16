@@ -307,6 +307,8 @@ export const OWNER_WORD = "Owner";
 // Long hair belongs to the shipped person of that name, not to whoever takes the seat.
 const LONG = new Set(["sheba", "amy", "sara", "maya"]);
 
+const FIXED_IDS = ["scofield", "amy", "maya", "opemipo", "yoda", "sara", "matt", "dog"];
+
 /**
  * Everyone who is always in the office, in the prototype's order: a seat each for the coordinator, the coders, the
  * reviewer, the advisor, the teacher and the owner, and Maya, Opemipo and the dog. `names` is namesOf's result (none
@@ -319,7 +321,8 @@ export function castFor(names) {
   const seat = (id, name, title, role, extra = {}) => ({ id, name, key: name.toLowerCase(), title, role, ...(LONG.has(name.toLowerCase()) ? { long: true } : {}), ...extra });
   return [
     seat("scofield", n.coordinator, "coordinator", "coordinator"),
-    ...n.coders.map((c) => seat(c.toLowerCase(), c, "coder", "coder")),
+    // A coder named like a fixed seat (the teacher, say) keeps its own id, so two people never share one.
+    ...n.coders.map((c) => seat(FIXED_IDS.includes(c.toLowerCase()) ? "c:" + c.toLowerCase() : c.toLowerCase(), c, "coder", "coder")),
     seat("amy", n.reviewer, "reviewer", "reviewer"),
     { id: "maya", name: "Maya", key: "maya", title: "designer", role: "helper", long: true },
     { id: "opemipo", name: "Opemipo", key: "opemipo", title: "researcher", role: "helper" },

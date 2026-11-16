@@ -122,3 +122,12 @@ console.log(JSON.stringify(crew.look("mia")) !== JSON.stringify(crew.look("scofi
   [ "$status" -eq 0 ]
   [ "$output" = "true true" ]
 }
+
+@test "a coder named like a fixed seat gets an id of its own" {
+  run crew_js "$HELPERS"'
+const L = lay([T("sara", "working", {role: "coder", task: "api#1"})], {...NAMES, coders: ["Sara", "Bo"]});
+const ids = L.people.map((p) => p.id);
+console.log(new Set(ids).size === ids.length, L.people.filter((p) => p.name === "Sara").map((p) => p.id + ":" + p.role + ":" + p.running).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true c:sara:coder:true" ]
+}
