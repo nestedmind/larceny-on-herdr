@@ -1,6 +1,8 @@
 # shellcheck shell=bash
 # loh start: start one standing persona (Yoda, Sara, Maya or Opemipo) unless it
 # is already live. Usage: loh start <yoda|sara|maya|opemipo>
+# yoda and sara are the advisor and the teacher seats: the terminal takes the name the crew
+# config gives them (see loh crew), and the agent is larceny's role alias, as in loh up.
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -13,8 +15,8 @@ usage() {
 [[ $# -eq 1 ]] || usage
 name="$1"
 case "$name" in
-  yoda) role=advisor agent=larceny:yoda ;;
-  sara) role=teacher agent=larceny:sara ;;
+  yoda) role=advisor agent=larceny:advisor ;;
+  sara) role=teacher agent=larceny:teacher ;;
   maya) role=designer agent=maya ;;
   opemipo) role=researcher agent=opemipo ;;
   *) usage ;;
@@ -23,6 +25,12 @@ esac
 need hc
 need jq
 manifest_load
+crew_load
+case "$name" in
+  yoda) seat=yoda name="$(agent_name "$CREW_ADVISOR")" ;;
+  sara) seat=sara name="$(agent_name "$CREW_TEACHER")" ;;
+  *) seat="$name" ;;
+esac
 
 # model_in <file> <persona>: print the persona's override from the file's
 # `models:` block (indented `<persona>: <model>` lines), or nothing.
@@ -74,6 +82,7 @@ case "$(agent_state "$name")" in
 esac
 
 model="$(resolve_model "$name")"
+[[ -n "$model" || "$seat" == "$name" ]] || model="$(resolve_model "$seat")"
 claude_args=(--agent "$agent" --permission-mode "$WS_PANE_MODE")
 [[ -z "$model" ]] || claude_args+=(--model "$model")
 

@@ -149,3 +149,20 @@ console.log(crew.startCall(crew.startPlan(P(L, "matt")), "/ws/x", "loh"), crew.s
   [ "${lines[0]}" = "/opt/loh start yoda /ws/x 120000" ]
   [ "${lines[1]}" = "null none up" ]
 }
+
+@test "with configured crew names the advisor and teacher seats still wander, are drawn at full colour and offer loh start" {
+  run crew_js "$HELPERS"'
+const names = {coordinator: "Mia", reviewer: "Rex", advisor: "Rey", teacher: "Ada", coders: ["Ana", "Bo"], person: "Dana"};
+const rooms = new Set(); const dims = [];
+hour([], 7, (L) => { rooms.add(where(L, P(L, "yoda"))); }, 1);
+const L = crew.layoutCrew([], ["api"], 0, {names, mem: crew.newMemory(), now: 1000, rand: seeded(7)});
+const y = P(L, "yoda"), s = P(L, "sara");
+console.log([y.name, s.name, y.dim, s.dim, crew.startPlan(y, [], "/ws", names).ask, crew.startPlan(s, [], "/ws", names).hint].join("|"));
+const wander = new Set();
+const mem = crew.newMemory(), rand = seeded(5); let now = 1000000;
+for (let i = 0; i < 40; i++) { const M = crew.layoutCrew([], ["api"], 0, {names, mem, now, rand}); wander.add(where(M, P(M, "yoda"))); wander.add(where(M, P(M, "sara"))); now += Math.max(1, M.wakeIn || 60000); }
+console.log([...wander].sort().join());'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "Rey|Ada|false|false|Start Rey in /ws?|loh start sara" ]
+  [[ "${lines[1]}" != *meet* && "${lines[1]}" != *corridor* && "${lines[1]}" != *matt* ]]
+}

@@ -24,7 +24,7 @@ setup() {
   hc_seq get.yoda "$ABSENT" "$IDLE"
   run "$LOH" start yoda
   [ "$status" -eq 0 ]
-  grep -qxF $'run\t--bg\t--no-parent\t--name\tyoda\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=advisor\t--\tclaude\t--agent\tlarceny:yoda\t--permission-mode\tauto' "$FAKE_HC_LOG"
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tyoda\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=advisor\t--\tclaude\t--agent\tlarceny:advisor\t--permission-mode\tauto' "$FAKE_HC_LOG"
   [[ "$output" == *"started yoda"* ]]
 }
 
@@ -36,7 +36,7 @@ setup() {
   [ "$status" -eq 0 ]
   run "$LOH" start opemipo
   [ "$status" -eq 0 ]
-  grep -qxF $'run\t--bg\t--no-parent\t--name\tsara\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=teacher\t--\tclaude\t--agent\tlarceny:sara\t--permission-mode\tauto' "$FAKE_HC_LOG"
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tsara\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=teacher\t--\tclaude\t--agent\tlarceny:teacher\t--permission-mode\tauto' "$FAKE_HC_LOG"
   grep -qxF $'run\t--bg\t--no-parent\t--name\tmaya\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=designer\t--\tclaude\t--agent\tmaya\t--permission-mode\tauto' "$FAKE_HC_LOG"
   grep -qxF $'run\t--bg\t--no-parent\t--name\topemipo\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=researcher\t--\tclaude\t--agent\topemipo\t--permission-mode\tauto' "$FAKE_HC_LOG"
 }
@@ -46,7 +46,7 @@ setup() {
   hc_seq get.yoda "$ABSENT" "$IDLE"
   run "$LOH" start yoda
   [ "$status" -eq 0 ]
-  grep -q -- $'--agent\tlarceny:yoda\t--permission-mode\tplan$' "$FAKE_HC_LOG"
+  grep -q -- $'--agent\tlarceny:advisor\t--permission-mode\tplan$' "$FAKE_HC_LOG"
 }
 
 @test "start passes the model a repo's models block names for that persona" {
@@ -54,7 +54,7 @@ setup() {
   hc_seq get.yoda "$ABSENT" "$IDLE"
   run "$LOH" start yoda
   [ "$status" -eq 0 ]
-  grep -q -- $'--agent\tlarceny:yoda\t--permission-mode\tauto\t--model\topus$' "$FAKE_HC_LOG"
+  grep -q -- $'--agent\tlarceny:advisor\t--permission-mode\tauto\t--model\topus$' "$FAKE_HC_LOG"
 }
 
 @test "start leaves --model off when models names none for the persona" {
@@ -140,4 +140,17 @@ setup() {
   run "$LOH" start yoda
   [ "$status" -eq 0 ]
   ! grep -q -- '--model' "$FAKE_HC_LOG"
+}
+
+@test "start yoda and sara follow the crew config's names, as loh up does, and use the role agents" {
+  printf 'advisor: Rey\nteacher: Ada\n' >>"$WS/api/.larceny/config.md"
+  hc_seq get.rey "$ABSENT" "$IDLE"
+  hc_seq get.ada "$ABSENT" "$IDLE"
+  run "$LOH" start yoda
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"started rey"* ]]
+  run "$LOH" start sara
+  [ "$status" -eq 0 ]
+  grep -qxF $'run\t--bg\t--no-parent\t--name\trey\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=advisor\t--\tclaude\t--agent\tlarceny:advisor\t--permission-mode\tauto' "$FAKE_HC_LOG"
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tada\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=teacher\t--\tclaude\t--agent\tlarceny:teacher\t--permission-mode\tauto' "$FAKE_HC_LOG"
 }
