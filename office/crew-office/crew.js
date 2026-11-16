@@ -15,6 +15,8 @@ const SIDE_W = 90;
 const ROW_Y = 160;
 const ROW_H = 128;
 
+/** The rooms `place=` may name: `desk` is the agent's own seat. */
+export const PLACES = ["lounge", "kitchen", "pong", "rest", "meeting", "desk"];
 export const STATES = ["working", "blocked", "done", "idle"];
 
 /** The agent state as a plain word: terminals() gives a word, hc get an object. */
@@ -118,6 +120,10 @@ export function crewOf(terminals, workspace) {
       // When herdr says the status last changed (ms), if it says: a person first seen idle counts the idle time from then.
       statusMs: typeof t.status_ms === "number" && Number.isFinite(t.status_ms) ? t.status_ms : null,
       withMatt: l.with_matt === "1",
+      // A room Matt sent the agent to (`loh card place=`), until its next turn starts.
+      place: PLACES.includes(l.place) ? l.place : "",
+      // In a meeting with Matt (`loh card meeting=1`), until the label is cleared.
+      meeting: l.meeting === "1",
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.address.localeCompare(b.address, undefined, { numeric: true }));
@@ -432,8 +438,12 @@ export function worldFor(repoNames = [], aspect = 0) {
     pong: pts("pong", [[318, 224], [378, 224], [332, 264], [364, 264]]),
     rest: pts("rest", [[418, 200], [458, 200], [418, 252], [458, 252]]),
   };
+  // The meeting table's chairs, less the two Yoda and Sara sit in: each faces the table. Kept apart from `spots`, which
+  // is the prototype's.
+  const meetingSpots = [[20, 66, "e"], [70, 66, "w"], [34, 32, "s"], [56, 32, "s"], [34, 86, "n"], [56, 86, "n"]]
+    .map(([x, y, face]) => ({ ...at(meet, meet.x0 + x, y), face }));
   return {
-    W, H, rooms, desks, mattDesk, spots,
+    W, H, rooms, desks, mattDesk, spots, meetingSpots,
     corr: { y: topH, h: corrH },
     // The entrance in the outer left wall: its mat, the light over it and the gap in the wall,
     // all centred on the corridor.
@@ -768,7 +778,7 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map() };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map(), desk: new Map() };
 }
 
 const AWAY = ["lounge", "kitchen"];
@@ -797,7 +807,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const mem = opts.mem || newMemory();
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
   const world = worldFor([...repoList, ...extraRepos], aspect);
-  const { desks, rooms, spots } = world;
+  const { desks, rooms } = world;
+  const spots = { ...world.spots, meeting: world.meetingSpots };
   const deskBy = new Map(desks.map((d) => [d.key, d]));
   const repoRooms = rooms.filter((r) => r.kind === "repo");
 
@@ -835,6 +846,11 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     else if (!prev) mem.act.set(p.id, { busy: false, since: a.statusMs !== null && a.statusMs <= now ? a.statusMs : now });
     else if (prev.busy) mem.act.set(p.id, { busy: false, since: now });
     p.idleFor = active ? 0 : now - mem.act.get(p.id).since;
+    // place=desk (back to your seat): the idle time counts from when the label was first seen, if that is later than the turn's end.
+    if (a.place === "desk" && !p.busy) {
+      if (!mem.desk.has(p.id)) mem.desk.set(p.id, now);
+      p.idleFor = Math.min(p.idleFor, now - mem.desk.get(p.id));
+    } else mem.desk.delete(p.id);
     p.recent = p.idleFor < idleMs;
   }
 
@@ -844,6 +860,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     if (!p.agent) continue;
     const a = p.agent;
     const ticket = a.repo !== "" && !(a.prDone && !a.pr);
+    // A meeting holds whatever the agent is doing: working, idle, compacting or finished.
+    if (a.meeting) { p.mode = "meeting"; mem.cleared.delete(p.id); continue; }
     if (a.ctx === "compact") { p.mode = "rest"; mem.cleared.delete(p.id); continue; }
     if (a.ctx === "clear") {
       if (!mem.cleared.has(p.id)) mem.cleared.set(p.id, now);
@@ -852,10 +870,12 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       continue;
     }
     mem.cleared.delete(p.id);
+    // Matt sent the agent to a room: honoured once its turn has ended, and held until the next turn starts.
+    if (!p.busy && a.place && a.place !== "desk") { p.mode = "go:" + a.place; continue; }
     const sitting = p.busy || p.recent;
     if (!p.busy && p.recent && !(p.role === "coder" && ticket)) wakes.push(idleMs - p.idleFor);
     if (p.role === "coder") {
-      if (ticket) p.mode = p.busy ? "desk" : /^escalation:/.test(a.note) ? "esc" : a.pr ? "wait" : "desk";
+      if (ticket) p.mode = p.busy || (a.place === "desk" && p.recent) ? "desk" : /^escalation:/.test(a.note) ? "esc" : a.pr ? "wait" : "desk";
       else p.mode = sitting ? "deskfree" : "away";
     } else if (["scofield", "amy", "yoda", "sara", "maya", "opemipo"].includes(p.id)) p.mode = sitting ? "home" : "away";
     else p.mode = "away";
@@ -900,12 +920,14 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const matt = by("matt");
   // Seated at his desk while a sign is recent (3 minutes); his hands type only for the first part of it (`mattTyping`). With only
   // `mattTyping` given, he is seated for as long as he types.
-  const seated = opts.mattSeated !== undefined ? !!opts.mattSeated : !!opts.mattTyping;
-  matt.state = seated ? "matt" : "away";
+  // While any agent is in a meeting he sits in the meeting room with them, whatever his typing says.
+  const meeting = people.some((p) => p.mode === "meeting");
+  const seated = !meeting && (opts.mattSeated !== undefined ? !!opts.mattSeated : !!opts.mattTyping);
+  matt.state = meeting ? "meeting" : seated ? "matt" : "away";
   matt.typing = seated && !!opts.mattTyping;
 
   // Who is at ping pong now, for the waiting coder who goes there sooner when someone plays alone.
-  const atPong = new Set(people.filter((p) => p.mode === "esc").map((p) => p.id));
+  const atPong = new Set(people.filter((p) => p.mode === "esc" || p.mode === "go:pong").map((p) => p.id));
   for (const [id, s] of mem.spots) if (s.room === "pong" && live.has(id)) atPong.add(id);
 
   // Standing places first: desks, the meeting table, Matt.
@@ -914,13 +936,20 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   for (const p of people) {
     if (p.id === "dog") continue;
     if (p.id === "matt") {
-      if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
+      if (meeting) need(p, ["meeting"]);
+      else if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
     if (!p.running) { need(p, AWAY); continue; }
     switch (p.mode) {
       case "rest": need(p, ["rest"]); break;
       case "lounge": need(p, AWAY); break;
+      case "meeting": need(p, ["meeting", ...AWAY]); break;
+      case "go:lounge": need(p, AWAY); break;
+      case "go:kitchen": need(p, KITCHEN); break;
+      case "go:pong": need(p, ["pong", "kitchen", "lounge"]); break;
+      case "go:rest": need(p, ["rest"]); break;
+      case "go:meeting": need(p, ["meeting", ...AWAY]); break;
       case "home":
         if (p.id === "yoda" || p.id === "sara") {
           const m = world.meetSeats[p.id];
@@ -977,7 +1006,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     let where = n.where || "lounge";
     if (!got) for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
     if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = "lounge"; }
-    p.place = where; p.x = got.x; p.y = got.y; p.face = "s";
+    p.place = where; p.x = got.x; p.y = got.y; p.face = got.face || "s";
     if (where === "pong") { p.spot = "pong:" + got.idx; p.paddle = got.idx === 0 ? 1 : -1; }
     p.mug = where === "kitchen" || (where === "lounge" && p.role !== "coder");
     n.final = { room: where, idx: got.idx, why: why(n) };
