@@ -429,6 +429,37 @@ console.log(quiet, lines.length > 0 && lines[0].startsWith("office render "));'
   [ "$output" = "0 true" ]
 }
 
+@test "one render that reads someone's labels or status wrongly draws nobody away from where they stand, and the next render is as before" {
+  run office_js '
+const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
+const drawn = (root) => { const o = find(root, "m-scofield"); return JSON.stringify([o.props.left, o.props.top, office.walks.get("scofield").at, office.walks.get("scofield").legs.length]); };
+const sc = () => terms().find((t) => t.name === "scofield");
+sc().status = "idle"; render(); later(3000); render();
+sc().labels.place = "kitchen"; render(); later(3000); render(); later(60000); fire(); render(); later(100); fire(); render(); later(5000); render();
+const base = drawn(render());
+const was = terms();
+const strip = (f) => was.map((t) => (t.name === "scofield" ? f({ ...t, labels: { ...t.labels } }) : t));
+const variants = {
+  noPlace: () => strip((t) => { delete t.labels.place; return t; }),
+  noLabels: () => strip((t) => ({ ...t, labels: {} })),
+  onlyCrew: () => strip((t) => ({ ...t, labels: { crew: t.labels.crew } })),
+  working: () => strip((t) => ({ ...t, status: "working" })),
+  gone: () => was.filter((t) => t.name !== "scofield"),
+  empty: () => [],
+};
+const out = [];
+for (const [n, f] of Object.entries(variants)) {
+  globalThis.TERMS = f();
+  const during = drawn(render());
+  globalThis.TERMS = was;
+  const after = drawn(render());
+  out.push(n + ":" + (during === base) + ":" + (after === base));
+}
+console.log(out.join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "noPlace:true:true noLabels:true:true onlyCrew:true:true working:true:true gone:true:true empty:true:true" ]
+}
+
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
   run office_js '
 const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-(g[0-9]+-)?[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
