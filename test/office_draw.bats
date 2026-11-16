@@ -240,6 +240,51 @@ import("./crew.mjs").then((crew) => {
   [ "$output" = 'matt 2 [["top",260],["top",260]] lounge 0 0' ]
 }
 
+@test "a working screen's cursor is a bar inside its green strip that sweeps along it, on desks facing either way" {
+  run draw_js '
+const world = (await import("./crew.mjs")).worldFor(["api", "web"]);
+const k = 4;
+const num = (v) => parseFloat(v[0]);
+const rows = [world.desks.find((d) => d.side === "n"), world.desks.find((d) => d.side === "s"), world.mattDesk].map((d) => {
+  const [strip, cur] = draw.glow(d, "work", k).map((e) => e.node);
+  const [x0, y0] = [d.cx - 6.5, d.side === "n" ? d.y + d.h - 6.6 : d.y + 5];
+  const [l, t, w, h] = ["left", "top", "w", "h"].map((n) => num(cur.props[n]) / k);
+  const loop = cur.props.loop[1];
+  const [a, b] = [loop.from / k, loop.to / k];
+  const inside = (left) => left >= x0 - 1e-6 && left + w <= x0 + 13 + 1e-6 && t >= y0 - 1e-6 && t + h <= y0 + 1.6 + 1e-6;
+  return [inside(l), inside(a), inside(b), Math.abs(l - a) < 1e-6, b > a, w, h];
+});
+console.log(JSON.stringify(rows));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[true,true,true,true,true,3,0.8],[true,true,true,true,true,3,0.8],[true,true,true,true,true,3,0.8]]' ]
+}
+
+@test "a typing person's sleeves end inside their hands at both ends of every tap, facing either way" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const k = 4;
+const walk = (n, f) => { f(n); (n.kids || []).forEach((c) => walk(c.node, f)); };
+const wrap = (els) => ({ kids: els });
+const rows = [["north", "api"], ["south", "api"]].map(([facing]) => {
+  const L = crew.layoutCrew([], ["api"], 0, { mattTyping: true });
+  const people = L.people.filter((p) => p.id !== "matt" && p.id !== "dog");
+  const m = L.people.find((p) => p.id === "matt");
+  const d = facing === "north" ? L.desks.find((q) => q.side === "n") : L.desks.find((q) => q.side === "s");
+  const p = { ...people[0], typing: true, desk: d.key, x: d.seat.x, y: d.seat.y, face: facing === "north" ? "s" : "n" };
+  const root = wrap(draw.personEls(p, k, p.face, false, L, true));
+  const ends = [], hands = [];
+  walk(root, (n) => {
+    if (n.path && n.path.stroke > 0) { const c = n.path.cmds; const last = c[c.length - 1]; ends.push([last[1], last[2]]); }
+    if (n.props && n.props.loop && n.props.loop[0] === "top") { const l = n.props.loop[1]; hands.push({ x: n.props.left[0] + 1.6 * k, ys: [l.from + 1.6 * k, l.to + 1.6 * k] }); }
+  });
+  const gap = Math.max(...hands.map((h) => { const e = ends.reduce((b, c) => (Math.abs(c[0] - h.x) < Math.abs(b[0] - h.x) ? c : b)); return Math.max(...h.ys.map((y) => Math.hypot(e[0] - h.x, e[1] - y))); }));
+  return [ends.length, hands.length, gap <= 1.4 * k];
+});
+console.log(JSON.stringify(rows));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[2,2,true],[2,2,true]]' ]
+}
+
 @test "the live crew's layers still use pixel coordinates, scaled when drawn" {
   run draw_js '
 const g = new draw.Layer(3, 0, 0, 10, 10).rect(1, 2, 3, 4, "#111111");
