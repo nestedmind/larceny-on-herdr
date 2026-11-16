@@ -82,3 +82,58 @@ setup() {
   [ "${#value}" -eq $((5 + 60)) ]
   [[ "$value" == step=xybbb* ]]
 }
+
+@test "card sets place to a room, and accepts the room's other spellings" {
+  run "$LOH" card place=lounge
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=lounge' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card place="Ping Pong"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=pong' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card place="rest room"
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=rest' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card place="meeting room"
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=meeting' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card place=kitchen
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=kitchen' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card place=desk
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=desk' ]
+}
+
+@test "card refuses an unknown room, names the rooms, and calls hc not at all" {
+  run --separate-stderr "$LOH" card place=roof
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"roof"* ]]
+  [[ "$stderr" == *"lounge, kitchen, ping pong, rest room, meeting room, desk"* ]]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "card place= with no value removes the label" {
+  run "$LOH" card place=
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tplace=' ]
+}
+
+@test "card sets and clears meeting, and refuses any other value" {
+  run "$LOH" card meeting=1
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tmeeting=1' ]
+  : >"$FAKE_HC_LOG"
+  run "$LOH" card meeting=
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tmeeting=' ]
+  : >"$FAKE_HC_LOG"
+  run --separate-stderr "$LOH" card meeting=yes
+  [ "$status" -eq 2 ]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "card help describes place and meeting" {
+  run --separate-stderr "$LOH" card
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"place"* && "$stderr" == *"meeting"* ]]
+}
