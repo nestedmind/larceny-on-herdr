@@ -10,7 +10,7 @@ mod_dir() { printf '%s\n' "$REPO_ROOT/office/crew-office"; }
 # Runs $1 as module code with `office` (a started CrewOffice), `find`, `all`, `render`, `terms` and `timers` in scope.
 office_js() {
   command -v node >/dev/null || skip "node not installed"
-  local d="$BATS_TEST_TMPDIR/main"
+  local d="$BATS_TEST_TMPDIR/crew-office"
   mkdir -p "$d/node_modules/gpui-kit" "$d/node_modules/gpui-base" "$d/node_modules/herdr"
   cat > "$d/node_modules/gpui-kit/index.js" <<'EOF'
 function el() {
@@ -49,7 +49,8 @@ globalThis.SELECTED = [];
 export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
-export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const appHome = () => "/h/herdr-app";
+export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
@@ -611,6 +612,41 @@ console.log(before, max());'
   [ "$output" = "600 600" ]
 }
 
+@test "a full-terminal window whose bar never comes up is let go: the keyboard and the lock come back" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+const tick = () => new Promise((r) => setTimeout(r, 5));
+render(); const during = office.termOpen;
+later(1000); render(); const soon = office.termOpen;
+later(5000); render(); await tick();
+console.log(during, soon, office.termOpen, office.panel.host.busy(), (globalThis.EXECS || []).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false false lock,unlock" ]
+}
+
+@test "a full-terminal window whose bar is up keeps its hold past the grace time, and Back lets it go" {
+  run office_js '
+const { default: Same } = await import("./main.mjs");
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+office.fullTerminal(a, cx);
+const barProps = { terminalBar: true, termId: globalThis.OVERLAYS[0].layout.children[0].content.props.termId, loh: "loh", agent: { address: a.address, name: a.name } };
+const tick = () => new Promise((r) => setTimeout(r, 5));
+globalThis.PROPS = barProps;
+const bar = new Same({}, cx); bar.init({}, cx);
+globalThis.PROPS = { crew: "sandbox" };
+later(9000); render(); const held = office.termOpen;
+globalThis.PROPS = barProps;
+await bar.close(cx); await tick();
+globalThis.PROPS = { crew: "sandbox" };
+render();
+console.log(held, office.termOpen);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false" ]
+}
+
 @test "a reloaded full-terminal bar holds the agent again: a chat closing meanwhile does not unlock it, and Back does" {
   run office_js '
 const { default: Reloaded } = await import("./main.mjs?reload");
@@ -663,6 +699,7 @@ globalThis.PROPS = { crew: "sandbox" };
 globalThis.PANES = [];
 globalThis.SHARED["crew-office.fullscreen"] = saved;
 const o = new Office({}, cx); o.init({}, cx);
+await new Promise((r) => setTimeout(r, 0));
 const adopted = o.fs === saved;
 o.fs = null;
 o.enterFullscreen({ mine: null, zoomed: false }, cx);
@@ -1019,6 +1056,32 @@ const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).len
 console.log(a.split(",").length, share(a, c), share(ids(rest2, "m-sheba"), c) === c.split(",").length, share(ta, tc), ids(rest, "m-sheba") === b);'
   [ "$status" -eq 0 ]
   [ "$output" = "9 0 true 0 true" ]
+}
+
+@test "a copy whose source reports its real folder finds its own pane under the mods/ entry that leads to it" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: false }, { pane: "p9", tab: "t", mod: "crew-office-test", focused: true }];
+globalThis.EXEC_HOOK = (c, a) => Promise.resolve(c === "sh" ? { code: 0, stdout: "own\t/x\ncrew-office-test\t/x\ncrew-office\t/y\n", stderr: "" } : { code: 0 });
+fresh();
+await new Promise((r) => setTimeout(r, 0));
+office.open(terms()[1], cx);
+console.log(office.chat && office.chat.office);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "p9" ]
+}
+
+@test "full-screen recovery waits for the name: a copy named by a scan does not adopt another mod's saved plan" {
+  run office_js '
+globalThis.PANES = [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }, { pane: "p9", tab: "t", mod: "crew-office-test", focused: false }];
+globalThis.PROPS = { crew: "sandbox" };
+globalThis.SHARED["crew-office.fullscreen"] = { plan: { zoom: false, hide: ["sidebar"], window: false }, pane: "p1" };
+globalThis.EXEC_HOOK = (c) => Promise.resolve(c === "sh" ? { code: 0, stdout: "own\t/x\ncrew-office-test\t/x\ncrew-office\t/y\n", stderr: "" } : { code: 0 });
+const o = new Office({}, cx); o.init({}, cx);
+const before = o.fs;
+await new Promise((r) => setTimeout(r, 0));
+console.log(before, o.fs, (globalThis.RUNS || []).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "null null 0" ]
 }
 
 @test "a coder leaving the kitchen for ping pong keeps its mug until it sets off, though the layout already says ping pong" {

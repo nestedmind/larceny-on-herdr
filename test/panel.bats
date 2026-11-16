@@ -243,6 +243,17 @@ console.log(chat.groupLog(turns, "Scofield").map((r) => (r.head ? "H" : "-")).jo
   [ "$output" = "H-HH-HHHH" ]
 }
 
+@test "panel: a Discord turn after a typed one starts a group, two Discord turns in a row stay grouped" {
+  run chat_js '
+const t = (min) => new Date(Date.UTC(2026, 10, 16, 6, min)).toISOString();
+const turns = [
+  { role: "user", text: "typed", ts: t(0), via: "" }, { role: "user", text: "d1", ts: t(1), via: "discord" },
+  { role: "user", text: "d2", ts: t(2), via: "discord" }, { role: "user", text: "typed2", ts: t(3), via: "" }];
+console.log(chat.groupLog(turns, "Scofield").map((r) => (r.head ? "H" : "-")).join(""));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "HH-H" ]
+}
+
 @test "panel: Copy puts the whole message on the clipboard, Copy all the turns shown with speaker and time" {
   run chat_js '
 const turns = [{ role: "user", text: "Hi **there**", ts: "2026-11-15T10:05:00" }, { role: "assistant", text: "a\n\n- b", ts: "" }, { role: "user", text: "later", ts: "", pending: true }];

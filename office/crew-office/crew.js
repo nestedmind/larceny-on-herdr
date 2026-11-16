@@ -228,10 +228,36 @@ export function floorKey(L) {
   return `${L.W}|${L.H}|${L.pods.map((p) => p.repo).join(",")}`;
 }
 
-/** The pane this mod runs in: the one named in props, else the focused crew-office pane, else null. */
-export function officePane(panes, props) {
+/** The name this copy of the mod is loaded under: the folder its source sits in (mods/<name>/main.js). */
+export function modNameOf(url) {
+  const m = /([^/]+)\/[^/]+$/.exec(String(url || ""));
+  return m ? decodeURIComponent(m[1]) : "crew-office";
+}
+
+/**
+ * The command that lists where each mods/<name> entry leads, so a copy can tell which entry is its own.
+ * herdr may report the real folder of a symlinked mod in import.meta.url, and then the folder's name is not
+ * the name the mod is loaded under. Prints "own<TAB><real dir of this source>", then "<name><TAB><real dir>" per entry.
+ */
+export function modScanCall(url, appHome) {
+  const dir = decodeURIComponent(String(url || "").replace(/^file:\/\//, "")).replace(/\/[^/]*$/, "");
+  const script = 'printf "own\\t%s\\n" "$(cd "$1" 2>/dev/null && pwd -P)"; for d in "$2"/mods/*/; do printf "%s\\t%s\\n" "$(basename "$d")" "$(cd "$d" 2>/dev/null && pwd -P)"; done';
+  return { cmd: "sh", args: ["-c", script, "sh", dir, appHome], options: { timeout: 5000 } };
+}
+
+/** The name this copy is loaded under, from modScanCall's output: the mods/ entry whose real folder is this source's. `fallback` (the folder name in the URL) when none, or when it is one of several. */
+export function resolveModName(fallback, out) {
+  const rows = String(out || "").split("\n").map((l) => l.split("\t"));
+  const own = (rows.find((r) => r[0] === "own") || [])[1];
+  if (!own) return fallback;
+  const names = rows.filter((r) => r[0] !== "own" && r[1] === own).map((r) => r[0]);
+  return !names.length || names.includes(fallback) ? fallback : names[0];
+}
+
+/** The pane this mod (loaded as `mod`) runs in: the one named in props, else its focused pane, else null. */
+export function officePane(panes, props, mod = "crew-office") {
   if (props && props.pane) return props.pane;
-  const mine = (panes || []).find((p) => p.mod === "crew-office" && p.focused);
+  const mine = (panes || []).find((p) => p.mod === mod && p.focused);
   return mine ? mine.pane : null;
 }
 
@@ -612,17 +638,17 @@ export function lightsValue(on) {
  * mod (its Back button, and the unlock when the window goes) above the terminal block.
  * Esc goes to the terminal, as herdr documents for windows with terminals, so the bar is the way back.
  */
-export function fullTerminalOverlay(agent, loh, termId) {
+export function fullTerminalOverlay(agent, loh, termId, mod = "crew-office") {
   return {
     kind: "window",
-    key: "crew-office-terminal",
+    key: `${mod}-terminal`,
     width: 1,
     height: 1,
     at: { x: 0, y: 0 },
     layout: {
       type: "column",
       children: [
-        { type: "block", size: { px: 34 }, content: { mod: "crew-office", props: { terminalBar: true, termId: termId || null, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
+        { type: "block", size: { px: 34 }, content: { mod, props: { terminalBar: true, termId: termId || null, loh: loh || null, agent: { address: agent.address, name: agent.name, rawName: agent.rawName, cwd: agent.cwd || null } } } },
         { type: "block", content: { terminal: agent.address } },
       ],
     },
@@ -651,10 +677,16 @@ export function holdersRelease(state, address, id) {
   return { state: out, unlock: cur.includes(id) && next.length === 0 };
 }
 
-/** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-". */
-export function termHeld(state, address) {
+/** The id of a full-terminal window opened by the copy loaded as `mod`: it names the copy, so copies do not see each other's windows. */
+export function termId(mod, unique) {
+  return `term-${mod}:${unique}`;
+}
+
+/** Whether a full-terminal window is open (for `address`, or for anyone when it is left out). Its ids start with "term-"; with `mod`, only that copy's windows count. */
+export function termHeld(state, address, mod) {
+  const prefix = mod === undefined ? "term-" : `term-${mod}:`;
   const lists = state && typeof state === "object" ? (address ? [state[address]] : Object.values(state)) : [];
-  return lists.some((l) => Array.isArray(l) && l.some((i) => String(i).startsWith("term-")));
+  return lists.some((l) => Array.isArray(l) && l.some((i) => String(i).startsWith(prefix)));
 }
 
 /** One queue per key: each call starts when the one before it has finished, and a failure does not stop the ones after. */
@@ -981,15 +1013,24 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     return null;
   };
   const why = (n) => n.chain.join(">");
-  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms.
+  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms. Someone whose
+  // chain starts at the table but who holds a spot elsewhere (a coder who lost the race for the table) keeps that spot
+  // only until the table has a free place: `upgrade` has them try it first below.
   for (const n of needSpot) {
     const h = mem.spots.get(n.p.id);
-    if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) { used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room; }
+    if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) {
+      used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room;
+      n.upgrade = n.chain[0] === "pong" && h.room !== "pong" ? h : null;
+    }
   }
   needSpot.map((n, i) => ({ n, i })).sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i).forEach(({ n }) => {
     const { p, chain } = n;
     let got = n.got || null;
     let where = n.where || "lounge";
+    if (n.upgrade) {
+      const up = claim("pong", p.id);
+      if (up) { used.delete(n.upgrade.room + ":" + n.upgrade.idx); got = up; where = "pong"; }
+    }
     if (!got) for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
     if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = "lounge"; }
     p.place = where; p.x = got.x; p.y = got.y; p.face = "s";

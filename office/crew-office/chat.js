@@ -141,7 +141,7 @@ export function enterAction(e) {
 /**
  * The log as rows { m, head }: head is true when the turn starts a group (photo and name shown). A turn
  * continues the group before it when the speaker is the same, neither is a launch prompt or pending,
- * and both have a time at most GROUP_MS apart.
+ * both came in the same way (typed or via Discord), and both have a time at most GROUP_MS apart.
  */
 export function groupLog(turns, agentName) {
   const out = [];
@@ -151,6 +151,7 @@ export function groupLog(turns, agentName) {
     const who = speaker(m, agentName);
     const at = m.ts ? Date.parse(m.ts) : NaN;
     const joins = prev && !m.launch && !prev.m.launch && !m.pending && !prev.m.pending && prev.who === who
+      && (prev.m.via || "") === (m.via || "")
       && Number.isFinite(at) && Number.isFinite(prev.at) && at - prev.at >= 0 && at - prev.at <= GROUP_MS;
     out.push({ m, head: !joins, key: turnKey(m, seen) });
     prev = { m, who, at };
