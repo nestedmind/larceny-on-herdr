@@ -243,3 +243,22 @@ meta_session() {
   run "$LOH" transcript scofield
   [ "$(jq -c '[.[] | [.text, .via // ""]]' <<<"$output")" = '[["hello from discord","discord"],["after compaction",""]]' ]
 }
+
+# A long `loh say` reaches the receiver as <pasted_content> around the <hc from> wrapper.
+# long-say.jsonl has one (a dispatch message, in the shape Claude Code wrote it) and then a paste of Matt's.
+@test "transcript shows a long loh say message under the sender, without the pasted_content wrapper" {
+  fixture long-say l1
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.[0].role + "=" + .[0].from' <<<"$output")" = "agent=scofield" ]
+  [ "$(jq -r '.[0].text | startswith("You are mahone, a coder")' <<<"$output")" = "true" ]
+  [ "$(jq -r '.[0].text | endswith("end your turn.")' <<<"$output")" = "true" ]
+  [ "$(jq -r '.[0].text | contains("pasted_content") or contains("<hc")' <<<"$output")" = "false" ]
+  [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false]' ]
+}
+
+@test "transcript still shows Matt's own paste as his turn, wrapper kept" {
+  fixture long-say l1
+  run "$LOH" transcript scofield
+  [ "$(jq -r '.[1].role + "|" + .[1].text' <<<"$output")" = $'user|<pasted_content id="b">\nmy notes\n</pasted_content id="b">' ]
+}

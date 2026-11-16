@@ -16,7 +16,8 @@
 # match (the agent has not written a session yet), or no file at all, it prints [].
 #
 # Kept: user turns (typed text), assistant text, and messages other agents sent
-# in (<hc from="tN name">...</hc>), unwrapped, as {"role":"agent","from":"name"}.
+# in (<hc from="tN name">...</hc>), unwrapped, as {"role":"agent","from":"name"}. A long message arrives
+# with <pasted_content id="..."> around the <hc from> block: that wrapper goes too. A paste of Matt's has no <hc from> inside and stays his.
 # Left out: thinking, tool calls and results, meta and sub-agent turns,
 # <system-reminder> blocks, command echoes, <task-notification> blocks, compaction summaries and bare <hc>...</hc> notes.
 # A Discord message (<channel source="discord" ...> or source="plugin:discord:discord", text inside) is Matt's turn with
@@ -110,16 +111,20 @@ filter='
       .via = "discord"
       | .text |= (sub("^<channel [^>]*>\\s*"; "") | sub("\\s*</channel>\\s*$"; ""))
     else . end
+  | if (.text | test("^<pasted_content id=\"[^\"]*\">\\s*<hc from=\"[^>]*>[\\s\\S]*</hc>\\s*</pasted_content id=\"[^\"]*\">$")) then
+      .text |= (sub("^<pasted_content id=\"[^\"]*\">\\s*"; "") | sub("\\s*</pasted_content id=\"[^\"]*\">$"; ""))
+    else . end
   | if (.text | test("^<hc from=\"")) then
       .role = "agent"
       | .from = (.text | capture("^<hc from=\"(?:\\S+ )?(?<n>[^\"]+)\"").n)
       | .text |= (sub("^<hc from=\"[^\"]*\">\\s*"; "") | sub("\\s*</hc>\\s*$"; ""))
     else . end'
-
 # The session's first user turn is flagged "launch":true when it is a launch prompt (wrapped in
+# <pasted_content>), unless an agent turn comes before it. It is set here, where the whole session is visible, before the last N turns are cut.
 # <pasted_content>). It is set here, where the whole session is visible, before the last N turns are cut.
 # shellcheck disable=SC2016
-mark='(map(.role == "user") | index(true)) as $i
+mark='(map(.role != "assistant") | index(true)) as $i
+  | if $i != null and .[$i].role != "user" then null else $i end as $i
   | if $i != null and (.[$i].text | test("^\\s*<pasted_content\\b")) then .[$i].launch = true else . end
   | .[]'
 jq -cR "$filter" "$file" | jq -cs "$mark" | tail -n "$last" | jq -s .
