@@ -4,12 +4,25 @@
 // agent's state, step, note or turn changes, which is when herdr redraws the office.
 
 import { div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
+import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec } from "herdr";
-import { activityDiff, cardRows, clock, fetchKey, parseTranscript, pushFeed, sendBlock, shownText, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
+import { bustEl, iconEl } from "./draw.js";
+import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
-const FEED_SHOWN = 3;
+const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
+const COPIED_MS = 1500;
+// herdr's own UI font has a regular face only, so bold and italics (and semibold names) drew as plain text. Noto
+// Sans has them, and is the sans Maya's frames are drawn in. Where it is missing the default font is used, as before.
+const FONT = "Noto Sans";
+// Whether `now` is `was` with exactly one newline put in somewhere.
+export function oneNewline(was, now) {
+  if (now.length !== was.length + 1) return false;
+  let i = 0;
+  while (i < was.length && was[i] === now[i]) i++;
+  return now[i] === "\n" && now.slice(i + 1) === was.slice(i);
+}
+const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
 
 export class Panel {
   // host: { loh: () => path or undefined, terminal: (agent, cx) => void, typed: (cx) => void (a key in the message box) }
@@ -20,6 +33,7 @@ export class Panel {
     this.turns = []; // parsed transcript
     this.pending = []; // sent by Matt, not in the transcript yet
     this.error = ""; // last send failure
+    this.notSent = false; // the failure was a refusal: nothing went out, and the text is back in the box
     this.sending = false;
     this.fetching = false;
     this.fetchedKey = null;
@@ -29,8 +43,20 @@ export class Panel {
     this.feed = [];
     this.inputs = new Map(); // one text state per agent, so a half-typed draft stays
     this.scroll = ScrollHandle.new();
-    this.lastCount = -1;
+    this.feedScroll = ScrollHandle.new();
+    this.logEnd = null; // the newest log row last scrolled to: its key, so a full 40-turn window still follows
+    this.feedEnd = null; // the same for the activity feed
+    this.tab = "chat"; // "chat" or "activity"
+    this.hover = null; // the log row under the pointer: its Copy shows
+    this.copied = null; // the row whose Copy was just clicked
+    this.last = new Map(); // each box's text after its last change
+    this.preNl = null; // the text before the newline the last Enter put in
+    this.focused = false; // the message box has the keyboard
+    this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
   }
+
+  // The panel's width in px, for the 24 px avatar below 320.
+  get width() { return this.host.width ? this.host.width() : 360; }
 
   get open() { return !!this.address; }
 
@@ -41,14 +67,33 @@ export class Panel {
       this.pending = [];
       this.error = "";
       this.fetchedKey = null;
-      this.lastCount = -1;
+      this.logEnd = null;
+      this.hover = null;
+      this.copied = null;
     }
     this.agent = a;
     if (!this.inputs.has(a.address)) {
-      const st = InputState.new({ placeholder: `Message ${a.name}` });
-      st.on("submit", (_e, c) => this.send(c));
+      const st = TextareaState.new({ placeholder: `Message ${displayName(a.name)}`, rows: 1 });
+      // Wraps and grows from 1 row to 6, then scrolls inside itself.
+      st.set_soft_wrap(true);
+      st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
-      st.on("change", (_e, c) => { if (this.host.typed) this.host.typed(c); });
+      st.on("change", (_e, c) => {
+        // Remember the text before a lone newline went in, so Enter's newline can be taken back out.
+        const v = st.value(), was = this.last.get(a.address) ?? "";
+        // Any other change forgets it: only the very last edit being that newline counts.
+        this.preNl = oneNewline(was, v) ? was : null;
+        this.last.set(a.address, v);
+        if (this.host.typed) this.host.typed(c);
+      });
+      // Enter inside the textarea never reaches a wrapper's on_key_down: the textarea takes it as its own
+      // action, inserts the newline and then emits "submit" with the modifiers (kit: InputEvent). So a plain
+      // Enter is a send here, and Ctrl/Shift+Enter keeps the newline. send() trims the text, so the newline
+      // Enter just put in is not sent; if it lands after the box was cleared, it is cleared again.
+      st.on("submit", (e, c) => this.submitted(e, st, c));
+      // The box's border follows the keyboard: accent at 2 px with focus, muted at rest.
+      st.on("focus", (_e, c) => { this.focused = true; c.notify(); });
+      st.on("blur", (_e, c) => { this.focused = false; c.notify(); });
       this.inputs.set(a.address, st);
     }
     this.inputs.get(a.address).focus();
@@ -72,6 +117,7 @@ export class Panel {
     const a = crew.find((c) => c.address === this.address);
     if (!a) { this.address = null; this.agent = null; return; }
     this.agent = a;
+    this.blocked = blockedCount(crew);
     const raw = terminals().find((t) => t.address === a.address);
     this.wantKey = fetchKey(a, raw);
     if (this.wantKey !== this.fetchedKey) this.load(cx);
@@ -106,9 +152,10 @@ export class Panel {
     const text = st.value().trim();
     if (!text) return;
     const why = sendBlock(a);
-    if (why) { this.error = why; cx.notify(); return; }
+    if (why) { this.error = why; this.notSent = false; cx.notify(); return; }
     this.sending = true;
     this.error = "";
+    this.notSent = false;
     const entry = { text };
     this.pending.push(entry);
     st.set_value("");
@@ -133,6 +180,7 @@ export class Panel {
         // send still going out: treat that as unconfirmed (rejectOutcome).
         if (rejectOutcome(Date.now() - began) === "failed") {
           this.pending = this.pending.filter((p) => p !== entry);
+          this.notSent = true;
           this.error = `could not run loh: ${String(rejected.message || rejected || "").slice(0, 160)}`.trim();
           st.set_value(text);
         } else {
@@ -142,6 +190,7 @@ export class Panel {
         const outcome = tellOutcome(r);
         if (outcome === "failed") {
           this.pending = this.pending.filter((p) => p !== entry);
+          this.notSent = true;
           this.error = tellError(r, a.name);
           st.set_value(text);
         } else if (outcome === "unknown") {
@@ -153,66 +202,214 @@ export class Panel {
     });
   }
 
+  // The textarea's submit event: plain Enter sends, Ctrl+Enter (secondary) and Shift+Enter keep their newline.
+  // A plain Enter always takes back the one newline the textarea put in, whether or not the message goes out.
+  submitted(e, st, cx) {
+    const keep = !!(e && (e.secondary || e.shift));
+    if (keep) { cx.notify(); return; }
+    const v = st.value();
+    if (this.preNl !== null && oneNewline(this.preNl, v)) st.set_value(this.preNl);
+    else if (v.endsWith("\n")) st.set_value(v.slice(0, -1));
+    this.preNl = null;
+    const a = this.agent;
+    const why = this.sending ? "the last message is still going out" : this.host.busy && this.host.busy() ? "a full terminal window has the keyboard" : !st.value().trim() ? "the box is empty" : a && sendBlock(a) ? "the agent is waiting on a dialog" : "";
+    if (!why) this.send(cx);
+    else if (!st.value().trim()) cx.notify();
+    else { this.error = `Enter did not send: ${why}.`; this.notSent = false; cx.notify(); }
+    if (cx.timer) {
+      cx.timer.after(40, (c) => {
+        if (st.value() === "\n") st.set_value("");
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
+  }
+
+  // A key in the message box, caught on the wrapper around it. Enter sends; Ctrl+Enter adds a line at the caret.
+  key(e, cx) {
+    const act = enterAction(e);
+    const st = this.agent && this.inputs.get(this.agent.address);
+    if (!act || !st) return;
+    cx.stop_propagation();
+    if (act === "send") this.send(cx);
+    else st.replace("\n");
+  }
+
+  // Copy puts text on the clipboard and shows "Copied" on that row for COPIED_MS.
+  copy(key, text, cx) {
+    cx.write_to_clipboard(text);
+    this.copied = key;
+    cx.notify();
+    if (cx.timer) {
+      cx.timer.after(COPIED_MS, (c) => {
+        if (this.copied === key) this.copied = null;
+        try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+      });
+    }
+  }
+
   button(id, label, onClick, t) {
     return h_flex().id(id).px(8).py(2).rounded(5).border_1().border_color(t.border).text_size(12).text_color(t.foreground)
       .cursor_pointer().hover((e) => e.bg(t.hover)).on_click(onClick).child(label);
   }
 
+  // Copy on hover, as an icon (design decision 10): a 24 px square in `popover` with a `border` edge and a 14 px
+  // glyph in `muted`; a tick for 1.5 s after a click. The glyphs are drawn paths (draw.js iconEl).
+  copyChip(id, done, onClick, t) {
+    return h_flex().id(id).w(24).h(24).items_center().justify_center().rounded(5).border_1().border_color(t.border).bg(t.popover)
+      .cursor_pointer().tooltip(done ? "Copied" : "Copy").hover((e) => e.bg(t.hover)).on_click(onClick)
+      .child(iconEl(done ? "copied" : "copy", 14, t.muted));
+  }
+
   render(t, F, cx) {
-    const a = this.agent;
-    const color = a.status === "blocked" ? "#e7a43a" : a.status === "idle" ? t.muted : "#3fae69";
+    const raw = this.agent;
+    const a = { ...raw, name: displayName(raw.name) };
+    const color = a.status === "blocked" ? t.blocked : a.status === "working" ? t.working : a.status === "done" ? t.done : t.idle;
     const why = sendBlock(a);
 
-    const head = h_flex().flex_none().items_center().gap(8)
-      .child(v_flex().flex_1().child(div().text_size(15).font_semibold().text_color(t.foreground).child(a.name))
-        .child(div().text_size(11).text_color(t.muted).child(a.role || "agent")))
-      .child(div().px(8).h(19).flex().items_center().rounded_full().bg(color).text_size(11).font_semibold().text_color(t.background).child(WORDS[a.status] || a.status))
+    // Name, then role and state once; Terminal and Full terminal on their own row.
+    const state = `${STATE_WORDS[a.status] || cap(a.status)}${a.status === "blocked" && a.kind && a.kind !== "other" ? ` · ${a.kind}` : ""}`;
+    const head = h_flex().flex_none().items_center().gap(10)
+      .child(this.avatar(avatarName({ role: "assistant" }, raw), 36, t))
+      .child(v_flex().flex_1().min_w(0).child(div().text_size(15).line_height("20px").font_semibold().text_color(t.foreground).child(a.name))
+        .child(h_flex().gap(5).items_center().text_size(12).line_height("16px").text_color(t.muted)
+          .child(div().child(`${cap(a.role || "agent")} ·`))
+          .child(div().w(8).h(8).rounded_full().bg(color))
+          .child(div().child(state))))
       .child(this.button("panel-close", "Close", (_e, c) => this.close(c), t));
 
-    const rows = cardRows(a, WORDS).map(([k, v]) => h_flex().gap(8)
-      .child(div().w(52).text_size(11).text_color(t.muted).child(k))
-      .child(div().flex_1().text_size(12).text_color(t.foreground).child(v)));
-    const card = v_flex().flex_none().gap(2).p(8).rounded(6).border_1().border_color(t.border).children(rows);
+    const actions = h_flex().flex_none().gap(8)
+      .child(this.button("panel-terminal", "Terminal", (_e, c) => this.host.terminal(raw, c), t).flex_1().justify_center())
+      .child(this.button("panel-full-terminal", "Full terminal", (_e, c) => this.host.fullTerminal(raw, c), t).flex_1().justify_center());
 
-    const actions = h_flex().flex_none().gap(8).items_center()
-      .child(this.button("panel-terminal", "Terminal", (_e, c) => this.host.terminal(a, c), t))
-      .child(this.button("panel-full-terminal", "Full terminal", (_e, c) => this.host.fullTerminal(a, c), t))
-      .child(div().flex_1().text_size(11).text_color(t.muted).child("Beside the office, or full size"));
+    // Facts the header does not carry: ticket, PR, step, note, lock.
+    const facts = cardRows(a, WORDS).filter(([k]) => k !== "Role" && k !== "State" && !(k === "Step" && (a.step === "idle" || a.step === a.status)));
+    const factRows = facts.length ? v_flex().flex_none().gap(2).children(facts.map(([k, v]) => h_flex().gap(8)
+      .child(div().w(52).text_size(12).text_color(t.muted).child(k))
+      .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(v)))) : null;
+
     const notice = why
-      ? div().flex_none().p(8).rounded(6).bg("#e7a43a33").border_1().border_color("#e7a43a").text_size(12).text_color(t.foreground).child(why)
+      ? h_flex().flex_none().gap(8).items_center().p(8).rounded(6).bg(t.raised).border_l(3).border_color(t.blocked)
+        .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(why))
+        .child(this.button("panel-notice-terminal", "Open terminal", (_e, c) => this.host.terminal(raw, c), t))
       : null;
 
-    const tail = this.feed.slice(-FEED_SHOWN);
-    const feed = v_flex().flex_none().gap(1).children(tail.length
-      ? tail.map((e) => h_flex().gap(6)
-        .child(div().w(34).text_size(11).text_color(t.muted).child(e.at))
-        .child(div().flex_1().text_size(11.5).text_color(e.level === "blocked" ? "#e7a43a" : t.foreground).child(`${e.name} ${e.text}`)))
-      : [div().text_size(11).text_color(t.muted).child("No changes since the office opened.")]);
+    const tabs = h_flex().flex_none().items_center().gap(4).px(12).border_b(1).border_color(t.border)
+      .child(this.tabButton("tab-chat", "Chat", "chat", 0, t))
+      .child(this.tabButton("tab-activity", "Crew activity", "activity", this.blocked, t))
+      .child(div().flex_1())
+      .when(this.tab === "chat", (el) => el.child(div().id("panel-copy-all").text_size(12).line_height("16px").text_color(t.muted).cursor_pointer()
+        .hover((e) => e.text_color(t.foreground))
+        .on_click((_e, c) => this.copy("all", copyAll(withPending(this.turns, this.pending).shown, a.name), c))
+        .child(this.copied === "all" ? "Copied" : "Copy all")));
 
+    // Header, tabs and log run edge to edge (the log's rows carry their own 12 px, so Matt's band reaches both
+    // edges); a full-width divider sits between the log and the composer, which has 8 px above and 12 below.
+    const top = v_flex().flex_none().gap(8).px(12).pt(12).pb(8)
+      .child(head).child(actions).when(!!factRows, (el) => el.child(factRows)).when(!!notice, (el) => el.child(notice));
+    const composer = v_flex().flex_none().gap(8).px(12).pt(8).pb(12).border_t(1).border_color(t.border)
+      .when(!!this.error, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.notSent ? `Not sent: ${this.error} Your message is back in the box.` : this.error)))
+      .child(this.form(t, raw, why));
+    return v_flex().id("panel").size_full().overflow_hidden().gap(0).font_family(FONT).bg(t.canvas).border_l(1).border_color(t.border)
+      .child(top)
+      .child(tabs)
+      .child(this.tab === "chat" ? this.chatLog(t, a) : this.activity(t))
+      .child(composer);
+  }
+
+  // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (draw.js's bustEl). #35 puts a
+  // photo in place of this one element: it takes the person's lower-case name and a size, nothing else.
+  avatar(name, size, t) {
+    return bustEl(name || "?", size, t.border);
+  }
+
+  tabButton(id, label, name, badge, t) {
+    const on = this.tab === name;
+    return h_flex().id(id).px(8).py(4).gap(6).items_center().text_size(12).font_semibold().cursor_pointer()
+      .text_color(on ? t.foreground : t.muted).border_b(2).border_color(on ? t.foreground : "#00000000")
+      .on_click((_e, c) => { this.tab = name; this.logEnd = null; this.feedEnd = null; c.notify(); })
+      .child(label)
+      .when(badge > 0, (el) => el.child(div().px(5).h(16).flex().items_center().rounded_full().bg(t.blocked).text_size(11).text_color(t.canvas).child(String(badge))));
+  }
+
+  // The log, Discord-style: a photo column (the placeholder is a round swatch until #35), the name and time,
+  // and every line of text aligned with the name. Matt's turns sit in a shaded band across the panel.
+  chatLog(t, a) {
     const { shown } = withPending(this.turns, this.pending);
-    const log = shown.map((m) => v_flex().gap(1).p(6).rounded(6)
-      .bg(m.role === "user" && !m.launch ? t.accent + "33" : t.chrome).opacity(m.pending ? 0.6 : 1)
-      .child(div().text_size(10).text_color(t.muted).child(`${speaker(m, a.name)}${viaMark(m)}${m.pending ? (m.unsure ? " · not confirmed" : " · sending…") : m.ts ? " · " + clock(new Date(m.ts)) : ""}`))
-      .child(div().text_size(m.launch ? 11 : 12).text_color(m.launch ? t.muted : t.foreground).whitespace_normal().child(shownText(m))));
-    if (shown.length !== this.lastCount && shown.length > 0) {
-      this.lastCount = shown.length;
-      this.scroll.scroll_to_item(shown.length - 1);
+    const log = groupLog(shown, a.name);
+    const rows = log.map(({ m, head, key: id }, i) => {
+      const who = speaker(m, a.name);
+      const mine = m.role === "user" && !m.launch;
+      const stamp = m.pending ? (m.unsure ? "Not confirmed" : "Sending…") : m.ts ? clock(new Date(m.ts)) : "";
+      const body = m.launch
+        ? div().text_size(12).text_color(t.muted).whitespace_normal().child(`Launch prompt · ${markdownOf(m)}`)
+        : TextView.markdown(`msg-${id}`, markdownOf(m)).selectable(true).font_family(FONT).text_size(14).line_height("20px").text_color(t.foreground);
+      const key = `m-${id}`;
+      const hovered = this.hover === key || this.copied === key;
+      // Maya's spacing (changes-p1.md, Round 2): a new speaker starts 16 px under the last turn, a grouped turn 4 px;
+      // 4 px between the name row and the body; 10 px between photo and text (8 at 24 px). Matt's band is 8 px
+      // taller above and below his group, so its edge sits 8 px from the neighbour and 8 px from his own content.
+      const pic = this.width < 320 ? 24 : 32;
+      const sp = rowSpace(log, i);
+      const text = v_flex().flex_1().min_w(0).gap(4)
+        .when(head, (el) => el.child(h_flex().gap(6).items_baseline()
+          .child(div().text_size(12).line_height("16px").font_semibold().text_color(t.foreground).child(who))
+          .child(div().text_size(12).line_height("16px").text_color(m.unsure ? t.blocked : t.muted).child(`${stamp}${viaMark(m)}`))))
+        .child(body);
+      const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
+        .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
+        .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
+        .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t) : div().flex_none().w(pic))
+        .child(text)
+        .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
+          .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));
+      return row;
+    });
+    // Follow the newest turn. The window holds at most 40 turns, so once it is full a new turn leaves the count
+    // unchanged: the newest row's key is what says something arrived (or that Matt just sent one). The kit
+    // cannot read the scroll offset, so this always jumps.
+    const end = log.length ? log[log.length - 1].key : null;
+    if (end !== this.logEnd && end !== null) {
+      this.logEnd = end;
+      this.scroll.scroll_to_item(log.length - 1);
     }
-    // The turns are direct children of the scroll area: scroll_to_item reveals a direct child
-    // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest turn out of reach.
-    const chat = v_flex().id("panel-log").flex_1().min_h(0).gap(6).overflow_y_scroll().track_scroll(this.scroll)
-      .children(log.length ? log : [div().text_size(11).text_color(t.muted).child(`No messages from ${a.name} yet.`)]);
+    // The rows are direct children of the scroll area: scroll_to_item reveals a direct child
+    // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest one out of reach.
+    const empty = this.fetchedKey === null && !shown.length ? "Loading the conversation…" : `No messages with ${a.name} yet. Anything you send goes to their terminal.`;
+    return v_flex().id("panel-log").flex_1().min_h(0).gap(0).pb(8).overflow_y_scroll().track_scroll(this.scroll)
+      .children(rows.length ? rows : [div().px(12).text_size(12).text_color(t.muted).child(empty)]);
+  }
 
-    const form = h_flex().flex_none().gap(6).items_center()
-      .child(div().flex_1().h(28).child(Input.new(this.inputs.get(a.address))))
-      .child(this.button("panel-send", this.sending ? "Sending…" : "Send", (_e, c) => this.send(c), t).opacity(why || this.sending ? 0.5 : 1));
+  // Every change since the office opened, oldest first, scrolled to the newest.
+  activity(t) {
+    const rows = feedRows(this.feed);
+    // Keyed on the newest row, not the count: the feed keeps its last 100 changes, so a full one stays 100 long.
+    const end = `${rows.length}|${rows[rows.length - 1].at}|${rows[rows.length - 1].text}`;
+    if (end !== this.feedEnd) {
+      this.feedEnd = end;
+      this.feedScroll.scroll_to_item(rows.length - 1);
+    }
+    return v_flex().id("panel-activity").flex_1().min_h(0).gap(4).px(12).py(8).overflow_y_scroll().track_scroll(this.feedScroll)
+      .children(rows.map((e) => h_flex().gap(8)
+        .child(div().w(36).flex_none().text_size(12).text_color(t.muted).child(e.at))
+        .child(div().flex_1().min_w(0).text_size(12).text_color(e.level === "blocked" ? t.blocked : t.foreground).whitespace_normal().child(e.text))));
+  }
 
-    return v_flex().id("panel").size_full().overflow_hidden().gap(8).p(10).bg(t.canvas).border_l(1).border_color(t.border)
-      .child(head).child(card).child(actions).when(!!notice, (el) => el.child(notice))
-      .child(div().text_size(11).font_semibold().text_color(t.muted).child("Activity")).child(feed)
-      .child(div().text_size(11).font_semibold().text_color(t.muted).child(`Chat with ${a.name}`))
-      .child(chat)
-      .when(!!this.error, (el) => el.child(div().flex_none().text_size(11).text_color("#d0509f").child(this.error)))
-      .child(form);
+  // The message box, as designed: 13 px on an 18 px line, 8 px inside the border (4 above and below), grows from
+  // 1 row (28 px) to 6 (118 px). Border: muted at rest, accent at 2 px with focus; the padding gives 1 px back so
+  // the box does not change size. Send is a solid button the height of the one-row box, at the box's bottom.
+  form(t, a, why) {
+    const on = this.focused;
+    const box = div().flex_1().min_w(0).min_h(30).rounded(6).bg(t.surface).text_size(14).line_height("20px").text_color(t.foreground)
+      .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
+      .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
+      .on_key_down((e, c) => this.key(e, c))
+      .child(Textarea.new(this.inputs.get(a.address)).text_size(14).line_height("20px").p(0).border_0());
+    const send = h_flex().id("panel-send").flex_none().h(30).px(14).items_center().justify_center().rounded(6).bg(t.solid)
+      .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)
+      .cursor_pointer().on_click((_e, c) => this.send(c)).child(this.sending ? "Sending…" : "Send");
+    return v_flex().flex_none().gap(4)
+      .child(h_flex().gap(6).items_end().child(box).child(send))
+      .when(!why, (el) => el.child(div().text_size(11).text_color(t.muted).child(SEND_HINT)));
   }
 }

@@ -8,7 +8,7 @@
 // movers that carry a person across the floor. What the API cannot do is listed in office/README.md.
 
 import { div, PathBuilder } from "gpui-kit";
-import { look, hash, shiftOf, anchorOf } from "./crew.js";
+import { look, hash, shiftOf, anchorOf, CAST } from "./crew.js";
 
 // The prototype's floor palette (its --fl-* and --st-* tokens). The same in light and dark: dark
 // mode darkens the floor with the night shading instead.
@@ -222,6 +222,87 @@ export class Layer {
   }
 }
 
+// ---------- the chat avatar ----------
+
+const BUST = 11.2; // the disc's width in floor units
+const BUSTS = new Map();
+
+// The points where the ellipse (cx, cy, rx, ry) and the circle (ox, oy, r) overlap, in order around
+// the overlap: every point of one outline that lies inside the other. The overlap of two convex
+// shapes is convex, so sorting by angle around its middle draws it. GPUI clips to rectangles, so
+// the shoulders are cut to the disc here, in the path, and nothing needs clipping.
+function lens(cx, cy, rx, ry, ox, oy, r, n = 72) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (2 * Math.PI * i) / n;
+    const e = [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
+    if (Math.hypot(e[0] - ox, e[1] - oy) <= r) pts.push(e);
+    const c = [ox + r * Math.cos(a), oy + r * Math.sin(a)];
+    if (((c[0] - cx) / rx) ** 2 + ((c[1] - cy) / ry) ** 2 <= 1) pts.push(c);
+  }
+  const mx = pts.reduce((t, q) => t + q[0], 0) / pts.length, my = pts.reduce((t, q) => t + q[1], 0) / pts.length;
+  return pts.sort((a, b) => Math.atan2(a[1] - my, a[0] - mx) - Math.atan2(b[1] - my, b[0] - mx));
+}
+
+/**
+ * The person's floor figure as a head-and-shoulders bust, facing you, on the counter-top grey
+ * (frame ok-cast). `ring` is the 1 px edge's colour. Same look(), long hair and headset as
+ * personEls; the head sits 1.7 units above the body so the shoulders show under it.
+ */
+export function bustEl(name, size, ring) {
+  const key = `${String(name).toLowerCase()}@${size}`;
+  let g = BUSTS.get(key);
+  if (!g) {
+    const id = String(name).toLowerCase();
+    const who = CAST.find((c) => c.id === id) || {};
+    const [hair, skin, shirt] = look(id || "?");
+    const c = BUST / 2, hy = 5.3, by = 7;
+    g = new Layer(size / BUST, 0, 0, BUST, BUST);
+    g.poly(lens(c, by, 6.2, 4.8, c, c, c), shirt);
+    if (who.long) g.circ(c, hy - 0.8, 4.3, hair);
+    g.circ(c, hy, 3.7, skin);
+    g.fan(c, hy - 0.4, 3.8, Math.PI * 0.95, Math.PI * 2.05, hair);
+    g.poly([[c + 3.6, hy - 1], [c - 3.6, hy - 1], [c - 3.5, hy - 0.4], [c + 3.5, hy - 0.4]], hair);
+    if (who.headset) g.ring(c, hy, 4.1, PAL.monitor, 0.8);
+    BUSTS.set(key, g);
+  }
+  return div().flex_none().relative().w(size).h(size).rounded_full().bg(PAL.counterTop)
+    .child(g.el())
+    .child(div().absolute().left(0).top(0).w(size).h(size).rounded_full().border_1().border_color(ring));
+}
+
+// ---------- the copy icons ----------
+
+const ICONS = new Map();
+
+/**
+ * A 24-unit line icon drawn as stroked paths at `size` px in `color`: "copy" (two sheets) or "copied" (a tick).
+ * Drawn, not loaded from a file: svg(path) resolves against herdr's folder by the mod's own folder name, which
+ * differs between the installed office and a dev copy. Built once per kind, size and colour.
+ */
+export function iconEl(kind, size, color) {
+  const key = `${kind}|${size}|${color}`;
+  let g = ICONS.get(key);
+  if (!g) {
+    g = new Layer(size / 24, 0, 0, 24, 24);
+    const X = (x) => g.X(x), Y = (y) => g.Y(y), R = (r) => r * g.s;
+    if (kind === "copy") {
+      const [x, y, w, h, r] = [9, 9, 12, 12, 2.5];
+      g.add([["move_to", X(x + r), Y(y)], ["line_to", X(x + w - r), Y(y)], ["arc_to", R(r), R(r), 0, false, true, X(x + w), Y(y + r)],
+        ["line_to", X(x + w), Y(y + h - r)], ["arc_to", R(r), R(r), 0, false, true, X(x + w - r), Y(y + h)],
+        ["line_to", X(x + r), Y(y + h)], ["arc_to", R(r), R(r), 0, false, true, X(x), Y(y + h - r)],
+        ["line_to", X(x), Y(y + r)], ["arc_to", R(r), R(r), 0, false, true, X(x + r), Y(y), ], ["close"]], color, 2 * g.s);
+      g.add([["move_to", X(5), Y(15)], ["line_to", X(4.5), Y(15)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(2), Y(12.5)],
+        ["line_to", X(2), Y(4.5)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(4.5), Y(2)],
+        ["line_to", X(12.5), Y(2)], ["arc_to", R(2.5), R(2.5), 0, false, true, X(15), Y(4.5)], ["line_to", X(15), Y(5)]], color, 2 * g.s);
+    } else {
+      g.add([["move_to", X(4), Y(12.5)], ["line_to", X(9), Y(17.5)], ["line_to", X(20), Y(6.5)]], color, 2.4 * g.s);
+    }
+    ICONS.set(key, g);
+  }
+  return div().flex_none().relative().w(size).h(size).child(g.el());
+}
+
 // ---------- the floor ----------
 
 function planks(g, r, base, line, step) {
@@ -387,6 +468,11 @@ const pill = (text, x, y, k, bg, ink, size, center) => {
     .text_size(size).font_semibold().text_color(ink).whitespace_nowrap().child(text);
 };
 
+/** The wall screen's line: "1 agent running", "0 agents running", "4 agents running". */
+export function agentsRunning(n) {
+  return `${n} ${n === 1 ? "agent" : "agents"} running`;
+}
+
 export function labels(world, k, crewCount) {
   const out = [];
   const size = Math.max(8, Math.min(11, 5 * k));
@@ -407,7 +493,11 @@ export function labels(world, k, crewCount) {
     out.push(pill(r.label.toUpperCase(), r.x0 + dx + s.dx, dy + s.dy, k, PAL.label, PAL.labelInk, Math.max(7, size - 1)));
   }
   const p = wallScreen(world);
-  out.push(div().absolute().left((p.x + 4) * k).top((p.y + 1.5) * k).text_size(Math.max(6, 5 * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(`${crewCount} on the crew`));
+  // "4 agents running" is longer than the "4 on the crew" the screen was drawn for, so the text is sized to fit
+  // the screen's 34 usable units (about 0.56 of the text size per character), never above the old 5.
+  const said = agentsRunning(crewCount);
+  const unit = Math.min(5, 33 / (said.length * 0.56));
+  out.push(div().absolute().left((p.x + 4) * k).top((p.y + (11 - unit) / 2 - 1) * k).text_size(Math.max(5, unit * k)).font_semibold().text_color(PAL.screenInk).whitespace_nowrap().child(said));
   return out;
 }
 

@@ -32,8 +32,9 @@ export const PathBuilder = { fill: mk, stroke: mk };
 `;
 const BASE = `import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, h_resizable = (id) => div().id(id), resizable_panel = div;
-export const InputState = { new: () => ({ set_value() {}, value: () => "", on() {}, focus() {} }) };
-export const Input = { new: () => div() };
+export const TextareaState = { new: () => ({ set_value() {}, value: () => "", on() {}, focus() {}, set_soft_wrap() {}, set_auto_grow() {} }) };
+export const Textarea = { new: () => div() };
+export const TextView = { markdown: () => div() };
 export const ScrollHandle = { new: () => ({}) };
 `;
 const HERDR = `

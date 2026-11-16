@@ -116,8 +116,8 @@ console.log(JSON.stringify(chat.cardRows({ role: "coder", status: "blocked", kin
   [ "$status" -ne 0 ]
 }
 
-@test "panel: the mod files use no timer" {
-  run grep -nE 'setTimeout|setInterval|timer\.' "$(mod_dir)/panel.js" "$(mod_dir)/chat.js"
+@test "panel: the mod files use no repeating timer; the panel has one one-shot for the Copied label" {
+  run grep -nE 'setTimeout|setInterval|timer\.every' "$(mod_dir)/panel.js" "$(mod_dir)/chat.js"
   [ "$status" -ne 0 ]
 }
 
@@ -164,7 +164,7 @@ console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Sco
   [[ "$output" == *'v_flex().id("panel-log")'* ]]
   run grep -c 'track_scroll(this.scroll)$' "$(mod_dir)/panel.js"
   [ "$output" = "1" ]
-  grep -A1 'track_scroll(this.scroll)' "$(mod_dir)/panel.js" | grep -q '^      \.children(log'
+  grep -A1 'track_scroll(this.scroll)' "$(mod_dir)/panel.js" | grep -q '^      \.children(rows'
 }
 
 @test "panel: clicking a person selects the panel even when a terminal is docked" {
@@ -209,4 +209,110 @@ const t = chat.parseTranscript(JSON.stringify([{role:"user",text:"hi",ts:"",via:
 console.log(t.map((m) => JSON.stringify(chat.viaMark(m))).join("|"));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = '" · via Discord"|""|""' ]
+}
+
+@test "panel: a message over 1200 characters is shown whole" {
+  run chat_js '
+const long = "word ".repeat(600).trim();
+const m = { role: "assistant", text: long, ts: "" };
+console.log(long.length, chat.shownText(m).length, chat.shownText(m) === long);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "2999 2999 true" ]
+}
+
+@test "panel: Enter sends, Ctrl+Enter adds a line, other chords do nothing" {
+  run chat_js '
+const k = (key, mods = {}) => chat.enterAction({ key, modifiers: { shift: false, control: false, alt: false, platform: false, function: false, ...mods } });
+console.log(k("enter"), k("enter", { control: true }), k("enter", { shift: true }), k("enter", { alt: true }), k("a"), k("a", { control: true }));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "send newline null null null null" ]
+}
+
+@test "panel: turns of one speaker within 7 minutes are grouped, others start a new group" {
+  run chat_js '
+const t = (min) => new Date(Date.UTC(2026, 10, 15, 10, min)).toISOString();
+const turns = [
+  { role: "assistant", text: "a", ts: t(0) }, { role: "assistant", text: "b", ts: t(6) },
+  { role: "assistant", text: "c", ts: t(14) },
+  { role: "user", text: "d", ts: t(15) }, { role: "user", text: "e", ts: t(16) },
+  { role: "assistant", text: "f", ts: t(17) },
+  { role: "agent", from: "amy", text: "g", ts: t(18) }, { role: "agent", from: "yoda", text: "h", ts: t(19) },
+  { role: "user", text: "i", ts: "", pending: true }];
+console.log(chat.groupLog(turns, "Scofield").map((r) => (r.head ? "H" : "-")).join(""));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "H-HH-HHHH" ]
+}
+
+@test "panel: Copy puts the whole message on the clipboard, Copy all the turns shown with speaker and time" {
+  run chat_js '
+const turns = [{ role: "user", text: "Hi **there**", ts: "2026-11-15T10:05:00" }, { role: "assistant", text: "a\n\n- b", ts: "" }, { role: "user", text: "later", ts: "", pending: true }];
+console.log(JSON.stringify(chat.copyText(turns[1])));
+console.log(JSON.stringify(chat.copyAll(turns, "Scofield")));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '"a\n\n- b"' ]
+  [ "${lines[1]}" = '"Matt · 10:05\nHi **there**\n\nScofield\na\n\n- b\n\nMatt\nlater"' ]
+}
+
+@test "panel: markdown goes to the text view as written, with nothing dropped or added" {
+  run chat_js '
+const md = "**bold** `code`\n\n```js\nlet a = 1;\n```\n\n- one\n- two\n\n| a | b |\n|---|---|\n\n<div>raw</div> ~~x~~";
+console.log(chat.markdownOf({ role: "assistant", text: md }) === md);
+console.log(JSON.stringify(chat.markdownOf({ role: "user", text: "  hi  ", launch: false })));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true" ]
+  [ "${lines[1]}" = '"hi"' ]
+}
+
+@test "panel: the activity list opens with the office-opened row and keeps every change in order" {
+  run chat_js '
+console.log(JSON.stringify(chat.feedRows([])));
+console.log(JSON.stringify(chat.feedRows([{ at: "10:01", name: "Amy", text: "is idle", level: "info" }, { at: "10:02", name: "Sucre", text: "needs you (permission)", level: "blocked" }])));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[{"at":"","text":"Office opened. Changes before this are not shown.","level":"info"}]' ]
+  [ "${lines[1]}" = '[{"at":"","text":"Office opened. Changes before this are not shown.","level":"info"},{"at":"10:01","text":"Amy is idle","level":"info"},{"at":"10:02","text":"Sucre needs you (permission)","level":"blocked"}]' ]
+}
+
+@test "panel: the tab badge counts blocked agents and is empty when none are" {
+  run chat_js '
+console.log(chat.blockedCount([{ status: "blocked" }, { status: "idle" }, { status: "blocked" }]), chat.blockedCount([{ status: "done" }]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "2 0" ]
+}
+
+@test "panel: the hint and the block messages say how to send" {
+  run chat_js 'console.log(chat.SEND_HINT);'
+  [ "$output" = "Enter sends · Ctrl+Enter adds a line" ]
+}
+
+@test "panel: a turn keeps its key when the window slides, and identical turns get different keys" {
+  run chat_js '
+const mk = (t, min) => ({ role: "assistant", text: t, ts: "2026-11-15T10:0" + min + ":00Z" });
+const full = [mk("a", 0), mk("b", 1), mk("b", 1), mk("c", 2)];
+const slid = full.slice(1);
+const k1 = chat.groupLog(full, "S").map((r) => r.key), k2 = chat.groupLog(slid, "S").map((r) => r.key);
+console.log(k2.every((k, i) => k === k1[i + 1]), new Set(k1).size === 4);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true" ]
+}
+
+@test "panel: the space between turns is Maya's: 16 new speaker, 4 grouped, bands 8 above and below" {
+  run chat_js '
+const T = (role, min, extra = {}) => ({ role, text: "x" + min, ts: new Date(Date.UTC(2026, 10, 15, 10, min)).toISOString(), ...extra });
+const log = chat.groupLog([T("assistant", 0), T("assistant", 1), T("user", 2), T("user", 3), T("assistant", 4), T("user", 30)], "Scofield");
+const sp = log.map((_, i) => chat.rowSpace(log, i));
+// What sits between the content of row i-1 and row i: the row above ends pb inside its band, then mt outside, then pt inside.
+const gaps = sp.slice(1).map((r, k) => sp[k].pb + r.mt + r.pt);
+console.log(JSON.stringify(log.map((r) => r.head)), JSON.stringify(gaps));
+console.log(JSON.stringify(sp.map((r) => [r.mt, r.pt, r.pb])));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[true,false,true,false,true,true] [4,16,4,16,16]' ]
+  [ "${lines[1]}" = '[[0,8,0],[0,4,0],[8,8,0],[0,4,8],[0,8,0],[8,8,8]]' ]
+}
+
+@test "panel: a turn's avatar is the floor figure of whoever wrote it" {
+  run chat_js '
+const a = { rawName: "scofield", name: "Scofield" };
+console.log(chat.avatarName({ role: "user" }, a), chat.avatarName({ role: "assistant" }, a), chat.avatarName({ role: "agent", from: "Amy" }, a), JSON.stringify(chat.avatarName({ role: "agent" }, a)));'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'matt scofield amy ""' ]
 }

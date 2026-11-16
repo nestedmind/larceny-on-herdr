@@ -22,8 +22,8 @@
 # A Discord message (<channel source="discord" ...> or source="plugin:discord:discord", text inside) is Matt's turn with
 # the text unwrapped and "via":"discord". A Discord message that starts a turn is a user line with isMeta and origin.kind "channel", kept
 # the same way. A message Matt sent while the agent was working is not a user
-# line: it is an attachment of type queued_command with origin.kind "human" (or "channel" when the prompt is a <channel> wrapper), kept as his user turn. Turns are cut to 4000 characters. A half-written last line is
-# skipped.
+# line: it is an attachment of type queued_command with origin.kind "human" (or "channel" when the prompt is a <channel> wrapper), kept as his user turn. Turns are kept whole,
+# because the chat panel shows full replies. A half-written last line is skipped.
 set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -114,8 +114,7 @@ filter='
       .role = "agent"
       | .from = (.text | capture("^<hc from=\"(?:\\S+ )?(?<n>[^\"]+)\"").n)
       | .text |= (sub("^<hc from=\"[^\"]*\">\\s*"; "") | sub("\\s*</hc>\\s*$"; ""))
-    else . end
-  | .text |= (if length > 4000 then .[0:4000] + "…" else . end)'
+    else . end'
 
 # The session's first user turn is flagged "launch":true when it is a launch prompt (wrapped in
 # <pasted_content>). It is set here, where the whole session is visible, before the last N turns are cut.

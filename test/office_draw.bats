@@ -253,3 +253,29 @@ console.log(walks, bad);'
   [ "$status" -eq 0 ]
   [ "$output" = "288 0" ]
 }
+
+@test "the wall screen says how many agents are running, in the singular for one, and the text fits the screen" {
+  run draw_js '
+console.log([0, 1, 4, 12].map(draw.agentsRunning).join(" | "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 agents running | 1 agent running | 4 agents running | 12 agents running" ]
+}
+
+@test "the copy icons are drawn paths, built once per kind, size and colour" {
+  run draw_js '
+const a = draw.iconEl("copy", 14, "#999999"), b = draw.iconEl("copy", 14, "#999999"), c = draw.iconEl("copied", 14, "#999999");
+const builds = () => JSON.stringify(a.node.kids[0].node.kids.length);
+console.log(builds(), c.node.kids[0].node.kids.length, log.builds);
+draw.iconEl("copy", 14, "#999999").node.kids[0];
+console.log(log.builds);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "2 1 3" ]
+  [ "${lines[1]}" = "3" ]
+}
+
+@test "message text is 14 px on a 20 px line, and the message box and Send are 30 px tall" {
+  run grep -c 'text_size(14).line_height("20px")' "$BATS_TEST_DIRNAME/../office/crew-office/panel.js"
+  [ "$output" = "3" ]
+  run grep -c 'min_h(30)\|\.h(30)' "$BATS_TEST_DIRNAME/../office/crew-office/panel.js"
+  [ "$output" = "2" ]
+}
