@@ -370,3 +370,37 @@ import("./crew.mjs").then((crew) => {
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 3 3" ]
 }
+
+@test "the floor as an SVG: its paths, circles and rounded rectangles in world units, alpha as fill-opacity" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 100, 50, "", true).rounded().rect(10, 5, 20, 10, "#112233").circ(50, 25, 5, "#445566").rr(60, 10, 30, 20, 4, "#77889988");
+console.log(draw.floorSvg(g, 100, 50));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"><path d="M10 5L30 5L30 15L10 15Z" fill="#112233"/><ellipse cx="50" cy="25" rx="5" ry="5" fill="#445566"/><rect x="60" y="10" width="30" height="20" rx="4" fill="#778899" fill-opacity="0.533"/></svg>' ]
+}
+
+@test "the live floor's SVG has one shape for every shape the floor layer draws, and no bad number or colour" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const L = crew.layoutCrew([], ["api", "web"], 0, {});
+  const g = draw.floorLayer(L, 3);
+  const svg = draw.floorSvg(g, L.W, L.H);
+  const shapes = (svg.match(/<(path|rect|ellipse) /g) || []).length;
+  const fills = [...svg.matchAll(/fill="([^"]*)"/g)].map((m) => m[1]);
+  console.log(shapes === g.ops.length, g.ops.length > 500, /NaN|undefined|Infinity/.test(svg), fills.every((f) => /^#[0-9a-f]{6}$/i.test(f)), svg.length < 400000);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false true true" ]
+}
+
+@test "a floor's SVG file name follows its plan: the same plan, the same name; another plan, another" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const a = draw.floorSvgName(crew.floorKey(crew.layoutCrew([], ["api"], 0, {})));
+  const b = draw.floorSvgName(crew.floorKey(crew.layoutCrew([], ["api"], 0, {})));
+  const c = draw.floorSvgName(crew.floorKey(crew.layoutCrew([], ["api", "web"], 0, {})));
+  console.log(/^crew-office-floor-[0-9a-f]{8}\.svg$/.test(a), a === b, a === c);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false" ]
+}

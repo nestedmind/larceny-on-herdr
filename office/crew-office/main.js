@@ -6,11 +6,13 @@
 // (.loop(), .transition()); no repeating timer. A whole walk is handed to the renderer in one render
 // (see motion()); one-shot timers only turn the walker to face the next leg and end the gait.
 
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
 import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
-import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { imagePath } from "./photos.js";
+import * as fs from "fs/promises";
 import { Panel } from "./panel.js";
 
 // How long one render may spend building a big layer's paths before it carries on in the next one.
@@ -132,6 +134,7 @@ export default class CrewOffice extends View {
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
     this.floors = new Map();
+    this.pics = new Map();
     this.floorId = `floor-${++floorSeq}`;
     FLOORS.set(this.floorId, { layer: null, drawn: null });
     this.floorView = cx.new(Floor, { id: this.floorId });
@@ -470,6 +473,22 @@ export default class CrewOffice extends View {
     if (!f) return;
     this.fs = null;
     if (await this.undoByExec(f.plan, f.pane)) { try { setShared(FS_KEY, null); } catch (_) { /* nothing to clear */ } }
+  }
+
+  // The floor is the same for as long as the plan is, but drawn as paths it was painted again on every animated frame
+  // (about a third of a frame's time). Its SVG goes in herdr's own folder, named by the plan, once; image() then loads it
+  // and the renderer keeps it. Returns the path image() takes when the file is there, else null (the floor view draws).
+  floorPicture(key, layer, L) {
+    let p = this.pics.get(key);
+    if (!p) {
+      const file = `${appHome()}/${floorSvgName(key)}`;
+      p = { rel: imagePath(appHome(), file), ready: false };
+      this.pics.set(key, p);
+      Promise.resolve().then(() => fs.writeFile(file, floorSvg(layer, L.W, L.H)))
+        .then(() => { p.ready = true; try { this.acx.timer.after(1, (c) => c.notify()); } catch (_) { /* the view was reloaded or closed */ } })
+        .catch(() => { /* no file: the floor view keeps drawing it */ });
+    }
+    return p.ready ? p.rel : null;
   }
 
   // Where each person is drawn this render. A person whose place changed walks there door to door:
@@ -942,7 +961,10 @@ export default class CrewOffice extends View {
 
     // One box for the whole floor: the floor view, the people, the click targets and the tags are all placed in it at k.
     // The view sits in a box of that same size (not in one that takes its size from its content or the stage).
-    const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H)).child(this.floorView);
+    // The finished floor as a picture, once its file is there; until then (or if the file cannot be written) the floor view draws it.
+    const pic = this.floorPicture(this.shown.key, this.shown.layer, L);
+    const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H))
+      .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
     const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
       .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)

@@ -29,7 +29,7 @@ function el() {
   return p;
 }
 export const div = el;
-export const image = () => div();
+export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return div(); };
 export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
@@ -51,7 +51,7 @@ export const home = () => "/nohome";
 export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
-export const appHome = () => "/h/herdr-app";
+export const appHome = () => globalThis.APP_HOME || "/h/herdr-app";
 export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
@@ -1188,4 +1188,27 @@ later(1); render();
 console.log(arrived, afterCutOff, w().legs.length > 0);'
   [ "$status" -eq 0 ]
 [ "$output" = "true 0 true" ]
+}
+
+@test "the floor is drawn as a picture once its SVG is written to herdr's folder, and by the floor view until then or if it cannot be" {
+  run office_js '
+const fs = await import("node:fs/promises");
+const os = await import("node:os");
+const home = await fs.mkdtemp(os.tmpdir() + "/loh-home-");
+const views = (root) => all(root.node).filter((n) => id(n) === "floor-box").map((n) => n.kids.length + ":" + (n.kids[0] && n.kids[0].node ? "div" : "?"));
+// A home it cannot write to: the floor view keeps drawing.
+office.pics.clear(); globalThis.APP_HOME = home + "/missing/dir"; globalThis.IMAGES = [];
+render(); await new Promise((r) => setTimeout(r, 30)); render();
+const noFile = globalThis.IMAGES.length;
+// A home it can write to: the first render asks for the file, a later one draws it.
+office.pics.clear(); globalThis.APP_HOME = home; globalThis.IMAGES = [];
+render();
+const before = globalThis.IMAGES.length;
+await new Promise((r) => setTimeout(r, 50));
+render();
+const names = (await fs.readdir(home)).filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f));
+const text = names.length ? await fs.readFile(home + "/" + names[0], "utf8") : "";
+console.log(noFile, before, globalThis.IMAGES.length, names.length, globalThis.IMAGES[0] === names[0], text.startsWith("<svg") && text.endsWith("</svg>"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0 1 1 true true" ]
 }
