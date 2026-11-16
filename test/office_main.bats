@@ -1150,3 +1150,26 @@ console.log(kitchen > 0, flipped > 0, drawn.size);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true 1" ]
 }
+
+@test "a rest render that was cut off hands over no walk: the render after it draws the rest frame and the one after that hands the walk over" {
+  run office_js '
+const fire = () => { for (const t of timers.slice()) if (!t.cancelled && !t.done && t.at + t.ms <= clock) { t.done = true; t.fn(cx); } };
+const w = () => office.walks.get("sheba");
+render();
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+let n = 0;
+while (!(w().legs.length > 0) && n++ < 200) { later(250); fire(); render(); }
+terms()[1].status = "working";
+while (!w().settling && n++ < 600) { later(250); fire(); if (!w().settling) render(); }
+const arrived = w().settling;
+// The render that draws the rest frame is cut off at the deadline: it ran motion() and never finished.
+const frame = office.frame; office.frame = () => { throw new Error("deadline"); };
+try { render(); } catch (_) { /* cut off */ }
+office.frame = frame;
+later(1); render();
+const afterCutOff = w().legs.length;
+later(1); render();
+console.log(arrived, afterCutOff, w().legs.length > 0);'
+  [ "$status" -eq 0 ]
+[ "$output" = "true 0 true" ]
+}
