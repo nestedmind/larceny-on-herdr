@@ -571,11 +571,13 @@ function bubble(g, x, y, label, fill, ink, k) {
 
 // Hands on the keys: the layout says the person is typing (`typing`, where they are going), and they are at rest on their seat.
 const TYPING = (p, rest) => !!p.typing && !!rest;
-const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
+const swing = (k, skin, a, id, cx, cy, ax, ay, rev) => {
   const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
   const [fx, tx] = rev ? [cx + ax, cx - ax] : [cx - ax, cx + ax];
   const [fy, ty] = rev ? [cy + ay, cy - ay] : [cy - ay, cy + ay];
-  return hand.el().left((fx - 1.6) * k).top((fy - 1.6) * k)
+  // Both axes always loop (one of them between equal values), and the hand has an id of its own, so a turn at a corner
+  // changes the loops' values and leaves the elements and their phase in place.
+  return hand.el().id(id).left((fx - 1.6) * k).top((fy - 1.6) * k)
     .loop("left", { from: (fx - 1.6) * k, to: (tx - 1.6) * k, period: 534 })
     .loop("top", { from: (fy - 1.6) * k, to: (ty - 1.6) * k, period: 534 });
 };
@@ -620,8 +622,8 @@ export function personEls(p, k, face, walking, world, rest = false) {
     }
   }
   if (walking) {
-    if (side) hands.push(swing(k, skin, a, x, y - 5.4, 1.28, 0, false), swing(k, skin, a, x, y + 5.4, 1.28, 0, true));
-    else hands.push(swing(k, skin, a, x - 5.4, y, 0, 0.96, false), swing(k, skin, a, x + 5.4, y, 0, 0.96, true));
+    if (side) hands.push(swing(k, skin, a, `${p.id}-arm0`, x, y - 5.4, 1.28, 0, false), swing(k, skin, a, `${p.id}-arm1`, x, y + 5.4, 1.28, 0, true));
+    else hands.push(swing(k, skin, a, `${p.id}-arm0`, x - 5.4, y, 0, 0.96, false), swing(k, skin, a, `${p.id}-arm1`, x + 5.4, y, 0, 0.96, true));
   }
   // body, long hair behind the head, head, hair on top
   const body = box();
@@ -644,7 +646,7 @@ export function personEls(p, k, face, walking, world, rest = false) {
   // A raised hand for a question or a permission prompt only.
   if (p.state === "blocked" && kind !== "other") { body.circ(x + 6, y - 7.5, 1.7, skin); body.line(x + 4, y - 2, x + 5.6, y - 6.4, shirt, 1.6); }
   const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).children(ringCol ? [statusRing(x, y, k, ringCol + a)] : []).child(under.el()).children(hands).child(body.el());
-  out.push(walking ? figure.loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : figure);
+  out.push(walking ? figure.id(`${p.id}-bob`).loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : figure);
   // The bubble over a question or a permission prompt; a flag over anything else that blocks.
   // A person at the top row of a pod gets it higher, clear of the name tag.
   const up = p.place === "desk" && world.desks.find((q) => q.key === p.desk)?.side === "n" ? 11 : 0;
