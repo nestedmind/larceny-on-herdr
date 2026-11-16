@@ -32,7 +32,11 @@ JS
 export const terminals = () => [];
 export const home = () => process.env.PHOME || "/nohome";
 export const appHome = () => (process.env.PHOME || "/nohome") + "/.config/herdr-app";
-export const exec = (c, a, o) => new Promise((resolve, reject) => { (globalThis.CALLS ||= []).push({ c, a, resolve, reject }); });
+export const exec = (c, a, o) => new Promise((resolve, reject) => {
+  // `loh photos thumbs` answers at once (set globalThis.THUMBS to what it prints), so a test need not settle it by hand.
+  if (a[0] === "photos") { (globalThis.THUMB_CALLS ||= []).push(a.join(" ")); resolve({ code: 0, stdout: globalThis.THUMBS || "thumbs: 0 made, 0 up to date (magick)\n" }); return; }
+  (globalThis.CALLS ||= []).push({ c, a, resolve, reject });
+});
 JS
   echo '{"type":"module"}' > "$d/package.json"
   for f in panel chat crew draw photos; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
@@ -372,4 +376,22 @@ panel.avatar("yoda", 36, { raised: "a", border: "b" });
 console.log(JSON.stringify([panel.photos.size, taskErrors]));'
   [ "$status" -eq 0 ]
   [ "$output" = '[0,[]]' ]
+}
+
+@test "photos: loh photos thumbs is asked for the folder once the pictures are drawn, and a made thumb replaces the picture" {
+  local h; h="$(photo_home)"
+  PHOME="$h" run panel_js '
+const fs = await import("node:fs/promises");
+const dir = process.env.PHOME + "/.config/herdr-app/photos";
+click((cx) => panel.loadPhotos(cx)); await settle();
+const first = panel.photos.get("yoda").path.slice(dir.length);
+await fs.mkdir(dir + "/.thumbs");
+await fs.writeFile(dir + "/.thumbs/yoda.default.png", Buffer.from("89504e470d0a1a0a0000000d49484452000000800000008008020000", "hex"));
+globalThis.THUMBS = "made yoda\nthumbs: 1 made, 0 up to date (magick)\n";
+panel.photosAt -= 61000;
+click((cx) => panel.loadPhotos(cx)); await settle();
+const p = panel.photos.get("yoda");
+console.log(JSON.stringify([first, globalThis.THUMB_CALLS.length, globalThis.THUMB_CALLS[0] === "photos thumbs " + dir, p.path.slice(dir.length), p.w, p.h, p.crop, taskErrors]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["/yoda.png",2,true,"/.thumbs/yoda.default.png",128,128,null,[]]' ]
 }

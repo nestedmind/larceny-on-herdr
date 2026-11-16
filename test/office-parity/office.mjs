@@ -39,7 +39,7 @@ export const TextView = { markdown: () => div() };
 export const ScrollHandle = { new: () => ({}) };
 `;
 const HERDR = `
-export const home = () => "/nohome"; export const appHome = () => "/nohome/.config/herdr-app";
+export const home = () => "/nohome";
 export const terminals = () => globalThis.TERMS;
 export const panes = () => [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }];
 export const run = () => {};

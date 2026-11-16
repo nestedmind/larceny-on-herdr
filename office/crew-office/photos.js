@@ -67,6 +67,17 @@ export function parseCrop(text) {
   return { x, y, size };
 }
 
+/** The crop's part of a thumbnail's name (`loh photos thumbs`): the sidecar's three numbers joined with "-", or "default". */
+export function cropKey(text) {
+  const crop = parseCrop(text);
+  return crop ? text.trim().split(/\s+/).join("-") : "default";
+}
+
+/** `loh photos thumbs <folder>`: writes the small square copies the office draws (see scanPhotos). Run it where loh is found, in no workspace. */
+export function thumbsCall(loh, dir) {
+  return { cmd: loh || "loh", args: ["photos", "thumbs", dir], options: { timeout: 60000 } };
+}
+
 /**
  * The square taken from a w by h picture, in pixels: { x, y, s } with (x, y) its top left corner. By default the
  * largest centred square (from the top for a portrait, which is also its vertical centre for a landscape). With a crop, its centre (x of the width, y of the height, from the
@@ -93,12 +104,17 @@ const baseOf = (f) => f.slice(0, f.lastIndexOf(".")).toLowerCase();
  * Reads the photo folders. `fs` has readdir and readFile (fs/promises). Returns Map(name -> { path, w, h, crop }).
  * A name is found in the first folder that has a readable picture for it. A file that cannot be read, or is not a
  * picture of a kind we know, is skipped as if absent; a missing or malformed sidecar gives crop null. Never throws.
+ * herdr's image() does not smooth, so a big picture drawn small is grainy: when `loh photos thumbs` has made the
+ * person's thumbnail (`.thumbs/<name>.<crop key>.png`, square, crop applied), that is what `path` names, with its own
+ * size and no crop. Without one (not made yet, or no image tool) `path` is the picture itself.
  */
 export async function scanPhotos(fs, dirs) {
   const found = new Map();
   for (const dir of dirs) {
     let names = [];
     try { names = await fs.readdir(dir); } catch (_) { continue; }
+    let thumbs = [];
+    try { thumbs = await fs.readdir(`${dir}/.thumbs`); } catch (_) { /* none made */ }
     const set = new Set(names);
     for (const f of [...names].sort()) {
       if (!PHOTO_EXTS.includes(extOf(f))) continue;
@@ -107,9 +123,21 @@ export async function scanPhotos(fs, dirs) {
       let size = null;
       try { size = imageSize(await fs.readFile(`${dir}/${f}`)); } catch (_) { continue; }
       if (!size) continue;
-      let crop = null;
+      let crop = null, key = "default";
       const side = names.find((n) => set.has(n) && n.toLowerCase() === `${who}.crop`);
-      if (side) { try { crop = parseCrop(await fs.readFile(`${dir}/${side}`, "utf8")); } catch (_) { crop = null; } }
+      if (side) {
+        try {
+          const text = await fs.readFile(`${dir}/${side}`, "utf8");
+          crop = parseCrop(text);
+          key = cropKey(text);
+        } catch (_) { crop = null; }
+      }
+      const thumb = thumbs.find((n) => n === `${who}.${key}.png`);
+      if (thumb) {
+        let ts = null;
+        try { ts = imageSize(await fs.readFile(`${dir}/.thumbs/${thumb}`)); } catch (_) { /* fall back to the picture */ }
+        if (ts) { found.set(who, { path: `${dir}/.thumbs/${thumb}`, w: ts.w, h: ts.h, crop: null }); continue; }
+      }
       found.set(who, { path: `${dir}/${f}`, w: size.w, h: size.h, crop });
     }
   }

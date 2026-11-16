@@ -90,3 +90,24 @@ console.log(JSON.stringify([[...m.keys()].sort(), m.get("yoda").w, (await P.scan
   [ "$status" -eq 0 ]
   [ "$output" = "[571.2,0,604.8]" ]
 }
+
+@test "scanPhotos draws from the thumbnail when loh made one for this crop, and from the picture when not" {
+  run photos_js '
+await w("yoda.jpg", jpeg(1000, 1500)); await w("yoda.crop", "0.5 0.3 0.6\n");
+await w("sara.png", png(900, 900)); await w("amy.png", png(800, 800)); await w("amy.crop", "0.5 0.5 0.5");
+await nodefs.mkdir(dir + "/.thumbs");
+await w(".thumbs/yoda.0.5-0.3-0.6.png", png(128, 128));
+await w(".thumbs/sara.default.png", png(128, 128));
+await w(".thumbs/amy.default.png", png(128, 128));
+const m = await P.scanPhotos(nodefs, [dir]);
+const o = Object.fromEntries([...m].map(([k, v]) => [k, { ...v, path: v.path.slice(dir.length) }]));
+console.log(JSON.stringify(o));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"amy":{"path":"/amy.png","w":800,"h":800,"crop":{"x":0.5,"y":0.5,"size":0.5}},"sara":{"path":"/.thumbs/sara.default.png","w":128,"h":128,"crop":null},"yoda":{"path":"/.thumbs/yoda.0.5-0.3-0.6.png","w":128,"h":128,"crop":null}}' ]
+}
+
+@test "cropKey joins the sidecar's numbers with dashes, and says default for a malformed one; thumbsCall runs loh photos thumbs on the folder" {
+  run photos_js 'console.log(JSON.stringify([P.cropKey(" 0.60  0.42 0.84\n"), P.cropKey("nonsense"), P.cropKey("0.5 0.5 2"), P.thumbsCall("/o/loh", "/d")]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["0.60-0.42-0.84","default","default",{"cmd":"/o/loh","args":["photos","thumbs","/d"],"options":{"timeout":60000}}]' ]
+}

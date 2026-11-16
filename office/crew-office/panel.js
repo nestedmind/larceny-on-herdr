@@ -8,7 +8,7 @@ import * as fs from "fs/promises";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
 import { terminals, exec, home, appHome } from "herdr";
 import { bustEl, iconEl } from "./draw.js";
-import { imagePath, photoDirs, placement, scanPhotos, squareOf } from "./photos.js";
+import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -60,6 +60,7 @@ export class Panel {
     this.photos = new Map(); // lower-case name -> { path, w, h, crop } of each photo found (photos.js)
     this.photosAt = 0; // when the photo folder was last asked for
     this.photosBusy = false;
+    this.thumbsBusy = false; // `loh photos thumbs` is running
   }
 
   // The panel's width in px, for the 24 px avatar below 320.
@@ -140,12 +141,28 @@ export class Panel {
     this.photosAt = now;
     this.photosBusy = true;
     cx.spawn(async (cx) => {
-      let found = null;
-      try { found = await scanPhotos(fs, photoDirs(home(), appHome(), this.host.photos && this.host.photos())); } catch (_) { /* keep the last */ }
+      const dirs = photoDirs(home(), appHome(), this.host.photos && this.host.photos());
+      const scan = async () => {
+        let found = null;
+        try { found = await scanPhotos(fs, dirs); } catch (_) { /* keep the last */ }
+        if (!found) return null;
+        const sig = (m) => JSON.stringify([...m].sort());
+        if (sig(found) !== sig(this.photos)) { this.photos = found; cx.notify(); }
+        return found;
+      };
+      const found = await scan();
       this.photosBusy = false;
-      if (!found) return;
-      const sig = (m) => JSON.stringify([...m].sort());
-      if (sig(found) !== sig(this.photos)) { this.photos = found; cx.notify(); }
+      // The pictures are drawn at once, as they are. Small copies of them (`loh photos thumbs`) are made in the background
+      // and swapped in when ready: herdr draws a big picture shrunk without smoothing, which is grainy.
+      if (!found || !found.size || this.thumbsBusy) return;
+      this.thumbsBusy = true;
+      let made = false;
+      for (const d of dirs) {
+        const c = thumbsCall(this.host.loh && this.host.loh(), d);
+        try { const r = await exec(c.cmd, c.args, c.options); if (r && r.code === 0 && /^made /m.test(String(r.stdout))) made = true; } catch (_) { /* the full pictures stay */ }
+      }
+      this.thumbsBusy = false;
+      if (made) await scan();
     });
   }
 
