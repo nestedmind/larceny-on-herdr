@@ -189,7 +189,7 @@ console.log(chain("m-sheba"), chain("tm-sheba"), insideTag, insideFigure);'
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions).map((n) => [id(n), n.props.transitions.map((t) => [t[0], t[1].duration, t[1].delay, t[1].easing]), n.props.left[0], n.props.top[0]]));
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000);
+render(); later(3000); render(); later(100);
 const a = render();
 const b = render();
 const mine = sig(a, "m-sheba");
@@ -206,7 +206,7 @@ console.log(real.length > 1, delays[0] === 0, delays.slice(1).every((d, i) => d 
 const sig = (root, who) => JSON.stringify(all(find(root, who)).filter((n) => n.props.transitions && /^t?m-/.test(id(n))).map((n) => [id(n).replace(/^tm-/, "m-"), n.props.transitions, n.props.left[0], n.props.top[0]]));
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000);
+render(); later(3000); render(); later(100);
 const a = render();
 console.log(sig(a, "m-sheba") === sig(a, "tm-sheba"), sig(a, "m-sheba").length > 10);'
   [ "$status" -eq 0 ]
@@ -226,7 +226,7 @@ console.log(t.length, t.every((x) => x.props.transitions.every((a) => a[1].durat
   run office_js '
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000); timers.length = 0;
+render(); later(3000); render(); later(100); timers.length = 0;
 render();
 const walk = office.walks.get("sheba");
 const total = walk.legs.reduce((s, l) => s + l.ms, 0);
@@ -240,7 +240,7 @@ console.log(walk.legs.length > 1, Math.max(...ms) > total, Math.max(...ms) <= to
   run office_js '
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000); timers.length = 0;
+render(); later(3000); render(); later(100); timers.length = 0;
 render();
 const goal = { x: office.walks.get("sheba").goal.x, y: office.walks.get("sheba").goal.y };
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
@@ -403,7 +403,7 @@ const walk = () => office.walks.get("sheba");
 render();
 const home = { x: walk().goal.x, y: walk().goal.y };
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000);
+render(); later(3000); render(); later(100);
 const first = sig(render());
 const legs = walk().legs;
 terms()[1].status = "working";
@@ -413,7 +413,7 @@ const same = mid === first && walk().legs === legs;
 // the walk ends: the timers run, one render at rest follows, and the next sees the old place wanted again, held long enough
 later(60000);
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
-render(); later(60); timers.filter((t) => !t.cancelled).forEach((t) => t.fn({ notify() {} })); render();
+render(); later(60); timers.filter((t) => !t.cancelled).forEach((t) => t.fn({ notify() {} })); render(); later(60); render();
 const back = walk();
 console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y === home.y, back.from.x !== home.x || back.from.y !== home.y);'
   [ "$status" -eq 0 ]
@@ -424,7 +424,7 @@ console.log(same, back.legs.length > 0, back.goal.x === home.x && back.goal.y ==
   run office_js '
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
-render(); later(3000);
+render(); later(3000); render(); later(100);
 render();
 timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => t.fn({ notify() {} }));
 render();
@@ -479,20 +479,20 @@ console.log(out.join(" "));'
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
   run office_js '
 const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-(g[0-9]+-)?[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
-const going = (l) => l.some((x) => x[2] > 1);
+const going = (l) => l.some((x) => x[0] !== 0 || x[1] !== 0);
 const rest = (l) => l.every((x) => x[0] === 0 && x[1] === 0);
 let prev = null, walks = 0, bad = 0;
 const R = () => { const l = links(render()); if (going(l) && !(prev && going(prev) && JSON.stringify(l) === JSON.stringify(prev))) { walks++; if (!(prev && rest(prev))) bad++; } prev = l; };
 const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
 R();
 // out to the desk, and back to the kitchen while still on the way
-terms()[1].labels.pr = "9"; terms()[1].status = "done"; R(); later(3000); R();
+terms()[1].labels.pr = "9"; terms()[1].status = "done"; R(); later(3000); R(); later(100); R();
 later(1000); terms()[1].status = "working"; R();
-later(60000); fire(); R(); later(60); fire(); R();
+later(60000); fire(); R(); later(60); fire(); R(); later(100); R();
 // the walk back, and out again as soon as it has begun
 terms()[1].labels.pr = "9"; terms()[1].status = "done"; R();
-later(60000); fire(); R(); later(60); fire(); R();
-later(60000); fire(); R(); later(60); fire(); R();
+later(60000); fire(); R(); later(60); fire(); R(); later(100); R();
+later(60000); fire(); R(); later(60); fire(); R(); later(100); R();
 console.log(walks, bad);'
   [ "$status" -eq 0 ]
   [ "$output" = "3 0" ]
@@ -1106,6 +1106,7 @@ const ids = (root, who) => all(find(root, who)).map(id).filter((x) => x && x !==
 render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000); timers.length = 0;
+render(); later(100);
 const one = render();
 const a = ids(one, "m-sheba"), ta = ids(one, "tm-sheba");
 timers.filter((t) => !t.cancelled).sort((x, y) => x.ms - y.ms).forEach((t) => t.fn({ notify() {} }));
@@ -1113,6 +1114,7 @@ const rest = render(); later(2000); const rest2 = render();
 const b = ids(rest2, "m-sheba");
 terms()[1].labels.note = "escalation:x";
 render(); later(3000);
+render(); later(100);
 const two = render();
 const c = ids(two, "m-sheba"), tc = ids(two, "tm-sheba");
 const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).length;
@@ -1158,7 +1160,7 @@ let kitchen = 0, flipped = 0, drawn = new Set();
 for (let i = 0; i < 80; i++) {
   later(500); fire();
   const r = render(), w = office.walks.get("sheba");
-  const standing = w.legs.length === 0 && !w.settling;
+  const standing = w.legs.length === 0 && !w.settling && !w.arming;
   if (standing && spot() === "kitchen" && w.at.y > 150) { kitchen++; drawn.add(paths(r)); }
   if (standing && spot() === "pong" && w.at.x < 250) { flipped++; drawn.add(paths(r)); }
 }
@@ -1183,9 +1185,29 @@ const frame = office.frame; office.frame = () => { throw new Error("deadline"); 
 try { render(); } catch (_) { /* cut off */ }
 office.frame = frame;
 later(1); render();
-const afterCutOff = w().legs.length;
+const afterCutOff = w().legs.length + (w().arming ? 1 : 0);
 later(1); render();
-console.log(arrived, afterCutOff, w().legs.length > 0);'
+const armed = !!w().arming && w().legs.length === 0;
+later(1); render();
+console.log(arrived, afterCutOff, armed, w().legs.length > 0);'
   [ "$status" -eq 0 ]
-[ "$output" = "true 0 true" ]
+[ "$output" = "true 0 true true" ]
+}
+
+@test "a walk's transition policies are drawn on zeroed movers one render before its offsets, so no mover changes policy and value together" {
+  run office_js '
+const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-g[0-9]+-[0-9]/.test(id(n))).map((n) => ({ id: id(n), off: [n.props.left[0], n.props.top[0]], pol: JSON.stringify(n.props.transitions) }));
+let rest = links(render());
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+render(); later(3000);
+const frames = [];
+for (let i = 0; i < 4; i++) { frames.push(links(render())); later(100); }
+const moving = (l) => l.some((x) => x.off[0] !== 0 || x.off[1] !== 0);
+const timed = (l) => l.some((x) => JSON.parse(x.pol)[0][1].duration > 1);
+const go = frames.find(moving), arm = frames.find((l) => timed(l) && !moving(l));
+const zero = (l) => l.every((x) => x.off[0] === 0 && x.off[1] === 0);
+const samePol = (a, b) => a.every((x, i) => x.id === b[i].id && x.pol === b[i].pol);
+console.log(!!arm, !!go, arm && zero(arm), arm && go && samePol(arm, go), arm && !samePol(rest, arm));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true true true" ] || { echo "GOT: $output" >&2; false; }
 }

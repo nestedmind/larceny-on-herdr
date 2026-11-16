@@ -490,9 +490,17 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [], gen: 0 }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.arming = null; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
       else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
+      if (w.arming) {
+        // The arm frame: the walk's transition policies on movers still at zero, drawn before any offset changes.
+        const a = w.arming;
+        const c = walkChain(a.from, a.legs, SLOTS);
+        c.links = c.links.map((l) => ({ ...l, dx: 0, dy: 0 }));
+        out.set(p.id, { rest: false, walking: true, from: a.from, chain: { ...c, gen: w.gen }, x: a.from.x, y: a.from.y, face: a.legs[0].face });
+        continue;
+      }
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
@@ -528,6 +536,25 @@ export default class CrewOffice extends View {
   // The next walk is handed over only after a render that drew the rest frame ran to its end. A render that herdr cuts off at its
   // deadline has run motion() but drawn nothing, and a walk handed over after it would be drawn from the old offsets.
   holdOrGo(w, p, L, goal, now) {
+    if (w.arming) {
+      // A walk's policies (durations, delays) and its offsets are never changed in one render: a mover whose
+      // policy changes with its value is drawn at the new value for a frame. The walk is armed first, with
+      // its policies at zero offsets, and starts in the render after that one was drawn to its end.
+      this.restSeen.add(w);
+      if (!w.restDrawn) {
+        if (!w.wake) {
+          w.wake = this.acx.timer.after(SETTLE_MS + 5, (c) => {
+            w.wake = null;
+            try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+          });
+        }
+        return;
+      }
+      const a = w.arming;
+      w.arming = null;
+      this.beginWalk(w, a.from, a.legs);
+      return;
+    }
     if (w.resting) {
       this.restSeen.add(w);
       if (!w.restDrawn) {
@@ -558,7 +585,11 @@ export default class CrewOffice extends View {
     w.goal = goal;
     const legs = legsOf(start, pathTo(L, p.id, start, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
     if (!legs.length) { w.at = goal; w.legs = []; w.i = 0; return; }
-    this.beginWalk(w, start, legs);
+    w.arming = { from: start, legs }; w.restDrawn = false;
+    this.restSeen.add(w);
+    w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    }));
   }
 
   beginWalk(w, from, legs) {
