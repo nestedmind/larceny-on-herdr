@@ -132,3 +132,12 @@ setup() {
   [ "$status" -eq 2 ]
   ! grep -q $'^run\t' "$FAKE_HC_LOG"
 }
+
+@test "start: a repo that sets models decides, so the global block is not merged in" {
+  printf 'crew: global\nmodels: default\n  sara: haiku\n' >>"$WS/api/.larceny/config.md"
+  printf 'models: default\n  yoda: opus\n' >"$LARCENY_CONFIG_DIR/global-config.md"
+  hc_seq get.yoda "$ABSENT" "$IDLE"
+  run "$LOH" start yoda
+  [ "$status" -eq 0 ]
+  ! grep -q -- '--model' "$FAKE_HC_LOG"
+}

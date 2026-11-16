@@ -45,22 +45,19 @@ model_in() {
 # sets `models:` decides; a repo that says `crew: global` reads the global file.
 # docs/crew-resolution.md in larceny describes the rule.
 resolve_model() {
-  local i cfg m global
+  local i cfg global
   global="${LARCENY_CONFIG_DIR:-$HOME/.config/larceny}/global-config.md"
   for i in "${!REPO_NAMES[@]}"; do
     cfg="$(repo_dir "$i")/.larceny/config.md"
     [[ -f "$cfg" ]] || continue
-    m="$(model_in "$cfg" "$1")"
-    if [[ -n "$m" ]]; then
-      printf '%s' "$m"
+    # A config that sets `models:` decides, whole block, and the global file is not read for it.
+    if grep -qE '^models:' "$cfg"; then
+      model_in "$cfg" "$1"
       return 0
     fi
-    if [[ -f "$global" ]] && grep -qE '^crew:[[:space:]]*global[[:space:]]*$' "$cfg"; then
-      m="$(model_in "$global" "$1")"
-      if [[ -n "$m" ]]; then
-        printf '%s' "$m"
-        return 0
-      fi
+    if [[ -f "$global" ]] && grep -qE '^crew:[[:space:]]*global[[:space:]]*$' "$cfg" && grep -qE '^models:' "$global"; then
+      model_in "$global" "$1"
+      return 0
     fi
   done
 }
