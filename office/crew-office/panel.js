@@ -3,15 +3,19 @@
 // through `loh tell`. Pure parts live in chat.js. No timers: the log is fetched again when the
 // agent's state, step, note or turn changes, which is when herdr redraws the office.
 
-import { div } from "gpui-kit";
+import { div, image } from "gpui-kit";
+import * as fs from "fs/promises";
 import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from "gpui-base";
-import { terminals, exec } from "herdr";
+import { terminals, exec, home, appHome } from "herdr";
 import { bustEl, iconEl } from "./draw.js";
+import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
 const COPIED_MS = 1500;
+// How often the photo folder is read again, so a photo added while the office is open appears within this.
+export const PHOTOS_EVERY_MS = 60000;
 // herdr's own UI font has a regular face only, so bold and italics (and semibold names) drew as plain text. Noto
 // Sans has them, and is the sans Maya's frames are drawn in. Where it is missing the default font is used, as before.
 const FONT = "Noto Sans";
@@ -54,6 +58,10 @@ export class Panel {
     this.preNl = null; // the text before the newline the last Enter put in
     this.focused = false; // the message box has the keyboard
     this.blocked = 0; // agents that need Matt now: the Crew activity tab's badge
+    this.photos = new Map(); // lower-case name -> { path, w, h, crop } of each photo found (photos.js)
+    this.photosAt = 0; // when the photo folder was last asked for
+    this.photosBusy = false;
+    this.thumbsBusy = false; // `loh photos thumbs` is running
   }
 
   // The panel's width in px, for the 24 px avatar below 320.
@@ -113,6 +121,7 @@ export class Panel {
     const d = activityDiff(this.seen, crew, !this.started);
     this.seen = d.seen;
     this.started = true;
+    this.loadPhotos(cx);
     if (d.events.length) this.feed = pushFeed(this.feed, d.events, clock(new Date()));
     if (!this.address) return;
     const a = crew.find((c) => c.address === this.address);
@@ -122,6 +131,40 @@ export class Panel {
     const raw = terminals().find((t) => t.address === a.address);
     this.wantKey = fetchKey(a, raw);
     if (this.wantKey !== this.fetchedKey) this.load(cx);
+  }
+
+  // Read the photo folder, at most every PHOTOS_EVERY_MS, on a render (the office already wakes every minute for its repo list); a failure keeps what was found. A photo with no file, or one that
+  // cannot be read, is simply absent, and its person keeps the floor figure.
+  loadPhotos(cx) {
+    const now = Date.now();
+    if (this.photosBusy) return;
+    if (this.photosAt && now - this.photosAt < PHOTOS_EVERY_MS) return;
+    this.photosAt = now;
+    this.photosBusy = true;
+    cx.spawn(async (cx) => {
+      const dirs = photoDirs(home(), appHome(), this.host.photos && this.host.photos());
+      const scan = async () => {
+        let found = null;
+        try { found = await scanPhotos(fs, dirs); } catch (_) { /* keep the last */ }
+        if (!found) return null;
+        const sig = (m) => JSON.stringify([...m].sort());
+        if (sig(found) !== sig(this.photos)) { this.photos = found; cx.notify(); }
+        return found;
+      };
+      const found = await scan();
+      this.photosBusy = false;
+      // The pictures are drawn at once, as they are. Small copies of them (`loh photos thumbs`) are made in the background
+      // and swapped in when ready: herdr draws a big picture shrunk without smoothing, which is grainy.
+      if (!found || !found.size || this.thumbsBusy) return;
+      this.thumbsBusy = true;
+      let made = false;
+      for (const d of dirs) {
+        const c = thumbsCall(this.host.loh && this.host.loh(), d);
+        try { const r = await exec(c.cmd, c.args, c.options); if (r && r.code === 0 && /^made /m.test(String(r.stdout))) made = true; } catch (_) { /* the full pictures stay */ }
+      }
+      this.thumbsBusy = false;
+      if (made) await scan();
+    });
   }
 
   load(cx) {
@@ -317,10 +360,19 @@ export class Panel {
       .child(composer);
   }
 
-  // The avatar: the person's floor figure as a head-and-shoulders bust in a circle (draw.js's bustEl). #35 puts a
-  // photo in place of this one element: it takes the person's lower-case name and a size, nothing else.
-  avatar(name, size, t, owner = false) {
-    return bustEl(name || "?", size, t.border, owner ? "owner" : "");
+  // The avatar: the person's photo in a circle with a thin border, cropped to a square (the default crop, or the
+  // photo's .crop sidecar); with no photo, their floor figure as a head-and-shoulders bust (draw.js's bustEl).
+  // `bg` is the colour behind the avatar. GPUI's overflow_hidden clips to the rectangle, not to rounded corners, so the
+  // circle is cut by a mask: a ring twice the avatar's size whose hole is the circle, in the background colour, laid
+  // over the picture (its outer circle, radius `size`, reaches past the square's corners).
+  avatar(name, size, t, bg = t.canvas, owner = false) {
+    const p = name ? this.photos.get(String(name).toLowerCase()) : null;
+    if (!p) return bustEl(name || "?", size, t.border, owner ? "owner" : "");
+    const at = placement(size, p.w, p.h, squareOf(p.w, p.h, p.crop));
+    return div().flex_none().relative().w(size).h(size).overflow_hidden().bg(t.raised)
+      .child(image(imagePath(appHome(), p.path)).absolute().left(at.left).top(at.top).w(at.width).h(at.height))
+      .child(div().absolute().left(-size / 2).top(-size / 2).w(size * 2).h(size * 2).rounded(size).border(size / 2).border_color(bg))
+      .child(div().absolute().left(0).top(0).w(size).h(size).rounded_full().border_1().border_color(t.border));
   }
 
   tabButton(id, label, name, badge, t) {
@@ -360,7 +412,7 @@ export class Panel {
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
-        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a, this.person()), pic, t, m.role === "user" && !m.launch) : div().flex_none().w(pic))
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a, this.person()), pic, t, mine ? t.raised : t.canvas, m.role === "user" && !m.launch) : div().flex_none().w(pic))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
           .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));
