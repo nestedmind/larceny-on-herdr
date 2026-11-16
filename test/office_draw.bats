@@ -17,7 +17,7 @@ function el() {
   const node = { kids: [], props: {} };
   const p = new Proxy(node, { get(t, k) {
     if (k === "node") return t;
-    return (...a) => { if (k === "child") t.kids.push(a[0]); else if (k === "children") t.kids.push(...a[0]); else t.props[k] = a; return p; };
+    return (...a) => { if (k === "loop") (t.loops = t.loops || []).push(a); if (k === "child") t.kids.push(a[0]); else if (k === "children") t.kids.push(...a[0]); else t.props[k] = a; return p; };
   } });
   return p;
 }
@@ -354,4 +354,19 @@ const xs = pts.map((c) => c[1]), ys = pts.map((c) => c[2]);
 console.log((Math.max(...xs) - Math.min(...xs)) > (Math.max(...ys) - Math.min(...ys)) ? "wide" : "tall");'
   [ "$status" -eq 0 ]
   [ "$output" = "wide" ]
+}
+
+@test "a walker's bob and arm elements keep their ids and loops through a turn, so the swing keeps its phase at a corner" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const L = crew.layoutCrew([], ["api"], 0, {});
+  const m = L.people.find((p) => p.id === "matt");
+  // Every element with an id or a loop, in draw order: what the renderer would match from one render to the next.
+  const keyed = (nodes) => { const n = []; const walk = (x) => { if (x && x.node) { const p = x.node.props, l = x.node.loops || []; if (p.id || l.length) n.push((p.id ? p.id[0] : "-") + ":" + l.map((q) => q[0] + "/" + q[1].period).join(",")); } for (const k of (x && x.node ? x.node.kids : [])) walk(k); }; nodes.forEach(walk); return n; };
+  const shape = (face) => JSON.stringify(keyed(draw.personEls(m, 2, face, true, L, false)));
+  const e = shape("e"), w = shape("w"), s = shape("s"), n = shape("n");
+  console.log(e === w, e === s, e === n, JSON.parse(e).length, new Set(JSON.parse(e).map((k) => k.split(":")[0]).filter((k) => k !== "-")).size);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true 3 3" ]
 }
