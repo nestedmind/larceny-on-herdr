@@ -257,8 +257,8 @@ meta_session() {
   [ "$(jq -c '[.[] | .launch // false]' <<<"$output")" = '[false,false]' ]
 }
 
-@test "transcript still shows Matt's own paste as his turn, wrapper kept" {
+@test "transcript shows Matt's own paste as his turn, without the pasted_content wrapper" {
   fixture long-say l1
   run "$LOH" transcript scofield
-  [ "$(jq -r '.[1].role + "|" + .[1].text' <<<"$output")" = $'user|<pasted_content id="b">\nmy notes\n</pasted_content id="b">' ]
+  [ "$(jq -r '.[1].role + "|" + .[1].text' <<<"$output")" = "user|my notes" ]
 }
