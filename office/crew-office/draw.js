@@ -683,6 +683,7 @@ export function dogEls(p, k, walking, face) {
       .loop("top", { from: (y - 7) * k, to: (y - 13) * k, period: 2100, easing: "linear" }));
     return out;
   }
+  if (walking && (face === "n" || face === "s")) return out.concat(dogAlong(p, k, walking, face === "n" ? -1 : 1));
   const f = face === "e" ? 1 : face === "w" ? -1 : p.dir < 0 ? -1 : 1;
   const legs = [[-3, -2.6], [3, -2.6], [-3, 2.6], [3, 2.6]].map(([lx, ly], i) => {
     const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
@@ -697,6 +698,23 @@ export function dogEls(p, k, walking, face) {
     .loop("top", { from: -1.5 * k, to: 1.5 * k, period: 440 });
   out.push(...legs, g.el(), tip);
   return out;
+}
+/** Waffles walking north (g = -1) or south (g = 1): long up and down, head first, with her legs stepping along the walk. */
+function dogAlong(p, k, walking, g) {
+  const B = BOX, x = B, y = B;
+  const legs = [[-2.6, -3], [2.6, -3], [-2.6, 3], [2.6, 3]].map(([lx, ly], i) => {
+    const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
+    return walking ? el.loop("top", { from: (y + ly - 1.2 + (i % 2 ? -1 : 1)) * k, to: (y + ly - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
+  });
+  const b = new Layer(k, 0, 0, 2 * B, 2 * B);
+  b.ell(x, y, 3.6, 6, PAL.dog);
+  b.circ(x, y + g * 6, 3, PAL.dog);
+  b.ell(x - 2.6, y + g * 5.6, 1.2, 1.6, PAL.dogDark); b.ell(x + 2.6, y + g * 5.6, 1.2, 1.6, PAL.dogDark);
+  b.circ(x - 1.1, y + g * 7.6, 0.6, PAL.eye); b.circ(x + 1.1, y + g * 7.6, 0.6, PAL.eye);
+  b.line(x, y - g * 5.6, x, y - g * 7.1, PAL.dog, 1.4);
+  const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x, y - g * 7.1, x, y - g * 8.6, PAL.dog, 1.4).el()
+    .loop("left", { from: -1.5 * k, to: 1.5 * k, period: 440 });
+  return [...legs, b.el(), tip];
 }
 const arcPt = (g, cx, cy, r, a) => [g.X(cx + Math.cos(a) * r), g.Y(cy + Math.sin(a) * r)];
 
