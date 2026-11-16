@@ -66,7 +66,7 @@ EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
 // A retained nested view: its node is what its render gives, so a walk of the office's tree goes into it as into any element.
-const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
+const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, at: typeof clock === 'number' ? clock : 0, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
 let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
 // herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
@@ -1019,4 +1019,24 @@ const share = (x, y) => x.split(",").filter((i) => y.split(",").includes(i)).len
 console.log(a.split(",").length, share(a, c), share(ids(rest2, "m-sheba"), c) === c.split(",").length, share(ta, tc), ids(rest, "m-sheba") === b);'
   [ "$status" -eq 0 ]
   [ "$output" = "9 0 true 0 true" ]
+}
+
+@test "a coder leaving the kitchen for ping pong keeps its mug until it sets off, though the layout already says ping pong" {
+  run office_js '
+const fire = () => { for (const t of timers.slice()) if (!t.cancelled && !t.done && t.at + t.ms <= clock) { t.done = true; t.fn(cx); } };
+const paths = (root) => all(find(root, "person-sheba")).filter((n) => n.props.size_full).length;
+const spot = () => office.layoutNow.people.find((p) => p.id === "sheba").place;
+render();
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+let kitchen = 0, flipped = 0, drawn = new Set();
+for (let i = 0; i < 80; i++) {
+  later(500); fire();
+  const r = render(), w = office.walks.get("sheba");
+  const standing = w.legs.length === 0 && !w.settling;
+  if (standing && spot() === "kitchen" && w.at.y > 150) { kitchen++; drawn.add(paths(r)); }
+  if (standing && spot() === "pong" && w.at.x < 250) { flipped++; drawn.add(paths(r)); }
+}
+console.log(kitchen > 0, flipped > 0, drawn.size);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 1" ]
 }

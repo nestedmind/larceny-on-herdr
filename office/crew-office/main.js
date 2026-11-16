@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, rallyOf, standLook, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -107,6 +107,8 @@ export default class CrewOffice extends View {
     this.wake = null;
     // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
     this.walks = new Map();
+    // What each person was last drawn with at rest (crew.js standLook).
+    this.looks = new Map();
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
     this.floors = new Map();
@@ -790,9 +792,15 @@ export default class CrewOffice extends View {
 
     // People, back to front. A chain of movers carries each across the floor (see motion()); the
     // drawing inside is draw.js's, and a click on the figure does what a click on its tag does.
+    // What the kitchen and the table put on someone follows where they stand (standLook), so the room they are leaving
+    // does not change before they set off.
+    const looks = new Map(L.people.map((p) => [p.id, standLook(this.looks.get(p.id), p, mo.get(p.id).rest)]));
+    this.looks = looks;
+    const rally = rallyOf(L.people.map((p) => ({ look: looks.get(p.id), walking: mo.get(p.id).walking })));
     const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
       const m = mo.get(p.id);
-      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls(p, k, m.face, m.walking, L, m.rest);
+      const look = looks.get(p.id);
+      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls({ ...p, mug: look.mug, paddle: look.paddle }, k, m.face, m.walking, L, m.rest);
       const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
       return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids));
     });
@@ -849,7 +857,7 @@ export default class CrewOffice extends View {
     const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H)).child(this.floorView);
     const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
-      .children(ball(L, k, L.rally)).children(figures).children(nightEls).children(hits)
+      .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
 

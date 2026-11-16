@@ -724,6 +724,21 @@ export function restAt(at, goal, walking) {
 }
 
 /**
+ * What a room puts on someone (the kitchen's mug, the table's paddle, the place at the table) as drawn: it follows where they
+ * stand, as the screens do, and not where the layout is sending them, which changes up to GOAL_HOLD before they set off.
+ * `prev` is what was drawn for them last; `p` the layout's look; `rest` that they stand on their goal. A first sight takes the layout's.
+ */
+export function standLook(prev, p, rest) {
+  if (rest || !prev) return { mug: !!p.mug, paddle: p.paddle || 0, spot: p.spot || null };
+  return prev;
+}
+
+/** Whether a rally is on: both table places are held by people who stand there (`look` from standLook, `walking`). */
+export function rallyOf(people) {
+  return people.filter((q) => !q.walking && (q.look.spot === "pong:0" || q.look.spot === "pong:1")).length === 2;
+}
+
+/**
  * The screens as they are seen: a desk's screen is lit as `work` only while its owner is at rest on their seat (`rest` is
  * a set of person ids to true), dim otherwise. Matt's monitors (`screens.matt`) follow the same rule. Other states
  * (a blocked agent's perm, question or esc screen) stay as the layout gives them.
