@@ -25,6 +25,7 @@ function el() {
   return p;
 }
 export const div = el;
+export const image = () => div();
 export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };
@@ -38,6 +39,7 @@ export const TextView = { markdown: () => div() };
 export const ScrollHandle = { new: () => ({}) };
 `;
 const HERDR = `
+export const home = () => "/nohome"; export const appHome = () => "/nohome/.config/herdr-app";
 export const terminals = () => globalThis.TERMS;
 export const panes = () => [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }];
 export const run = () => {};
@@ -52,7 +54,7 @@ export const openOverlay = () => "o1"; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
 export const focused = () => null;
 `;
-const FILES = ["crew", "draw", "panel", "chat", "main"];
+const FILES = ["crew", "draw", "panel", "chat", "photos", "main"];
 
 /** Copies the mod next to the stubs in a temp folder and loads its modules from there. */
 export async function loadOffice(modDir) {

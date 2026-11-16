@@ -131,15 +131,14 @@ export class Panel {
     if (this.wantKey !== this.fetchedKey) this.load(cx);
   }
 
-  // Read the photo folder, at most every PHOTOS_EVERY_MS; a failure keeps what was found. A photo with no file, or one that
+  // Read the photo folder, at most every PHOTOS_EVERY_MS, on a render (the office already wakes every minute for its repo list); a failure keeps what was found. A photo with no file, or one that
   // cannot be read, is simply absent, and its person keeps the floor figure.
   loadPhotos(cx) {
     const now = Date.now();
     if (this.photosBusy) return;
-    if (this.photosAt && now - this.photosAt < PHOTOS_EVERY_MS) { if (this.host.wake) this.host.wake(this.photosAt + PHOTOS_EVERY_MS - now); return; }
+    if (this.photosAt && now - this.photosAt < PHOTOS_EVERY_MS) return;
     this.photosAt = now;
     this.photosBusy = true;
-    if (this.host.wake) this.host.wake(PHOTOS_EVERY_MS);
     cx.spawn(async (cx) => {
       let found = null;
       try { found = await scanPhotos(fs, photoDirs(home(), appHome(), this.host.photos && this.host.photos())); } catch (_) { /* keep the last */ }

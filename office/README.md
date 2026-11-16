@@ -144,7 +144,7 @@ The chat panel shows a person's photo in a circle with a thin border: 36 px in t
 
 - **Where they live.** One file per person, named after them in lower case: `yoda.jpg`, `sara.png`, `amy.webp`. JPEG, PNG, WebP and GIF are read. The office looks in the `photos` prop's folder, then `~/.config/larceny/photos/`, then `~/.config/herdr-app/photos/`; the first folder with a readable picture for a name wins. Nothing image-related is committed to the repo.
 - **No photo.** Someone with no file, or whose file cannot be read or is not a picture, shows their own floor figure, head and shoulders (Waffles her dog). Matt too.
-- **New photos.** The folders are read again every minute, so a photo added while the office is open appears within a minute, without reopening the tab.
+- **New photos.** The folders are read again at most once a minute, on the office's next render (it wakes every minute for its repo list), so a photo added while the office is open appears without reopening the tab.
 - **Crop.** By default the largest centred square (from the top for a portrait). An optional `<name>.crop` beside the photo holds one line, `x y size`: the square's centre and its size, as fractions of the picture's short edge (`0.5 0.3 0.6`). A missing or malformed sidecar falls back to the default.
 - **Names.** The cast's names today; the resolved crew once that lands.
 - **Folder outside herdr's.** herdr-app loads an image by a path relative to its own folder, so a photo in `~/.config/larceny/photos/` is addressed as `../larceny/photos/<file>`. If your herdr-app does not load images from there, put the photos in `~/.config/herdr-app/photos/`.
