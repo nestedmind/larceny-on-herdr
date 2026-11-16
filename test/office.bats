@@ -288,6 +288,59 @@ console.log(crew.chatGone([{pane:"p1"},{pane:"p9"}], chat), crew.chatGone([{pane
   [ "$output" = "false true false" ]
 }
 
+@test "a copy loaded under another mod name finds its own pane, not the real office's" {
+  run crew_js '
+const ps = [{pane:"p1",mod:"crew-office",focused:true},{pane:"p2",mod:"crew-office-dev",focused:false},{pane:"p3",mod:"crew-office-dev",focused:true}];
+console.log(crew.officePane(ps, {}, "crew-office-dev"), crew.officePane(ps, {}, "crew-office"), crew.officePane(ps, {}), crew.officePane(ps, {}, "other"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "p3 p1 p1 null" ]
+}
+
+@test "a symlinked mod is named by the mods/ entry that leads to its folder, not by the folder it resolves to" {
+  run crew_js '
+const out = (own) => ["own\t" + own, "crew-office\t/w/real/office/crew-office", "crew-office-test\t/w/pr/office/crew-office", "files\t/m/files"].join("\n");
+console.log(
+  crew.resolveModName("crew-office", out("/w/pr/office/crew-office")),
+  crew.resolveModName("crew-office", out("/w/real/office/crew-office")),
+  crew.resolveModName("crew-office-test", out("/w/pr/office/crew-office")),
+  crew.resolveModName("crew-office", out("/w/gone")),
+  crew.resolveModName("crew-office", ""),
+  crew.resolveModName("crew-office", out("/m/files")));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office-test crew-office crew-office-test crew-office crew-office files" ]
+}
+
+@test "the scan that names the mod passes its folder and the app home as arguments" {
+  run crew_js '
+const c = crew.modScanCall("file:///w/pr/office/crew-office/main.js", "/h/herdr-app");
+console.log(c.cmd, c.args.slice(-2).join(" "), c.args[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "sh /w/pr/office/crew-office /h/herdr-app -c" ]
+}
+
+@test "the mod name is the folder the source was loaded from" {
+  run crew_js 'console.log(crew.modNameOf("file:///home/m/.config/herdr-app/mods/crew-office-dev/main.js"), crew.modNameOf("/a/crew-office/main.js"), crew.modNameOf(undefined));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office-dev crew-office crew-office" ]
+}
+
+@test "each mod's full-terminal window has its own key, so one does not replace the other" {
+  run crew_js '
+const a = { address: "t1", name: "x", rawName: "x" };
+console.log(crew.fullTerminalOverlay(a, null, "term-1", "crew-office-dev").key, crew.fullTerminalOverlay(a, null, "term-1").key);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office-dev-terminal crew-office-terminal" ]
+}
+
+@test "the full-terminal window reopens the mod it came from" {
+  run crew_js '
+const a = { address: "t1", name: "x", rawName: "x" };
+const o = (m) => JSON.stringify(crew.fullTerminalOverlay(a, null, "term-1", m).layout.children[0].content.mod);
+console.log(o("crew-office-dev"), o());'
+  [ "$status" -eq 0 ]
+  [ "$output" = '"crew-office-dev" "crew-office"' ]
+}
+
 @test "the office pane is the one named by props, else the focused crew-office pane" {
   run crew_js '
 const ps = [{pane:"p1",mod:"crew-office",focused:false},{pane:"p2",mod:"crew-office",focused:true},{pane:"p3",terminal:"t1"}];

@@ -41,6 +41,7 @@ const HERDR = `
 export const terminals = () => globalThis.TERMS;
 export const panes = () => [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }];
 export const run = () => {};
+export const appHome = () => "/h/herdr-app";
 export const exec = () => new Promise(() => {});
 export const notify = () => {};
 export const props = () => ({ crew: "parity" });

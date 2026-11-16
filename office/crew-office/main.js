@@ -8,8 +8,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
-import { terminals, panes, run, exec, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
+import { MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { Panel } from "./panel.js";
 
@@ -25,9 +25,24 @@ const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
 // Where a full-screen mode that is still on is written down, so a reload of the office can undo it.
 const FS_KEY = "crew-office.fullscreen";
+// The name this copy is loaded under. Panes of this mod, and the full-terminal window it opens, are found by it.
+// The folder of this source names it until the scan in nameMod() says which mods/ entry leads here: a symlinked
+// mod may report its real folder, whose name is not the one it is loaded under.
+let MOD = modNameOf(import.meta.url);
+// `done` runs once the name is settled, whether or not the scan could say: what looks for this copy's panes waits for it.
+function nameMod(done) {
+  try {
+    const c = modScanCall(import.meta.url, appHome());
+    exec(c.cmd, c.args, c.options).then((r) => { if (r && r.code === 0) MOD = resolveModName(MOD, r.stdout); }).catch(() => {}).then(done);
+  } catch (_) { done(); /* keep the folder's name */ }
+}
 // Who holds each agent's with-Matt lock (a docked chat, a full-terminal window). Module state, not persisted:
 // every copy of this source (the office and the full-terminal bar) shares it, and a crash or restart starts clean.
 let held = {};
+// The slim bars that are up, by window id: a bar that never comes up means its window never opened.
+const bars = new Set();
+// How long a full-terminal window has to show its bar before its hold is let go.
+const TERM_GRACE = 4000;
 // loh lock and unlock for one agent go through one queue, so the last call sent is the last one run.
 const lohQueue = serialQueue();
 
@@ -84,7 +99,7 @@ export default class CrewOffice extends View {
       // After a mod reload this copy has empty module state: record the window as a holder again, so
       // Back unlocks the agent and nothing else's release does. The lock is idempotent.
       const p = props() || {};
-      if (p.agent && p.agent.address && p.termId) hold(p.agent, p.loh, p.termId);
+      if (p.agent && p.agent.address && p.termId) { bars.add(p.termId); hold(p.agent, p.loh, p.termId); }
       return;
     }
     this.size = { width: 640, height: 480 };
@@ -94,6 +109,7 @@ export default class CrewOffice extends View {
     this.anim = false;
     this.handle = cx.focus_handle();
     this.acx = cx;
+    nameMod(() => this.recoverFs());
     // The manifest's repos, as `loh status --repos` last said. Refetched when the crew changes.
     this.repos = [];
     this.reposKey = null;
@@ -131,16 +147,8 @@ export default class CrewOffice extends View {
     // The chat panel beside the office; its Terminal button docks the real terminal (open below).
     // Full-screen mode that is on: { plan, pane } (what it did, so Esc undoes exactly that) or null.
     this.fs = null;
-    // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
-    // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
-    try {
-      const left = shared(FS_KEY);
-      const now = panes();
-      const offices = now.filter((p) => p.mod === "crew-office").map((p) => p.pane);
-      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props()), offices);
-      if (what === "adopt") this.fs = left;
-      else if (what === "undo") this.recover(left);
-    } catch (_) { /* nothing to recover */ }
+    // Full screen that an earlier copy left on is dealt with once the name is settled (recoverFs): before that, this
+    // copy could take another mod's panes for its own.
     // The panel's width: kept per crew in shared state, so a reload keeps it. Clamped on every render, when the office's width is known.
     // It is read once the crew shown is known (render), so it is per crew, not per prop.
     this.panelKey = null;
@@ -149,7 +157,8 @@ export default class CrewOffice extends View {
     try { this.lights = lightsFrom(shared(LIGHTS_KEY)); } catch (_) { /* none saved: lights on */ }
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
-    this.termOpen = false; // a full-terminal window is open
+    this.termOpen = false; // a full-terminal window of this copy is open
+    this.termWin = null; // the one this copy opened: { id, agent, loh, at, seen }
     this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, typed: (cx) => this.typed(cx), width: () => this.panelW });
   }
 
@@ -161,11 +170,14 @@ export default class CrewOffice extends View {
     const loh = (props() || {}).loh;
     const focus = (address) => { try { run("pane.focus", { terminal: address }); } catch (_) { /* focus is a nicety */ } };
     // One window at a time: a second click only brings the keyboard back to it.
-    const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-")));
+    // Only this copy's window counts: another copy's does not hold this one's keyboard.
+    const open = Object.entries(holders()).find(([, ids]) => Array.isArray(ids) && ids.some((i) => String(i).startsWith(`term-${MOD}:`)));
     if (open) { focus(open[0]); return; }
-    const id = `term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    try { openOverlay(fullTerminalOverlay(a, loh, id)); } catch (e) { this.fail(a, e); return; }
+    const id = termId(MOD, `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
+    try { openOverlay(fullTerminalOverlay(a, loh, id, MOD)); } catch (e) { this.fail(a, e); return; }
     hold(a, loh, id);
+    this.termWin = { id, agent: a, loh, at: Date.now(), seen: false };
+    this.wakeIn(TERM_GRACE + 50);
     this.termOpen = true;
     // A window does not take the keyboard when it opens: give it to the terminal, so Esc and typing go to the agent.
     focus(a.address);
@@ -264,7 +276,7 @@ export default class CrewOffice extends View {
   // The addresses of the agents whose terminal Matt has open from the office: the docked chat and a full-terminal window.
   openTerminals() {
     const out = this.chat ? [this.chat.address] : [];
-    for (const [address, ids] of Object.entries(holders())) if (Array.isArray(ids) && ids.some((i) => String(i).startsWith("term-"))) out.push(address);
+    for (const [address, ids] of Object.entries(holders())) if (Array.isArray(ids) && ids.some((i) => String(i).startsWith(`term-${MOD}:`))) out.push(address);
     return out;
   }
 
@@ -289,7 +301,7 @@ export default class CrewOffice extends View {
       unhold(this.chat.agent, loh, `chat-${this.chat.office}`);
       this.chat = { ...this.chat, address: a.address, name: a.name, agent: a };
     } else {
-      const mine = officePane(panes(), props());
+      const mine = officePane(panes(), props(), MOD);
       if (!mine) { this.fail(a, new Error("the office pane was not found")); return; }
       const before = new Set(panes().map((p) => p.pane));
       const tab = (panes().find((p) => p.pane === mine) || {}).tab;
@@ -341,7 +353,7 @@ export default class CrewOffice extends View {
     // A plan is already saved: never write over it, it is the only record of what was hidden.
     let saved = null;
     try { saved = shared(FS_KEY); } catch (_) { /* none */ }
-    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === "crew-office").map((p) => p.pane));
+    const entry = entryFor(saved, all.map((p) => p.pane), view.mine, all.filter((p) => p.mod === MOD).map((p) => p.pane));
     if (entry === "adopt") { this.fs = saved; this.handle.focus(); if (cx) cx.notify(); return; }
     if (entry === "blocked") { notify({ title: "Full screen is already on", body: "An office is in full screen. Click this office to take it back, or close the other office pane.", level: "warning" }); return; }
     if (entry === "restore") { notify({ title: "Putting the bars back", body: "An earlier full screen was left on. Press Full screen again once they are back.", level: "info" }); this.recover(saved); return; }
@@ -392,6 +404,19 @@ export default class CrewOffice extends View {
     return ok;
   }
 
+  // Full screen that an earlier copy left on. Its own pane (a reload): carry on with it. A pane that
+  // is gone (a crash, a restart): put the chrome back. Another live pane's: never touch it.
+  recoverFs() {
+    try {
+      const left = shared(FS_KEY);
+      const now = panes();
+      const offices = now.filter((p) => p.mod === MOD).map((p) => p.pane);
+      const what = recoveryFor(left, now.map((p) => p.pane), officePane(now, props(), MOD), offices);
+      if (what === "adopt") this.fs = left;
+      else if (what === "undo") this.recover(left);
+    } catch (_) { /* nothing to recover */ }
+  }
+
   // Put back what a plan left undone, and forget the plan only once that worked: otherwise it stays
   // saved and the next start tries again.
   recover(saved) {
@@ -415,6 +440,7 @@ export default class CrewOffice extends View {
     if (this.termBar) {
       // The full-terminal window is going (Back, the terminal ending, a layout switch): release the lock its opening set.
       const p = props() || {};
+      if (p.termId) bars.delete(p.termId);
       if (p.agent && p.agent.address && p.termId) { try { await unhold(p.agent, p.loh, p.termId); } catch (_) { /* nothing to undo */ } }
       return;
     }
@@ -523,7 +549,7 @@ export default class CrewOffice extends View {
   // The folder loh runs in to find the workspace: the `dir` prop, else the coordinator's folder or
   // any running agent's, else a pane in the office's own tab. Empty when none has one.
   workspaceDir(crew) {
-    return workspaceDir(crew, props(), panes(), officePane(panes(), props()));
+    return workspaceDir(crew, props(), panes(), officePane(panes(), props(), MOD));
   }
 
   confirmStart(cx) {
@@ -667,7 +693,13 @@ export default class CrewOffice extends View {
       try { saved = shared(wkey); } catch (_) { /* none */ }
       this.panelW = clampPanelW(saved, 1e9);
     }
-    this.termOpen = termHeld(holders());
+    // A window whose bar never came up (it failed to open) or has gone keeps no hold.
+    const w = this.termWin;
+    if (w) {
+      if (bars.has(w.id)) w.seen = true;
+      else if (w.seen || Date.now() - w.at > TERM_GRACE) { this.termWin = null; unhold(w.agent, w.loh, w.id); }
+    }
+    this.termOpen = termHeld(holders(), undefined, MOD);
     this.loadRepos(crew, workspace, cx);
     this.checkPrs(crew, cx);
     this.panel.sync(crew, cx);
@@ -680,7 +712,7 @@ export default class CrewOffice extends View {
     }
     // While a chat is open, keep using the office pane found when it opened: the click moves focus
     // to the chat, and officePane looks for the focused one.
-    const mine = (this.chat && this.chat.office) || officePane(allPanes, props());
+    const mine = (this.chat && this.chat.office) || officePane(allPanes, props(), MOD);
     const view = { mine, zoomed: !!(allPanes.find((p) => p.pane === mine) || {}).zoomed };
     // Fit the floor to the stage in both directions. The scale may drop below 1 (the chat takes
     // part of the tab); the floor is centred only while it fits, so it never spills off the left.
