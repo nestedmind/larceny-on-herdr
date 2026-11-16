@@ -30,6 +30,7 @@ function el() {
 }
 export const div = el;
 export const image = () => div();
+export const svg = () => div();
 export const View = class { constructor(p) { this.props = p; } };
 globalThis.window = { paint_path: (path, fill) => { const e = el(); e.node.fill = fill; return e; }, toggle_fullscreen() {} };
 const mk = () => { const b = new Proxy({}, { get: (t, k) => k === "build" ? () => ({}) : () => b }); return b; };

@@ -17,6 +17,7 @@ panel_js() {
   cat > "$d/node_modules/gpui-kit/index.js" <<'JS'
 const el = () => new Proxy({}, { get: () => () => el() });
 export const div = el;
+export const svg = () => el();
 export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return el(); };
 const pb = () => new Proxy({}, { get: () => () => pb() });
 export const PathBuilder = { fill: pb, stroke: pb };
