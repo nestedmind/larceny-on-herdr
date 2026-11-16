@@ -107,7 +107,8 @@ console.log(["sucre", "mahone", "sheba", "whip"].map((id) => P(L, id).place).joi
 
 @test "no rally when only one coder is at ping pong" {
   run crew_js "$HELPERS"'
-const L = lay([T("mahone", "idle", {role: "coder", task: "api#2", pr: "4", note: "escalation:stuck"})], ["api"]);
+// Yoda and Sara run, so nobody wanders to the table.
+const L = lay([T("mahone", "idle", {role: "coder", task: "api#2", pr: "4", note: "escalation:stuck"}), T("yoda", "idle", {role: "advisor"}), T("sara", "idle", {role: "teacher"})], ["api"]);
 console.log(P(L, "mahone").place, L.rally);'
   [ "$status" -eq 0 ]
   [ "$output" = "pong false" ]
@@ -299,7 +300,7 @@ const L = lay([T("sucre", "idle", {role: "coder"})], ["api"]);
 const kinds = ["scofield", "amy", "whip", "yoda", "matt", "dog", "sucre"].map((id) => id + ":" + crew.startPlan(P(L, id)).kind);
 console.log(kinds.join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "scofield:up amy:up whip:spawn yoda:none matt:none dog:none sucre:running" ]
+  [ "$output" = "scofield:up amy:up whip:spawn yoda:start matt:none dog:none sucre:running" ]
 }
 
 @test "starting Scofield or Amy runs loh up, after asking" {

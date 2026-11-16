@@ -324,3 +324,34 @@ console.log(log.builds);'
   run grep -c 'min_h(30)\|\.h(30)' "$BATS_TEST_DIRNAME/../office/crew-office/panel.js"
   [ "$output" = "2" ]
 }
+
+@test "Waffles is drawn long side-on when she walks east or west and long up and down when she walks north or south" {
+  run draw_js '
+const seen = [];
+const el = draw.Layer.prototype.el;
+draw.Layer.prototype.el = function () { seen.push(this); return el.call(this); };
+const extent = (face) => {
+  seen.length = 0;
+  draw.dogEls({ id: "dog", state: "sit", dir: 1 }, 1, true, face);
+  const pts = seen.flatMap((l) => l.ops).filter((o) => o.fill === draw.PAL.dog).flatMap((o) => o.cmds).filter((c) => c.length >= 3 && typeof c[1] === "number" && typeof c[2] === "number");
+  const xs = pts.map((c) => c[1]), ys = pts.map((c) => c[2]);
+  return (Math.max(...xs) - Math.min(...xs)) > (Math.max(...ys) - Math.min(...ys)) ? "wide" : "tall";
+};
+console.log(["e", "w", "n", "s"].map(extent).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "wide wide tall tall" ]
+}
+
+@test "Waffles sitting still keeps her side view whichever way her last leg faced" {
+  run draw_js '
+const seen = [];
+const el = draw.Layer.prototype.el;
+draw.Layer.prototype.el = function () { seen.push(this); return el.call(this); };
+seen.length = 0;
+draw.dogEls({ id: "dog", state: "sit", dir: 1 }, 1, false, "s");
+const pts = seen.flatMap((l) => l.ops).filter((o) => o.fill === draw.PAL.dog).flatMap((o) => o.cmds).filter((c) => c.length >= 3 && typeof c[1] === "number");
+const xs = pts.map((c) => c[1]), ys = pts.map((c) => c[2]);
+console.log((Math.max(...xs) - Math.min(...xs)) > (Math.max(...ys) - Math.min(...ys)) ? "wide" : "tall");'
+  [ "$status" -eq 0 ]
+  [ "$output" = "wide" ]
+}

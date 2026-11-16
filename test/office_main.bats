@@ -142,6 +142,20 @@ console.log(before, fromFigure, office.offer && office.offer.person.id, office.o
   [ "$output" = "null whip whip spawn" ]
 }
 
+@test "clicking Yoda with no session offers loh start with Start and Cancel, and Cancel starts nothing" {
+  run office_js '
+const root = render();
+find(root, "hit-yoda").props.on_click[0]({}, cx);
+const o = office.offer;
+const bar = render();
+console.log(o.plan.kind, o.plan.hint, find(bar, "offer-yes") !== undefined, find(bar, "offer-no") !== undefined);
+find(bar, "offer-no").props.on_click[0]({}, cx);
+console.log(office.offer);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "start loh start yoda true true" ]
+  [ "${lines[1]}" = "null" ]
+}
+
 @test "Matt and Waffles have no figure to click, and no tag action" {
   run office_js '
 const root = render();
@@ -313,8 +327,10 @@ fresh();
 render();
 const first = timers.filter((t) => !t.cancelled).length;
 let renders = 1;
-while (renders < 60) { const t = timers.pop(); if (!t) break; t.fn({ notify() {} }); render(); renders++; }
-console.log(first >= 1, office.floor.layer.done, renders < 60, timers.length);'
+// The wake for Yoda, Sara and Waffles (minutes away) is always pending; only the short timers that build the floor are the point here.
+const building = () => timers.filter((t) => !t.cancelled && t.ms < 60000);
+while (renders < 60) { const t = building().pop(); if (!t) break; timers.splice(timers.indexOf(t), 1); t.fn({ notify() {} }); render(); renders++; }
+console.log(first >= 1, office.floor.layer.done, renders < 60, building().length);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 0" ]
 }
