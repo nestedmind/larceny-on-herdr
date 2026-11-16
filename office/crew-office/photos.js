@@ -45,8 +45,8 @@ export function imageSize(b) {
 }
 
 /**
- * The sidecar `<name>.crop`: one line, `x y size`, the square's centre and its size as fractions of the picture's
- * short edge. Null for anything else (missing, empty, not three numbers, a size outside (0, 1.0]...), so the caller
+ * The sidecar `<name>.crop`: one line, `x y size`: the square's centre as fractions of the picture's width and height,
+ * and its side as a fraction of the picture's short edge. Null for anything else (missing, empty, not three numbers, a size outside (0, 1.0]...), so the caller
  * falls back to the default crop.
  */
 export function parseCrop(text) {
@@ -62,15 +62,15 @@ export function parseCrop(text) {
 
 /**
  * The square taken from a w by h picture, in pixels: { x, y, s } with (x, y) its top left corner. By default the
- * largest centred square (from the top for a portrait, which is also its vertical centre for a landscape). With a crop, its centre (x, y are fractions of the short
- * edge from the picture's top left) and size, moved inside the picture when it would stick out.
+ * largest centred square (from the top for a portrait, which is also its vertical centre for a landscape). With a crop, its centre (x of the width, y of the height, from the
+ * picture's top left) and side (of the short edge), moved inside the picture when it would stick out.
  */
 export function squareOf(w, h, crop) {
   const short = Math.min(w, h);
   if (!crop) return { x: (w - short) / 2, y: 0, s: short };
   const s = crop.size * short;
   const clamp = (v, hi) => Math.max(0, Math.min(hi, v));
-  return { x: clamp(crop.x * short - s / 2, w - s), y: clamp(crop.y * short - s / 2, h - s), s };
+  return { x: clamp(crop.x * w - s / 2, w - s), y: clamp(crop.y * h - s / 2, h - s), s };
 }
 
 /** Where the picture goes in a `size` px box so that `sq` fills it: the image's own size and its offset (both px). */

@@ -39,7 +39,7 @@ setup() { mkdir -p "$BATS_TEST_TMPDIR/dir"; }
 @test "squareOf: the largest centred square, from the top for a portrait; a crop is centre and size, kept inside" {
   run photos_js 'console.log(JSON.stringify([P.squareOf(800,400,null), P.squareOf(300,900,null), P.squareOf(500,500,null), P.squareOf(300,900,{x:.5,y:.6,size:.5}), P.squareOf(300,900,{x:0,y:0,size:1}), P.squareOf(300,900,{x:1,y:3,size:.5})]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[{"x":200,"y":0,"s":400},{"x":0,"y":0,"s":300},{"x":0,"y":0,"s":500},{"x":75,"y":105,"s":150},{"x":0,"y":0,"s":300},{"x":150,"y":750,"s":150}]' ]
+  [ "$output" = '[{"x":200,"y":0,"s":400},{"x":0,"y":0,"s":300},{"x":0,"y":0,"s":500},{"x":75,"y":465,"s":150},{"x":0,"y":0,"s":300},{"x":150,"y":750,"s":150}]' ]
 }
 
 @test "placement scales and shifts the picture so the square fills the box" {
@@ -83,4 +83,10 @@ console.log(JSON.stringify([[...m.keys()].sort(), m.get("yoda").w, (await P.scan
   run photos_js 'console.log(JSON.stringify([P.imagePath("/h/.config/herdr-app", "/h/.config/herdr-app/photos/a.jpg"), P.imagePath("/h/.config/herdr-app", "/h/.config/larceny/photos/a.jpg")]));'
   [ "$status" -eq 0 ]
   [ "$output" = '["photos/a.jpg","../larceny/photos/a.jpg"]' ]
+}
+
+@test "squareOf: Maya's Yoda sidecar 0.60 0.42 0.84 on the 1456x720 picture crops at x=571.2, y=0, side 604.8" {
+  run photos_js 'const q = P.squareOf(1456, 720, P.parseCrop("0.60 0.42 0.84")); console.log(JSON.stringify([q.x, q.y, q.s].map((v) => Math.round(v * 10) / 10)));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[571.2,0,604.8]" ]
 }
