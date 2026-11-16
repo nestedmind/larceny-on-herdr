@@ -444,3 +444,12 @@ snapshot_line() {
   run "$LOH" help
   [[ "$output" == *"watch"* ]]
 }
+
+@test "an undelivered note from a queued say is notified once" {
+  jq -nc '{name:"mahone",state:"live",labels:{note:"undelivered:amy: finished"},status:{state:"done"}}' >"$D/get-t15.json"
+  lab='{"jsonrpc":"2.0","method":"event","params":{"data":{"labels":{"crew":"w","note":"undelivered:amy: finished"}},"seq":9,"terminal":"t15","type":"labels"}}'
+  printf '%s\n%s\n' "$lab" "$lab" >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 1 ]
+  grep -q $'Mahone\'s message was not delivered\tamy: finished' "$D/notify.log"
+}

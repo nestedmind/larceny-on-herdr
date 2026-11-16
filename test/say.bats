@@ -269,3 +269,67 @@ sleep_sets_status() {
   done
   [ ! -s "$HC_LOG" ]
 }
+
+# --- queued sends: a message to a busy target is never dropped ---
+
+@test "say with LOH_SAY_TRIES=0 waits without a cap while the target stays busy" {
+  printf '10\n' >"$HC_DIR/send.exits"
+  # the target stays busy for 120 tries (3x the old 40-try window), then idles
+  cat >"$BIN/sleep" <<'SH'
+#!/usr/bin/env bash
+n=$(cat "$HC_DIR/n" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" >"$HC_DIR/n"
+if [ "$n" -ge 120 ]; then
+  printf '{"state":"live","status":{"state":"idle"},"labels":{}}\n' >"$HC_DIR/get.json"
+  printf '0\n' >"$HC_DIR/send.exits"
+fi
+SH
+  chmod +x "$BIN/sleep"
+  set_get working
+  LOH_SAY_TRIES=0 run "$LOH" say amy hi
+  [ "$status" -eq 0 ]
+  [ "$(cat "$HC_DIR/n")" -eq 120 ]
+  [ "$(cat "$HC_DIR/delivered")" = $'amy\thi' ]
+}
+
+@test "say --queue returns at once with exit 0 and the message arrives later" {
+  set_get working
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" '"'"'{"state":"live","status":{"state":"idle"},"labels":{}}'"'"' >"$HC_DIR/get.json"\n' >"$BIN/sleep"
+  chmod +x "$BIN/sleep"
+  run --separate-stderr "$LOH" say --queue amy "PR 7 ready"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"queued"* ]]
+  for _ in $(seq 1 50); do
+    [ -s "$HC_DIR/delivered" ] && break
+    command sleep 0.1
+  done
+  [ "$(cat "$HC_DIR/delivered")" = $'amy\tPR 7 ready' ]
+}
+
+@test "say --queue still validates the target before queueing" {
+  run --separate-stderr "$LOH" say --queue Amy hi
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"invalid target name"* ]]
+}
+
+@test "a queued send that finally fails leaves an undelivered note on the sender's card" {
+  printf '{"state":"finished","status":null,"labels":{}}\n' >"$HC_DIR/get.json"
+  HC_TERMINAL_ID=t9 LOH_SAY_WORKER=1 run --separate-stderr "$LOH" say amy "PR 7 ready"
+  [ "$status" -eq 11 ]
+  grep -qxP 'label\tt9\tnote=undelivered:amy: finished' "$HC_LOG"
+}
+
+@test "a queued send to an agent with Matt leaves an undelivered note" {
+  set_get idle 1
+  HC_TERMINAL_ID=t9 LOH_SAY_WORKER=1 run --separate-stderr "$LOH" say amy hi
+  [ "$status" -eq 4 ]
+  grep -qxP 'label\tt9\tnote=undelivered:amy: with Matt' "$HC_LOG"
+}
+
+@test "a foreground say that fails leaves no note" {
+  printf '{"state":"finished","status":null,"labels":{}}\n' >"$HC_DIR/get.json"
+  HC_TERMINAL_ID=t9 run --separate-stderr "$LOH" say amy hi
+  [ "$status" -eq 11 ]
+  ! grep -q '^label' "$HC_LOG"
+}
