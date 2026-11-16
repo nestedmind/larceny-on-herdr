@@ -89,3 +89,24 @@ console.log(legsSeen > 100000, bad, fast);'
   [ "$status" -eq 0 ]
   [ "$output" = "true 0 0" ]
 }
+
+# What a room draws on someone (the kitchen's mug, the table's paddle and rally) follows where they stand, as the screens do,
+# and not where the layout is sending them: the layout changes up to GOAL_HOLD before they set off.
+@test "someone's mug and paddle stay as they were while they stand in the room they are leaving" {
+  run crew_js '
+const mug = { mug: true, paddle: 0, spot: null }, pong = { mug: false, paddle: 1, spot: "pong:0" };
+const seen = crew.standLook(undefined, mug, true);
+const held = crew.standLook(seen, pong, false);
+const arrived = crew.standLook(held, pong, true);
+console.log(JSON.stringify([seen, held, arrived]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[{"mug":true,"paddle":0,"spot":null},{"mug":true,"paddle":0,"spot":null},{"mug":false,"paddle":1,"spot":"pong:0"}]' ]
+}
+
+@test "the rally goes on while both players still stand at the table, and stops once one walks off" {
+  run crew_js '
+const at = (spot, walking) => ({ look: { spot }, walking });
+console.log(crew.rallyOf([at("pong:0", false), at("pong:1", false), at(null, false)]), crew.rallyOf([at("pong:0", false), at("pong:1", true)]), crew.rallyOf([at("pong:0", false)]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false false" ]
+}

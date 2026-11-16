@@ -444,6 +444,20 @@ console.log(at(L, "maya"), L.people.filter((p) => p.desk === "maya").length, L.p
   [ "$output" = "lounge:- 0 4" ]
 }
 
+@test "a waiting coder in the kitchen takes the ping pong spot a player leaves, though it first lost the race for it" {
+  run crew_js "$HELPERS"'
+const wait = (n, task) => T(n, "idle", {role: "coder", task, pr: "9"});
+const all = (sucre) => [wait("sheba", "api#1"), sucre, wait("whip", "api#3")];
+const done = wait("sucre", "api#2"), busy = T("sucre", "working", {role: "coder", task: "api#2"});
+const a = play([[0, all(done)], [30, all(done)], [40, all(busy)], [41, all(busy)], [44, all(busy)], [50, all(done)]]);
+const row = (L) => ["sheba", "sucre", "whip"].map((n) => P(L, n).place + (P(L, n).spot ? "." + P(L, n).spot : "")).join(" ");
+console.log(row(a[1])); console.log(row(a[4])); console.log(row(a[5]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "pong.pong:0 pong.pong:1 kitchen" ]
+  [ "${lines[1]}" = "pong.pong:0 desk pong.pong:1" ]
+  [ "${lines[2]}" = "pong.pong:0 kitchen pong.pong:1" ]
+}
+
 # ---- Matt sends someone to a room (ticket #47): the place label, and meetings ----
 
 @test "place=rest sends an agent whose turn has ended to the rest room at once, and a new turn brings it back" {

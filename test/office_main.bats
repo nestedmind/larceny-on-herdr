@@ -69,7 +69,7 @@ EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
 // A retained nested view: its node is what its render gives, so a walk of the office's tree goes into it as into any element.
-const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
+const cx = { spawn: (fn) => { fn(cx); }, focus_handle: () => ({ focus() {}, is_focused: () => true }), new: (C, p) => { const inst = new C(p); if (inst.init) inst.init(p, cx); return { inst, get node() { return inst.render(cx).node; }, set_props() {}, release: () => true }; }, timer: { after: (ms, fn) => { const t = { ms, fn, at: typeof clock === 'number' ? clock : 0, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } }, notify() {} };
 let office;
 // A started office whose stage has been measured. Most tests start from one that has finished its first floor.
 // herdr hands a cx to one host call, and using it after the call returns throws. A strict cx does the same for the
@@ -415,6 +415,49 @@ render();
 console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goal === office.walks.get("sheba").at || office.walks.get("sheba").goal.x === office.walks.get("sheba").at.x);'
   [ "$status" -eq 0 ]
   [ "$output" = "0 true" ]
+}
+
+@test "officeLog in the props logs each render's figure order and places, and is silent without it" {
+  run office_js '
+const lines = []; console.error = (x) => lines.push(String(x));
+render();
+const quiet = lines.length;
+globalThis.PROPS = { crew: "sandbox", officeLog: true };
+render();
+console.log(quiet, lines.length > 0 && lines[0].startsWith("office render "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 true" ]
+}
+
+@test "one render that reads someone's labels or status wrongly draws nobody away from where they stand, and the next render is as before" {
+  run office_js '
+const fire = () => { const ts = timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms); timers.length = 0; ts.forEach((t) => t.fn({ notify() {} })); };
+const drawn = (root) => { const o = find(root, "m-scofield"); return JSON.stringify([o.props.left, o.props.top, office.walks.get("scofield").at, office.walks.get("scofield").legs.length]); };
+const sc = () => terms().find((t) => t.name === "scofield");
+sc().status = "idle"; render(); later(3000); render();
+sc().labels.place = "kitchen"; render(); later(3000); render(); later(60000); fire(); render(); later(100); fire(); render(); later(5000); render();
+const base = drawn(render());
+const was = terms();
+const strip = (f) => was.map((t) => (t.name === "scofield" ? f({ ...t, labels: { ...t.labels } }) : t));
+const variants = {
+  noPlace: () => strip((t) => { delete t.labels.place; return t; }),
+  noLabels: () => strip((t) => ({ ...t, labels: {} })),
+  onlyCrew: () => strip((t) => ({ ...t, labels: { crew: t.labels.crew } })),
+  working: () => strip((t) => ({ ...t, status: "working" })),
+  gone: () => was.filter((t) => t.name !== "scofield"),
+  empty: () => [],
+};
+const out = [];
+for (const [n, f] of Object.entries(variants)) {
+  globalThis.TERMS = f();
+  const during = drawn(render());
+  globalThis.TERMS = was;
+  const after = drawn(render());
+  out.push(n + ":" + (during === base) + ":" + (after === base));
+}
+console.log(out.join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "noPlace:true:true noLabels:true:true onlyCrew:true:true working:true:true gone:true:true empty:true:true" ]
 }
 
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
@@ -1086,4 +1129,24 @@ await new Promise((r) => setTimeout(r, 0));
 console.log(before, o.fs, (globalThis.RUNS || []).length);'
   [ "$status" -eq 0 ]
   [ "$output" = "null null 0" ]
+}
+
+@test "a coder leaving the kitchen for ping pong keeps its mug until it sets off, though the layout already says ping pong" {
+  run office_js '
+const fire = () => { for (const t of timers.slice()) if (!t.cancelled && !t.done && t.at + t.ms <= clock) { t.done = true; t.fn(cx); } };
+const paths = (root) => all(find(root, "person-sheba")).filter((n) => n.props.size_full).length;
+const spot = () => office.layoutNow.people.find((p) => p.id === "sheba").place;
+render();
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+let kitchen = 0, flipped = 0, drawn = new Set();
+for (let i = 0; i < 80; i++) {
+  later(500); fire();
+  const r = render(), w = office.walks.get("sheba");
+  const standing = w.legs.length === 0 && !w.settling;
+  if (standing && spot() === "kitchen" && w.at.y > 150) { kitchen++; drawn.add(paths(r)); }
+  if (standing && spot() === "pong" && w.at.x < 250) { flipped++; drawn.add(paths(r)); }
+}
+console.log(kitchen > 0, flipped > 0, drawn.size);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 1" ]
 }

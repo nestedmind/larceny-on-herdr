@@ -817,6 +817,21 @@ export function restAt(at, goal, walking) {
 }
 
 /**
+ * What a room puts on someone (the kitchen's mug, the table's paddle, the place at the table) as drawn: it follows where they
+ * stand, as the screens do, and not where the layout is sending them, which changes up to GOAL_HOLD before they set off.
+ * `prev` is what was drawn for them last; `p` the layout's look; `rest` that they stand on their goal. A first sight takes the layout's.
+ */
+export function standLook(prev, p, rest) {
+  if (rest || !prev) return { mug: !!p.mug, paddle: p.paddle || 0, spot: p.spot || null };
+  return prev;
+}
+
+/** Whether a rally is on: both table places are held by people who stand there (`look` from standLook, `walking`). */
+export function rallyOf(people) {
+  return people.filter((q) => !q.walking && (q.look.spot === "pong:0" || q.look.spot === "pong:1")).length === 2;
+}
+
+/**
  * The screens as they are seen: a desk's screen is lit as `work` only while its owner is at rest on their seat (`rest` is
  * a set of person ids to true), dim otherwise. Matt's monitors (`screens.matt`) follow the same rule. Other states
  * (a blocked agent's perm, question or esc screen) stay as the layout gives them.
@@ -1079,15 +1094,24 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     return null;
   };
   const why = (n) => n.chain.join(">");
-  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms.
+  // Everyone placed last time keeps their spot, running or not: an arrival takes a free one along its rooms. Someone whose
+  // chain starts at the table but who holds a spot elsewhere (a coder who lost the race for the table) keeps that spot
+  // only until the table has a free place: `upgrade` has them try it first below.
   for (const n of needSpot) {
     const h = mem.spots.get(n.p.id);
-    if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) { used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room; }
+    if (h && h.why === why(n) && n.chain.includes(h.room) && !used.has(h.room + ":" + h.idx)) {
+      used.add(h.room + ":" + h.idx); n.got = { ...spots[h.room][h.idx], idx: h.idx }; n.where = h.room;
+      n.upgrade = n.chain[0] === "pong" && h.room !== "pong" ? h : null;
+    }
   }
   needSpot.map((n, i) => ({ n, i })).sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i).forEach(({ n }) => {
     const { p, chain } = n;
     let got = n.got || null;
     let where = n.where || "lounge";
+    if (n.upgrade) {
+      const up = claim("pong", p.id);
+      if (up) { used.delete(n.upgrade.room + ":" + n.upgrade.idx); got = up; where = "pong"; }
+    }
     if (!got) for (const room of chain) { got = claim(room, p.id); if (got) { where = room; break; } }
     if (!got) { const s = spots.lounge[hash(p.id) % spots.lounge.length]; got = { x: s.x + 6, y: s.y + 4, idx: -1 }; where = "lounge"; }
     p.place = where; p.x = got.x; p.y = got.y; p.face = got.face || "s";
