@@ -125,6 +125,8 @@ export default class CrewOffice extends View {
     this.wake = null;
     // Where each person is drawn: { at, goal, from, legs, t0, i, tasks }. See motion().
     this.walks = new Map();
+    // Walkers whose rest frame the render in progress draws: marked drawn when that render ends (see holdOrGo).
+    this.restSeen = new Set();
     // What each person was last drawn with at rest (crew.js standLook).
     this.looks = new Map();
     // The floor and the night layers: built once for a plan, kept across scales. See render().
@@ -488,7 +490,7 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [], gen: 0 }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
       else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
       const walking = w.legs.length > 0;
@@ -511,6 +513,9 @@ export default class CrewOffice extends View {
   // from there, a whole walk away, each leg sliding the wrong way in a leg's time.
   settle(w) {
     w.settling = false;
+    // The rest frame counts as drawn only once a render that drew it has run to its end (render() marks it): see holdOrGo.
+    w.resting = true; w.restDrawn = false;
+    this.restSeen.add(w);
     w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
       try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
     }));
@@ -520,7 +525,22 @@ export default class CrewOffice extends View {
   // (crew.js nextGoal). A state that flips back within seconds moves nobody. A walk already handed to the
   // renderer is never redirected, so nobody is routed from a point in mid-air and no running mover is
   // retargeted. When the walk ends, the next render sees the new place and walks there from where they stand.
+  // The next walk is handed over only after a render that drew the rest frame ran to its end. A render that herdr cuts off at its
+  // deadline has run motion() but drawn nothing, and a walk handed over after it would be drawn from the old offsets.
   holdOrGo(w, p, L, goal, now) {
+    if (w.resting) {
+      this.restSeen.add(w);
+      if (!w.restDrawn) {
+        if (!w.wake) {
+          w.wake = this.acx.timer.after(SETTLE_MS + 5, (c) => {
+            w.wake = null;
+            try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+          });
+        }
+        return;
+      }
+      w.resting = false;
+    }
     const d = nextGoal(w.pending, w.goal, goal, now, w.legs.length > 0);
     w.pending = d.pending;
     if (d.wakeIn !== null && !w.wake) {
@@ -929,7 +949,10 @@ export default class CrewOffice extends View {
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags);
 
-    return this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
+    const out = this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
+    for (const w of this.restSeen) w.restDrawn = true;
+    this.restSeen.clear();
+    return out;
   }
 
   // The bar, the stage and the panel. The stage is where the floor is scaled to: the area left under
