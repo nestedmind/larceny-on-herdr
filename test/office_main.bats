@@ -1197,17 +1197,19 @@ console.log(arrived, afterCutOff, armed, w().legs.length > 0);'
 @test "a walk's transition policies are drawn on zeroed movers one render before its offsets, so no mover changes policy and value together" {
   run office_js '
 const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-g[0-9]+-[0-9]/.test(id(n))).map((n) => ({ id: id(n), off: [n.props.left[0], n.props.top[0]], pol: JSON.stringify(n.props.transitions) }));
-let rest = links(render());
+const base = (r) => { const n = find(r, "m-sheba"); return n.props.left[0] + "," + n.props.top[0]; };
+let r0 = render(); const origin = base(r0); let rest = links(r0);
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render(); later(3000);
-const frames = [];
-for (let i = 0; i < 4; i++) { frames.push(links(render())); later(100); }
+const frames = [], bases = [];
+for (let i = 0; i < 4; i++) { const r = render(); frames.push(links(r)); bases.push(base(r)); later(100); }
 const moving = (l) => l.some((x) => x.off[0] !== 0 || x.off[1] !== 0);
 const timed = (l) => l.some((x) => JSON.parse(x.pol)[0][1].duration > 1);
 const go = frames.find(moving), arm = frames.find((l) => timed(l) && !moving(l));
 const zero = (l) => l.every((x) => x.off[0] === 0 && x.off[1] === 0);
 const samePol = (a, b) => a.every((x, i) => x.id === b[i].id && x.pol === b[i].pol);
-console.log(!!arm, !!go, arm && zero(arm), arm && go && samePol(arm, go), arm && !samePol(rest, arm));'
+const gi = frames.indexOf(go);
+console.log(bases.slice(0, gi).every((b) => b === origin), !!arm, !!go, arm && zero(arm), arm && go && samePol(arm, go), arm && !samePol(rest, arm));'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true true true true" ] || { echo "GOT: $output" >&2; false; }
+  [ "$output" = "true true true true true true" ] || { echo "GOT: $output" >&2; false; }
 }
