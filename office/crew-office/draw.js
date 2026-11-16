@@ -76,7 +76,8 @@ export function mergeOps(ops) {
   for (let n = 0; n < ops.length; n++) {
     const o = ops[n];
     const last = out[out.length - 1];
-    const same = last && !o.stroke && !last.stroke && o.fill === last.fill && o.fill.length === 7 && last.cmds.length + o.cmds.length <= MAX_CMDS;
+    if (o.div) { out.push(o); continue; }
+    const same = last && !last.div && !o.stroke && !last.stroke && o.fill === last.fill && o.fill.length === 7 && last.cmds.length + o.cmds.length <= MAX_CMDS;
     const box = same || o.fill.length === 7 ? boxOf(o.cmds) : null;
     let clear = same;
     if (same) {
@@ -103,8 +104,14 @@ export class Layer {
   constructor(k, x, y, w, h, alpha = "", pct = false) {
     this.k = k; this.x = x; this.y = y; this.w = w; this.h = h; this.alpha = alpha; this.ops = []; this.pct = pct;
     this.s = pct ? 1 : k; this.merge = false; this.plan = null; this.paths = null;
-    this.dx = 0; this.dy = 0;
+    this.dx = 0; this.dy = 0; this.divs = false;
   }
+  /**
+   * Draw this percentage layer's circles and rounded rectangles as rounded divs, which herdr draws
+   * smoothly, and not as polygons, whose corners and steps show. (An ellipse that is not a circle
+   * stays a polygon: a div's radius would make it a pill.)
+   */
+  rounded() { this.divs = true; return this; }
   /** Draw this layer's neighbouring same-colour shapes as one path each. */
   merged() { this.merge = true; this.plan = null; this.paths = null; return this; }
   /** The same shapes at another scale. A percentage layer keeps its paths. */
@@ -131,6 +138,13 @@ export class Layer {
     this.plan = null; this.paths = null;
     return this;
   }
+  // A rounded div: its box in world units, its corner radius in world units (-1: a circle).
+  addDiv(x, y, w, h, r, fill) {
+    const c = this.alpha && fill.length === 7 ? fill + this.alpha : fill;
+    this.ops.push({ cmds: [], fill: c, stroke: 0, div: { x, y, w, h, r } });
+    this.plan = null; this.paths = null;
+    return this;
+  }
   rect(x, y, w, h, fill) {
     const X = this.X(x), Y = this.Y(y), W = w * this.s, H = h * this.s;
     return this.add([["move_to", X, Y], ["line_to", X + W, Y], ["line_to", X + W, Y + H], ["line_to", X, Y + H], ["close"]], fill);
@@ -138,6 +152,7 @@ export class Layer {
   rr(x, y, w, h, r, fill) {
     const X = this.X(x), Y = this.Y(y), W = w * this.s, H = h * this.s;
     const R = Math.min(r * this.s, W / 2, H / 2);
+    if (this.pct && this.divs) return this.addDiv(X, Y, W, H, Math.min(r, w / 2, h / 2), fill);
     if (this.pct) {
       // Clockwise on screen, a quarter circle at each corner.
       const pts = [];
@@ -153,9 +168,11 @@ export class Layer {
   }
   ell(x, y, rx, ry, fill) {
     const X = this.X(x), Y = this.Y(y), RX = rx * this.s, RY = ry * this.s;
+    if (this.pct && this.divs && rx === ry) return this.addDiv(X - RX, Y - RY, 2 * RX, 2 * RY, -1, fill);
     if (this.pct) {
       const pts = [];
-      const n = sidesFor(Math.max(rx, ry));
+      // (A rounded layer's ellipses are few, so they get many sides: their corners would show as facets.)
+      const n = this.divs ? (Math.max(rx, ry) < 6 ? 36 : 120) : sidesFor(Math.max(rx, ry));
       for (let i = 0; i < n; i++) { const a = (2 * Math.PI * i) / n; pts.push([X + RX * Math.cos(a), Y + RY * Math.sin(a)]); }
       return this.add([["move_to", ...pts[0]], ...pts.slice(1).map((p) => ["line_to", ...p]), ["close"]], fill);
     }
@@ -198,7 +215,7 @@ export class Layer {
     const t = Date.now();
     while (this.paths.length < this.plan.length) {
       const o = this.plan[this.paths.length];
-      this.paths.push({ fill: o.fill, path: buildPath(o.cmds, o.stroke, pct) });
+      this.paths.push(o.div ? { fill: o.fill, div: o.div } : { fill: o.fill, path: buildPath(o.cmds, o.stroke, pct) });
       if (limit !== undefined && Date.now() - t >= limit) break;
     }
     return this.paths.length === this.plan.length;
@@ -209,7 +226,15 @@ export class Layer {
     // `size` ({w, h} in px) stretches a percentage layer over another box: the last finished floor stands in for a new plan's.
     const w = size ? size.w : this.w * this.k, h = size ? size.h : this.h * this.k;
     return div().absolute().left(this.x * this.k).top(this.y * this.k).w(w).h(h)
-      .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
+      .children(this.paths.map((g) => this.shape(g)));
+  }
+  /** One built shape as an element: a path that fills the box, or a rounded div placed in it by percentages. */
+  shape(g) {
+    if (!g.div) return window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full();
+    const { x, y, w, h, r } = g.div;
+    const P = (v, whole) => Math.round((v / whole) * 1e6) / 1e4 + "%";
+    const el = div().absolute().left(P(x, this.w)).top(P(y, this.h)).w(P(w, this.w)).h(P(h, this.h)).bg(g.fill);
+    return r < 0 ? el.rounded_full() : el.rounded(r * this.k);
   }
   /**
    * A finished percentage layer as an element that fills whatever box it is put in, so it is the same
@@ -218,7 +243,7 @@ export class Layer {
   fillEl() {
     if (!this.pct || !this.done) throw new Error("fillEl needs a percentage layer whose paths are all built");
     return div().absolute().left(0).top(0).size_full()
-      .children(this.paths.map((g) => window.paint_path(g.path, g.fill).absolute().left(0).top(0).size_full()));
+      .children(this.paths.map((g) => this.shape(g)));
   }
 }
 
@@ -352,7 +377,7 @@ function deskArt(g, d, mat) {
  */
 export function floorLayer(world, k) {
   const { W, H, corr } = world;
-  const g = new Layer(k, 0, 0, W, H, "", true).merged();
+  const g = new Layer(k, 0, 0, W, H, "", true).merged().rounded();
   const R = (kind) => world.rooms.find((r) => r.kind === kind);
   const repos = world.rooms.filter((r) => r.kind === "repo");
   const leads = R("leads"), meet = R("meet"), matt = R("matt"), kitchen = R("kitchen"), lounge = R("lounge"), pong = R("pong"), rest = R("rest");
@@ -555,6 +580,12 @@ const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
     .loop("top", { from: (fy - 1.6) * k, to: (ty - 1.6) * k, period: 534 });
 };
 
+/** The status ring round a person: a rounded_full div with a border, which herdr draws smoothly (a stroked arc is not anti-aliased). Its line is 1.5 units wide, centred 8.4 from the person. */
+export function statusRing(x, y, k, colour) {
+  const R = 8.4 + 0.75;
+  return div().absolute().left((x - R) * k).top((y - R) * k).w(2 * R * k).h(2 * R * k).rounded_full().border(1.5 * k).border_color(colour);
+}
+
 /**
  * One person, seen from above: the prototype's person(). `face` is where they look (n, s, e, w) and
  * `walking` swings their arms and bobs them; `rest` is that they are standing on their goal, which typing needs. Returns the elements to put in the person's wrapper.
@@ -571,7 +602,6 @@ export function personEls(p, k, face, walking, world, rest = false) {
   const kind = p.kind || "other";
   const ringCol = p.state === "blocked" ? BLOCKED[kind][0] : STATE_RING[p.state];
   const under = box();
-  if (ringCol) under.ring(x, y, 8.4, ringCol, 1.5);
   const fy = face === "n" ? -1 : 1;
   const side = face === "e" ? 1 : face === "w" ? -1 : 0;
   const hands = [];
@@ -613,7 +643,7 @@ export function personEls(p, k, face, walking, world, rest = false) {
   if (p.paddle) body.circ(x + p.paddle * 6, y - 1.5, 2.4, PAL.paddle);
   // A raised hand for a question or a permission prompt only.
   if (p.state === "blocked" && kind !== "other") { body.circ(x + 6, y - 7.5, 1.7, skin); body.line(x + 4, y - 2, x + 5.6, y - 6.4, shirt, 1.6); }
-  const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).child(under.el()).children(hands).child(body.el());
+  const figure = div().absolute().left(0).top(0).w(2 * B * k).h(2 * B * k).children(ringCol ? [statusRing(x, y, k, ringCol + a)] : []).child(under.el()).children(hands).child(body.el());
   out.push(walking ? figure.loop("top", { from: -0.5 * k, to: 0.5 * k, period: 534 }) : figure);
   // The bubble over a question or a permission prompt; a flag over anything else that blocks.
   // A person at the top row of a pod gets it higher, clear of the name tag.

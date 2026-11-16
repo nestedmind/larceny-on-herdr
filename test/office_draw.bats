@@ -147,6 +147,51 @@ console.log(el.node.kids.length, g.done);'
   [ "$output" = "1 false" ]
 }
 
+@test "a rounded layer draws a circle as a rounded_full div placed by percentages, and keeps rect and polygon paths in order" {
+  run draw_js '
+const g = new draw.Layer(2, 0, 0, 100, 50, "", true).merged().rounded().rect(0, 0, 100, 50, "#111111").circ(50, 25, 5, "#222222").rect(0, 0, 4, 4, "#111111");
+const kids = g.el().node.kids.map((e) => e.node);
+const c = kids[1];
+console.log(kids.length, !!kids[0].path, !!kids[2].path, JSON.stringify([c.props.left, c.props.top, c.props.w, c.props.h]), "rounded_full" in c.props);'
+  [ "$status" -eq 0 ]
+  [ "$output" = '3 true true [["45%"],["40%"],["10%"],["20%"]] true' ]
+}
+
+@test "a rounded layer draws a rounded rectangle as a div whose radius follows the scale, and an ellipse stays a polygon of 120 corners" {
+  run draw_js '
+const g = new draw.Layer(2, 0, 0, 100, 50, "", true).rounded().rr(10, 5, 20, 10, 3, "#334455").ell(50, 25, 6, 3, "#556677");
+const a = g.el().node.kids.map((e) => e.node);
+const r2 = JSON.stringify(a[0].props.rounded);
+const r5 = JSON.stringify(g.at(5).el().node.kids[0].node.props.rounded);
+console.log(r2, r5, !!a[1].path, a[1].path.cmds.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[6] [15] true 121' ]
+}
+
+@test "the floor's circles and rounded rectangles are divs, not polygons" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const g = draw.floorLayer(crew.layoutCrew([], ["api", "web"], 1.6), 1);
+g.build();
+const divs = g.paths.filter((p) => p.div).length;
+const polys = g.paths.filter((p) => p.path).length;
+console.log(divs > 60, polys > 20, g.paths.filter((p) => p.div && !(p.div.w > 0 && p.div.h > 0)).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 0" ]
+}
+
+@test "a working person's status ring is a bordered rounded_full div that a dimmed person's draws dimmed and an idle person has none" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const L = crew.layoutCrew([], ["api"], 0);
+const all = (n) => [n, ...n.kids.flatMap((x) => all(x.node))];
+const ring = (p) => { const f = draw.personEls(p, 2, "s", false, L, true); return f.flatMap((e) => all(e.node)).filter((n) => "rounded_full" in n.props && n.props.border_color).map((n) => [n.props.border[0], n.props.border_color[0], n.props.w[0]]); };
+const base = { role: "coder", key: "x", name: "x", id: "x", kind: "other" };
+console.log(JSON.stringify(ring({ ...base, state: "working" })), JSON.stringify(ring({ ...base, state: "idle" })), JSON.stringify(ring({ ...base, state: "working", dim: true })));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[3,"#3fae69",36.6]] [] [[3,"#3fae69b3",36.6]]' ]
+}
+
 @test "every shape on the floor has a colour, for up to six repos at several shapes of pane" {
   run draw_js '
 const crew = await import("./crew.mjs");

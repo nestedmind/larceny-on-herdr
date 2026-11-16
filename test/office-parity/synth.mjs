@@ -28,6 +28,10 @@ const L = crew.layoutCrew(crew.crewOf(j.terminals, crew.pickWorkspace(j.terminal
 const fault = parseFloat(opt("fault", "1"));
 const hide = (opt("hide", "") || "").split(",");
 const paths = office.draw.floorLayer(L, 1).ops.map((o) => {
+  if (o.div) {
+    const { x, y, w, h, r } = o.div, rad = r < 0 ? Math.min(w, h) / 2 : r;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" fill="${o.fill}"/>`;
+  }
   const d = o.cmds.map((c) => (c[0] === "close" ? "Z" : (c[0] === "move_to" ? "M" : "L") + c[1].toFixed(2) + " " + c[2].toFixed(2))).join("");
   return `<path d="${d}" fill="${o.fill}"/>`;
 }).join("");
