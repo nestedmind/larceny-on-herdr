@@ -90,10 +90,15 @@ export function sendBlock(agent) {
   return `${agent.name} is waiting on ${what}. Answer it in the terminal; a typed message would answer it for you.`;
 }
 
-/** Who a log turn is from: Matt for typed turns, the sender's name for another agent's message. */
-export function speaker(m, agentName) {
+/** What the owner is called where a person reads it: `person:` from the crew config, else a neutral word. */
+export function ownerName(person) {
+  return person ? String(person) : "Owner";
+}
+
+/** Who a log turn is from: the owner for typed turns, the sender's name for another agent's message. */
+export function speaker(m, agentName, person = "") {
   if (m.launch) return "launch prompt";
-  if (m.role === "user") return "Matt";
+  if (m.role === "user") return ownerName(person);
   if (m.role === "agent") return m.from || "another agent";
   return agentName;
 }
@@ -103,9 +108,9 @@ export function viaMark(m) {
   return m.via === "discord" ? " · via Discord" : "";
 }
 
-/** Whose floor figure is the avatar of a turn, as a lower-case terminal name. Matt's typed turns are "matt". */
-export function avatarName(m, agent) {
-  if (m.role === "user") return "matt";
+/** Whose floor figure is the avatar of a turn, as a lower-case name. The owner's typed turns carry the owner's name. */
+export function avatarName(m, agent, person = "") {
+  if (m.role === "user") return ownerName(person).toLowerCase();
   if (m.role === "agent") return String(m.from || "").toLowerCase();
   return String((agent && (agent.rawName || agent.name)) || "").toLowerCase();
 }
@@ -143,12 +148,12 @@ export function enterAction(e) {
  * continues the group before it when the speaker is the same, neither is a launch prompt or pending,
  * both came in the same way (typed or via Discord), and both have a time at most GROUP_MS apart.
  */
-export function groupLog(turns, agentName) {
+export function groupLog(turns, agentName, person = "") {
   const out = [];
   const seen = new Map();
   let prev = null;
   for (const m of turns) {
-    const who = speaker(m, agentName);
+    const who = speaker(m, agentName, person);
     const at = m.ts ? Date.parse(m.ts) : NaN;
     const joins = prev && !m.launch && !prev.m.launch && !m.pending && !prev.m.pending && prev.who === who
       && (prev.m.via || "") === (m.via || "")
@@ -198,10 +203,10 @@ export function copyText(m) {
 }
 
 /** What Copy all puts on the clipboard: each turn as "Name · HH:MM", a newline and its text, a blank line between turns. */
-export function copyAll(turns, agentName) {
+export function copyAll(turns, agentName, person = "") {
   return turns.map((m) => {
     const t = m.ts && Number.isFinite(Date.parse(m.ts)) ? ` · ${clock(new Date(m.ts))}` : "";
-    return `${speaker(m, agentName)}${t}\n${m.text}`;
+    return `${speaker(m, agentName, person)}${t}\n${m.text}`;
   }).join("\n\n");
 }
 
@@ -217,14 +222,14 @@ export function blockedCount(crew) {
 }
 
 /** Card rows for an agent: [label, value], only the ones known. */
-export function cardRows(agent, words) {
+export function cardRows(agent, words, person = "") {
   const rows = [["Role", agent.role || "agent"], ["State", words[agent.status] || agent.status]];
   if (agent.status === "blocked") rows[1][1] = `${words.blocked}${agent.kind && agent.kind !== "other" ? ` (${agent.kind})` : ""}`;
   if (agent.repo) rows.push(["Ticket", `${agent.repo}${agent.ticket ? "#" + agent.ticket : ""}`]);
   if (agent.pr) rows.push(["PR", `${agent.pr}${agent.round ? ` · round ${agent.round}` : ""}`]);
   if (agent.step) rows.push(["Step", agent.step]);
   if (agent.note) rows.push(["Note", agent.note]);
-  if (agent.withMatt) rows.push(["Lock", "with Matt"]);
+  if (agent.withMatt) rows.push(["Lock", `with ${person || "the owner"}`]);
   return rows;
 }
 

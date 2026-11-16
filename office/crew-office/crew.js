@@ -87,6 +87,30 @@ export function reposCall(agent, loh) {
   return { cmd: loh || "loh", args: ["status", "--repos"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
+/** The command that reads the crew's names (loh crew --json). Same folder rules as reposCall. */
+export function crewCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["crew", "--json"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
+/**
+ * The crew's names from `loh crew --json` output: coordinator, reviewer, advisor, teacher, the coders in order and the
+ * person (the owner, "" when none is set). Anything that is not that object gives null, and the office keeps the shipped names.
+ */
+export function namesOf(text) {
+  let o;
+  try { o = JSON.parse(text); } catch { return null; }
+  if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+  const one = (v) => (typeof v === "string" ? clean(v, 24) : "");
+  const out = { coordinator: one(o.coordinator), reviewer: one(o.reviewer), advisor: one(o.advisor), teacher: one(o.teacher), coders: [], person: one(o.person) };
+  if (!out.coordinator || !out.reviewer || !out.advisor || !out.teacher || !Array.isArray(o.coders)) return null;
+  const seen = new Set();
+  for (const c of o.coders) {
+    const n = one(c);
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.coders.push(n); }
+  }
+  return out;
+}
+
 /** The crew: terminals labelled crew=<workspace>, as plain records. */
 export function crewOf(terminals, workspace) {
   const out = [];
@@ -258,11 +282,16 @@ const LOOKS = {
   scofield: ["#2a211c", "#e8b98f", "#3f5f93"], sucre: ["#16130f", "#b97a50", "#c4533a"],
   mahone: ["#8c6c4c", "#efc9a3", "#6d7d40"], sheba: ["#4a2618", "#8d5a3b", "#8e4fa8"],
   whip: ["#d8b04a", "#f0c8a0", "#2f8f8a"], amy: ["#b8432f", "#f1cfb0", "#39404f"],
-  matt: ["#3a2a1f", "#d9a27a", "#e0603f"], yoda: ["#e4e1d6", "#93b36c", "#8a6e4b"],
+  owner: ["#3a2a1f", "#d9a27a", "#e0603f"], yoda: ["#e4e1d6", "#93b36c", "#8a6e4b"],
   sara: ["#2b1d14", "#c68a62", "#3f7fbf"], opemipo: ["#141110", "#6b4630", "#d2a03a"],
   maya: ["#6a2c4a", "#e0b08c", "#e46b8f"],
 };
 const SHIRTS = ["#c4533a", "#6d7d40", "#8e4fa8", "#2f8f8a", "#d2a03a", "#e46b8f"];
+
+/** Whether the shipped person of this name has long hair. */
+export function isLong(name) {
+  return LONG.has(String(name).toLowerCase());
+}
 
 /** [hair, skin, shirt] for a name. */
 export function look(name) {
@@ -271,35 +300,53 @@ export function look(name) {
   return ["#2a211c", "#d9a27a", SHIRTS[hash(k) % SHIRTS.length]];
 }
 
-/** The twelve who are always in the office, in the prototype's order. `role` is the office role. */
-export const CAST = [
-  { id: "scofield", name: "Scofield", title: "coordinator", role: "coordinator" },
-  { id: "sucre", name: "Sucre", title: "coder", role: "coder" },
-  { id: "mahone", name: "Mahone", title: "coder", role: "coder" },
-  { id: "sheba", name: "Sheba", title: "coder", role: "coder", long: true },
-  { id: "whip", name: "Whip", title: "coder", role: "coder" },
-  { id: "amy", name: "Amy", title: "reviewer", role: "reviewer", long: true },
-  { id: "maya", name: "Maya", title: "designer", role: "helper", long: true },
-  { id: "opemipo", name: "Opemipo", title: "researcher", role: "helper" },
-  { id: "yoda", name: "Yoda", title: "advisor", role: "advisor" },
-  { id: "sara", name: "Sara", title: "teacher", role: "teacher", long: true },
-  { id: "matt", name: "Matt", title: "owner", role: "owner", headset: true },
-  { id: "dog", name: "Waffles", title: "office dog", role: "dog" },
-];
-const AGENT_IDS = CAST.filter((c) => c.role !== "owner" && c.role !== "dog").map((c) => c.id);
+/** The names the office uses when the crew config says nothing (and the owner's, when no `person:` is set). */
+export const DEFAULT_NAMES = { coordinator: "Scofield", reviewer: "Amy", advisor: "Yoda", teacher: "Sara", coders: ["Sucre", "Mahone", "Sheba", "Whip"], person: "" };
+/** What the owner is called when no `person:` is set. */
+export const OWNER_WORD = "Owner";
+// Long hair belongs to the shipped person of that name, not to whoever takes the seat.
+const LONG = new Set(["sheba", "amy", "sara", "maya"]);
+
+/**
+ * Everyone who is always in the office, in the prototype's order: a seat each for the coordinator, the coders, the
+ * reviewer, the advisor, the teacher and the owner, and Maya, Opemipo and the dog. `names` is namesOf's result (none
+ * means the shipped names). A seat's `id` is its place in the office: the coordinator is "scofield", the reviewer "amy",
+ * the advisor "yoda", the teacher "sara" and the owner "matt", whatever they are called. A coder's id is the lower-case
+ * name. `key` is the lower-case name a terminal answers to, and what a person's look and photo are keyed by.
+ */
+export function castFor(names) {
+  const n = names || DEFAULT_NAMES;
+  const seat = (id, name, title, role, extra = {}) => ({ id, name, key: name.toLowerCase(), title, role, ...(LONG.has(name.toLowerCase()) ? { long: true } : {}), ...extra });
+  return [
+    seat("scofield", n.coordinator, "coordinator", "coordinator"),
+    ...n.coders.map((c) => seat(c.toLowerCase(), c, "coder", "coder")),
+    seat("amy", n.reviewer, "reviewer", "reviewer"),
+    { id: "maya", name: "Maya", key: "maya", title: "designer", role: "helper", long: true },
+    { id: "opemipo", name: "Opemipo", key: "opemipo", title: "researcher", role: "helper" },
+    seat("yoda", n.advisor, "advisor", "advisor"),
+    seat("sara", n.teacher, "teacher", "teacher"),
+    { id: "matt", name: n.person || OWNER_WORD, key: (n.person || "owner").toLowerCase(), title: "owner", role: "owner", headset: true },
+    { id: "dog", name: "Waffles", key: "waffles", title: "office dog", role: "dog" },
+  ];
+}
+/** The shipped cast. */
+export const CAST = castFor(null);
 // A terminal whose name is not in the cast but whose role label is stands in for that cast member.
 const ROLE_CAST = { coordinator: "scofield", reviewer: "amy", advisor: "yoda", teacher: "sara" };
 
 const lower = (a) => String(a.rawName || a.name || "").toLowerCase();
 
 /** The cast id for an agent: its name when that is in the cast, else its role's stand-in, else null. */
-export function castKey(agent, all = [agent]) {
+export function castKey(agent, all = [agent], cast = CAST) {
   const name = lower(agent);
-  if (AGENT_IDS.includes(name)) return name;
+  const agents = cast.filter((c) => c.role !== "owner" && c.role !== "dog");
+  const hit = agents.find((c) => c.key === name);
+  if (hit) return hit.id;
   const target = ROLE_CAST[agent.role];
   if (!target) return null;
-  if (all.some((a) => lower(a) === target)) return null;
-  const first = all.find((a) => !AGENT_IDS.includes(lower(a)) && a.role === agent.role);
+  const seatKey = agents.find((c) => c.id === target).key;
+  if (all.some((a) => lower(a) === seatKey)) return null;
+  const first = all.find((a) => !agents.some((c) => c.key === lower(a)) && a.role === agent.role);
   return first === agent ? target : null;
 }
 
@@ -381,16 +428,17 @@ export function leadsDesks(room) {
  * over its height) makes it match the pane. Extra width is shared across the rooms of each row, and
  * extra height across the two rows and the corridor in proportion to their height.
  */
-export function worldFor(repoNames = [], aspect = 0) {
+export function worldFor(repoNames = [], aspect = 0, names = null) {
+  const nm = names || DEFAULT_NAMES;
   const repos = [...new Set(repoNames)];
   const n = repos.length;
   const topW = n * REPO_W + 2 * SIDE_W;
   const { W, H } = floorSize(Math.max(topW, BASE_W), aspect);
   const rooms = repos.map((r, i) => mkRoom("repo:" + r, "repo", r, "top", [i * REPO_W, 0, REPO_W, ROOM_H], i * REPO_W + REPO_W / 2));
   const leftEdge = n * REPO_W;
-  rooms.push(mkRoom("leads", "leads", "Scofield · Amy", "top", [leftEdge, 0, SIDE_W, ROOM_H], leftEdge + 45));
+  rooms.push(mkRoom("leads", "leads", `${nm.coordinator} · ${nm.reviewer}`, "top", [leftEdge, 0, SIDE_W, ROOM_H], leftEdge + 45));
   rooms.push(mkRoom("meet", "meet", "meeting", "top", [leftEdge + SIDE_W, 0, SIDE_W, ROOM_H], leftEdge + SIDE_W + 45));
-  rooms.push(mkRoom("matt", "matt", "Matt", "bottom", [0, ROW_Y, 96, ROW_H], 50));
+  rooms.push(mkRoom("matt", "matt", nm.person || OWNER_WORD, "bottom", [0, ROW_Y, 96, ROW_H], 50));
   rooms.push(mkRoom("kitchen", "kitchen", "kitchen", "bottom", [96, ROW_Y, 100, ROW_H], 146));
   rooms.push(mkRoom("lounge", "lounge", "lounge", "bottom", [196, ROW_Y, 104, ROW_H], 284));
   rooms.push(mkRoom("pong", "pong", "ping pong", "bottom", [300, ROW_Y, 96, ROW_H], 348));
@@ -796,7 +844,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const idleMs = opts.idleMs > 0 ? opts.idleMs : IDLE_MS;
   const mem = opts.mem || newMemory();
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
-  const world = worldFor([...repoList, ...extraRepos], aspect);
+  const world = worldFor([...repoList, ...extraRepos], aspect, opts.names);
+  const cast = castFor(opts.names);
   const { desks, rooms, spots } = world;
   const deskBy = new Map(desks.map((d) => [d.key, d]));
   const repoRooms = rooms.filter((r) => r.kind === "repo");
@@ -804,12 +853,12 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const byCast = new Map();
   const extras = [];
   for (const a of crew) {
-    const k = castKey(a, crew);
+    const k = castKey(a, crew, cast);
     if (k) byCast.set(k, a); else extras.push(a);
   }
 
   // Everyone as a record, before they are placed.
-  const people = CAST.map((c) => ({ ...c, agent: byCast.get(c.id) || null }));
+  const people = cast.map((c) => ({ ...c, agent: byCast.get(c.id) || null }));
   for (const a of extras) people.push({ id: "x:" + a.address, name: a.name, title: a.role || "agent", role: a.role === "coder" ? "coder" : "extra", agent: a });
   for (const p of people) {
     p.running = !!p.agent;
@@ -1008,7 +1057,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
 
   const rally = people.filter((p) => p.spot === "pong:0" || p.spot === "pong:1").length === 2;
   const next = wakes.filter((w) => w > 0);
-  return { ...world, people, dog, screens, rally, wakeIn: next.length ? Math.min(...next) : null, totals: totals(people.filter((p) => AGENT_IDS.includes(p.id) || p.id.startsWith("x:")).map((p) => ({ status: p.state === "off" ? "idle" : p.state }))) };
+  return { ...world, people, dog, screens, rally, wakeIn: next.length ? Math.min(...next) : null, totals: totals(people.filter((p) => (p.role !== "owner" && p.role !== "dog" && !p.id.startsWith("x:")) || p.id.startsWith("x:")).map((p) => ({ status: p.state === "off" ? "idle" : p.state }))) };
 }
 
 /**
@@ -1040,9 +1089,10 @@ export function stackTags(items) {
  * starts with `loh spawn <coder> <repo> <ticket>`: the offer lists `repos` (the manifest's) and
  * takes a ticket number. loh has no command for anyone else.
  */
-export function startPlan(p, repos = [], dir = "") {
+export function startPlan(p, repos = [], dir = "", names = null) {
+  const nm = names || DEFAULT_NAMES;
   if (!p || p.running) return { kind: "running" };
-  if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: dir ? `Start Scofield and Amy in ${dir}?` : "Start Scofield and Amy with loh up?", hint: "loh up" };
+  if (p.id === "scofield" || p.id === "amy") return { kind: "up", ask: dir ? `Start ${nm.coordinator} and ${nm.reviewer} in ${dir}?` : `Start ${nm.coordinator} and ${nm.reviewer} with loh up?`, hint: "loh up" };
   if (p.role === "coder") return { kind: "spawn", coder: p.id, repos: [...repos], hint: `loh spawn ${p.id} <repo> <ticket>` };
   return { kind: "none", hint: `loh has no command to start ${p.name}` };
 }

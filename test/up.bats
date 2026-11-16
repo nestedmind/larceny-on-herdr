@@ -216,3 +216,33 @@ LIVE='{"state":"live","status":{"state":"idle"},"labels":{"crew":"demo"}}'
   [ ! -e "$BATS_TEST_TMPDIR/pwned" ]
   grep -qF -- $'permission-mode\tauto\t--x\t$(touch\t'"$BATS_TEST_TMPDIR"$'/pwned)\t*\t;' "$FAKE_HC_LOG"
 }
+
+@test "up names the standing terminals after the configured coordinator and reviewer" {
+  printf 'coders: Mia, Ana, Bo\nreviewer: Rex\n' >>"$WS/api/.larceny/config.md"
+  hc_seq get.mia "$ABSENT" "$IDLE"
+  hc_seq get.rex "$ABSENT" "$IDLE"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"started mia"* ]]
+  [[ "$output" == *"started rex"* ]]
+  grep -qxF $'run\t--bg\t--no-parent\t--name\tmia\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=coordinator\t--\tclaude\t--agent\tlarceny:coordinator\t--permission-mode\tauto' "$FAKE_HC_LOG"
+  grep -qxF $'run\t--bg\t--no-parent\t--name\trex\t--cwd\t'"$WS"$'\t--label\tcrew=demo\t--label\trole=reviewer\t--\tclaude\t--agent\tlarceny:reviewer\t--permission-mode\tauto' "$FAKE_HC_LOG"
+  ! grep -q $'\tscofield\t\|\tamy\t' "$FAKE_HC_LOG"
+}
+
+@test "up refuses a crew name that is not a plain terminal name" {
+  printf 'reviewer: Dr. Who?\n' >>"$WS/api/.larceny/config.md"
+  run --separate-stderr "$LOH" up
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"cannot be a terminal name"* ]]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "up founding prompt names the crew's terminals" {
+  printf 'coders: Mia, Ana\nreviewer: Rex\n' >>"$WS/api/.larceny/config.md"
+  hc_seq get.mia "$ABSENT" "$IDLE"
+  hc_seq get.rex "$ABSENT" "$IDLE"
+  run "$LOH" up
+  [ "$status" -eq 0 ]
+  [[ "$(<"$FAKE_HC_LOG")" == *"coordinator mia, reviewer rex"* ]]
+}

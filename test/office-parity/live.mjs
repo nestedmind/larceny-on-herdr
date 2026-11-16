@@ -230,7 +230,7 @@ async function main() {
     const colours = paletteOf(proto.data.pal).people || {};
     const fit = [];
     for (const p of L.people.filter((q) => q.id !== "dog")) {
-      const shirt = (colours[p.id] && colours[p.id].shirt) || office.crew.look(p.id.startsWith("x:") ? p.name : p.id)[2];
+      const shirt = (colours[p.id] && colours[p.id].shirt) || office.crew.look(p.role === "owner" ? "owner" : p.key || p.name)[2];
       const rgb = [1, 3, 5].map((i) => parseInt(shirt.slice(i, i + 2), 16));
       // Someone not running is drawn at 70%: the shirt is mixed with whatever floor or furniture is under them, so it is
       // looked for mixed with each colour their room has.

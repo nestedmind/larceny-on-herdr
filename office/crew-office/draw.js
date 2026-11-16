@@ -8,7 +8,7 @@
 // movers that carry a person across the floor. What the API cannot do is listed in office/README.md.
 
 import { div, PathBuilder } from "gpui-kit";
-import { look, hash, shiftOf, anchorOf, CAST } from "./crew.js";
+import { look, hash, shiftOf, anchorOf, isLong } from "./crew.js";
 
 // The prototype's floor palette (its --fl-* and --st-* tokens). The same in light and dark: dark
 // mode darkens the floor with the night shading instead.
@@ -249,21 +249,20 @@ function lens(cx, cy, rx, ry, ox, oy, r, n = 72) {
  * (frame ok-cast). `ring` is the 1 px edge's colour. Same look(), long hair and headset as
  * personEls; the head sits 1.7 units above the body so the shoulders show under it.
  */
-export function bustEl(name, size, ring) {
-  const key = `${String(name).toLowerCase()}@${size}`;
+export function bustEl(name, size, ring, lookKey = "") {
+  const key = `${String(name).toLowerCase()}@${size}@${lookKey}`;
   let g = BUSTS.get(key);
   if (!g) {
     const id = String(name).toLowerCase();
-    const who = CAST.find((c) => c.id === id) || {};
-    const [hair, skin, shirt] = look(id || "?");
+    const [hair, skin, shirt] = look(lookKey || id || "?");
     const c = BUST / 2, hy = 5.3, by = 7;
     g = new Layer(size / BUST, 0, 0, BUST, BUST);
     g.poly(lens(c, by, 6.2, 4.8, c, c, c), shirt);
-    if (who.long) g.circ(c, hy - 0.8, 4.3, hair);
+    if (!lookKey && isLong(id)) g.circ(c, hy - 0.8, 4.3, hair);
     g.circ(c, hy, 3.7, skin);
     g.fan(c, hy - 0.4, 3.8, Math.PI * 0.95, Math.PI * 2.05, hair);
     g.poly([[c + 3.6, hy - 1], [c - 3.6, hy - 1], [c - 3.5, hy - 0.4], [c + 3.5, hy - 0.4]], hair);
-    if (who.headset) g.ring(c, hy, 4.1, PAL.monitor, 0.8);
+    if (lookKey === "owner") g.ring(c, hy, 4.1, PAL.monitor, 0.8);
     BUSTS.set(key, g);
   }
   return div().flex_none().relative().w(size).h(size).rounded_full().bg(PAL.counterTop)
@@ -563,7 +562,7 @@ const swing = (k, skin, a, cx, cy, ax, ay, rev) => {
  * where it sticks out; the hands bob with the body.
  */
 export function personEls(p, k, face, walking, world, rest = false) {
-  const [hair, skin, shirt] = look(p.id.startsWith("x:") ? p.name : p.id);
+  const [hair, skin, shirt] = look(p.role === "owner" ? "owner" : p.key || p.name);
   const B = BOX;
   const x = B, y = B;
   const a = p.dim ? "b3" : "";

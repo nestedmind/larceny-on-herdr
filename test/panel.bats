@@ -107,7 +107,7 @@ console.log(f.length, f[0].text, f[99].text);'
 const w = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 console.log(JSON.stringify(chat.cardRows({ role: "coder", status: "blocked", kind: "question", repo: "api", ticket: "3", pr: "7", round: "2", step: "", note: "", withMatt: true }, w)));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["Role","coder"],["State","needs you (question)"],["Ticket","api#3"],["PR","7 · round 2"],["Lock","with Matt"]]' ]
+  [ "$output" = '[["Role","coder"],["State","needs you (question)"],["Ticket","api#3"],["PR","7 · round 2"],["Lock","with the owner"]]' ]
 }
 
 @test "panel: main.js loads the panel and nothing in the mod sends with --force" {
@@ -153,8 +153,8 @@ console.log(t.map((m) => chat.speaker(m, "Scofield")).join("|"));
 const r = chat.withPending(t, [{ text: "later", unsure: true }]);
 console.log(r.shown[4].pending, r.shown[4].unsure, chat.speaker(r.shown[4], "Scofield"));'
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "Matt|whip|another agent|Scofield" ]
-  [ "${lines[1]}" = "true true Matt" ]
+  [ "${lines[0]}" = "Owner|whip|another agent|Scofield" ]
+  [ "${lines[1]}" = "true true Owner" ]
 }
 
 @test "panel: the log's turns are direct children of the scroll area" {
@@ -197,10 +197,10 @@ const late = chat.parseTranscript(JSON.stringify([
 console.log(late[0].launch, chat.speaker(late[0], "Scofield"), chat.shownText(late[0]));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "true,false,false" ]
-  [ "${lines[1]}" = "launch prompt | Matt" ]
+  [ "${lines[1]}" = "launch prompt | Owner" ]
   [ "${lines[2]}" = "You are running in a herdr terminal. Load these skills first." ]
   [ "${lines[3]}" = "Hey" ]
-  [ "${lines[4]}" = 'false Matt <pasted_content id="x">my notes</pasted_content id="x">' ]
+  [ "${lines[4]}" = 'false Owner <pasted_content id="x">my notes</pasted_content id="x">' ]
 }
 
 @test "panel: a turn that came via Discord keeps the field and gets a via Discord mark" {
@@ -261,7 +261,7 @@ console.log(JSON.stringify(chat.copyText(turns[1])));
 console.log(JSON.stringify(chat.copyAll(turns, "Scofield")));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = '"a\n\n- b"' ]
-  [ "${lines[1]}" = '"Matt · 10:05\nHi **there**\n\nScofield\na\n\n- b\n\nMatt\nlater"' ]
+  [ "${lines[1]}" = '"Owner · 10:05\nHi **there**\n\nScofield\na\n\n- b\n\nOwner\nlater"' ]
 }
 
 @test "panel: markdown goes to the text view as written, with nothing dropped or added" {
@@ -325,5 +325,5 @@ console.log(JSON.stringify(sp.map((r) => [r.mt, r.pt, r.pb])));'
 const a = { rawName: "scofield", name: "Scofield" };
 console.log(chat.avatarName({ role: "user" }, a), chat.avatarName({ role: "assistant" }, a), chat.avatarName({ role: "agent", from: "Amy" }, a), JSON.stringify(chat.avatarName({ role: "agent" }, a)));'
   [ "$status" -eq 0 ]
-  [ "$output" = 'matt scofield amy ""' ]
+  [ "$output" = 'owner scofield amy ""' ]
 }

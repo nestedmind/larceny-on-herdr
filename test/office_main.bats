@@ -766,10 +766,12 @@ strict.alive = false;
 resolvers[0]({ code: 0, stdout: JSON.stringify([{ name: "api" }, { name: "web" }]) });
 await new Promise((r) => setTimeout(r, 0));
 resolvers[1]({ code: 0, stdout: JSON.stringify({ idle_minutes: 2 }) });
+await new Promise((r) => setTimeout(r, 0));
+resolvers[2]({ code: 0, stdout: JSON.stringify({ coordinator: "Mia", reviewer: "Rex", advisor: "Ada", teacher: "Tom", coders: ["Ana"], person: "Dana" }) });
 await Promise.all(tasks);
-console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified), office.idleMinutes]));'
+console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified), office.idleMinutes, office.names.coordinator, office.names.person]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["api","web"],[],[],[2],2]' ]
+  [ "$output" = '[["api","web"],[],[],[3],2,"Mia","Dana"]' ]
 }
 
 # Scofield's turn ends; nothing in herdr changes after that, so a timer has to bring the office back for the idle time to end.

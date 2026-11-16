@@ -14,7 +14,7 @@ const svgOf = (r, look) => {
     const d = o.cmds.map((c) => (c[0] === "close" ? "Z" : (c[0] === "move_to" ? "M" : "L") + c[1].toFixed(2) + " " + c[2].toFixed(2))).join("");
     return `<path d="${d}" fill="${o.fill}"/>`;
   }).join("");
-  const people = L.people.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${look(p.id.startsWith("x:") ? p.name : p.id)[2]}" stroke="#fff" stroke-width="0.8"/>`).join("");
+  const people = L.people.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${look(p.role === "owner" ? "owner" : p.key || p.name)[2]}" stroke="#fff" stroke-width="0.8"/>`).join("");
   const tags = L.people.map((p) => {
     const t = r.tags[p.agent ? p.agent.address : p.id];
     return t && t.w ? `<rect x="${t.x / k}" y="${t.y / k}" width="${t.w / k}" height="${(p.agent ? 34 : 17) / k}" rx="2" fill="#2b2f3a" opacity="0.7"/>` : "";
