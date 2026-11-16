@@ -829,7 +829,14 @@ export default class CrewOffice extends View {
     const looks = new Map(L.people.map((p) => [p.id, standLook(this.looks.get(p.id), p, mo.get(p.id).rest)]));
     this.looks = looks;
     const rally = rallyOf(L.people.map((p) => ({ look: looks.get(p.id), walking: mo.get(p.id).walking })));
-    const figures = [...L.people].sort((a, b) => mo.get(a.id).y - mo.get(b.id).y).map((p) => {
+    // The figures keep one order, by id, in every render. Sorted by y they swapped places as people walked, and a
+    // view that matches children by position could draw one figure with another's last frame (a one-frame glitch).
+    const order = [...L.people].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // `officeLog` in the tab's props: one line per render with the figure order and each person's place and spot.
+    if ((props() || {}).officeLog) {
+      try { console.error("office render " + JSON.stringify({ order: order.map((p) => p.id), at: order.map((p) => [p.id, p.place, p.spot === undefined ? null : p.spot, Math.round(mo.get(p.id).x), Math.round(mo.get(p.id).y), mo.get(p.id).walking ? 1 : 0]) })); } catch (_) { /* logging only */ }
+    }
+    const figures = order.map((p) => {
       const m = mo.get(p.id);
       const look = looks.get(p.id);
       const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls({ ...p, mug: look.mug, paddle: look.paddle }, k, m.face, m.walking, L, m.rest);

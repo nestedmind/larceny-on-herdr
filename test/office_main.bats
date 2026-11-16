@@ -417,6 +417,20 @@ console.log(office.walks.get("sheba").legs.length, office.walks.get("sheba").goa
   [ "$output" = "0 true" ]
 }
 
+@test "the figures are drawn in one order, by id, in every render, whoever walks" {
+  run office_js '
+const order = (root) => all(find(root, "stage")).map((n) => id(n)).filter((x) => /^m-[a-z0-9:]+$/.test(x));
+const first = order(render());
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+render(); later(3000);
+const mid = order(render());
+const same = JSON.stringify(first) === JSON.stringify(mid);
+const sorted = JSON.stringify(first) === JSON.stringify([...first].sort());
+console.log(first.length > 3, same, sorted);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true" ]
+}
+
 @test "every mover is back at zero in the render before any walk is handed over, also for the walk back after a flip and a walk right after another" {
   run office_js '
 const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-(g[0-9]+-)?[0-9]/.test(id(n))).map((n) => [n.props.left[0], n.props.top[0], n.props.transitions[0][1].duration]);
