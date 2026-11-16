@@ -344,12 +344,16 @@ export class Panel {
 
   // The avatar: the person's photo in a circle with a thin border, cropped to a square (the default crop, or the
   // photo's .crop sidecar); with no photo, their floor figure as a head-and-shoulders bust (draw.js's bustEl).
-  avatar(name, size, t) {
+  // `bg` is the colour behind the avatar. GPUI's overflow_hidden clips to the rectangle, not to rounded corners, so the
+  // circle is cut by a mask: a ring twice the avatar's size whose hole is the circle, in the background colour, laid
+  // over the picture (its outer circle, radius `size`, reaches past the square's corners).
+  avatar(name, size, t, bg = t.canvas) {
     const p = name ? this.photos.get(String(name).toLowerCase()) : null;
     if (!p) return bustEl(name || "?", size, t.border);
     const at = placement(size, p.w, p.h, squareOf(p.w, p.h, p.crop));
-    return div().flex_none().relative().w(size).h(size).rounded_full().overflow_hidden().bg(t.raised)
+    return div().flex_none().relative().w(size).h(size).overflow_hidden().bg(t.raised)
       .child(image(imagePath(appHome(), p.path)).absolute().left(at.left).top(at.top).w(at.width).h(at.height))
+      .child(div().absolute().left(-size / 2).top(-size / 2).w(size * 2).h(size * 2).rounded(size).border(size / 2).border_color(bg))
       .child(div().absolute().left(0).top(0).w(size).h(size).rounded_full().border_1().border_color(t.border));
   }
 
@@ -390,7 +394,7 @@ export class Panel {
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
-        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t) : div().flex_none().w(pic))
+        .child(head ? this.avatar(m.launch ? "" : avatarName(m, a), pic, t, mine ? t.raised : t.canvas) : div().flex_none().w(pic))
         .child(text)
         .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
           .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));
