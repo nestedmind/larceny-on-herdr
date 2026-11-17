@@ -19,6 +19,7 @@ CORE_INSTALL="curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION
 APP_INSTALL='curl -fsSL https://releases.herdr.dev/app/install.sh | sh'
 CLAUDE_INSTALL='curl -fsSL https://claude.ai/install.sh | bash'
 
+RELOAD_RC=""
 DID=()
 HAD=()
 SKIPPED=()
@@ -189,9 +190,40 @@ path_step() {
   fi
   [[ ! -s "$rc" ]] || printf '\n' >>"$rc"
   printf '# Added by loh install.sh\n%s\n' "$line" >>"$rc"
-  did "added $REPO/bin to PATH in $rc (open a new shell, or run: source $rc)"
+  did "added $REPO/bin to PATH in $rc"
+  RELOAD_RC="$rc"
+}
+
+# link_step: when ~/.local/bin is on this shell's PATH, link bin/loh into it so
+# loh works at once. A different loh already there is left alone.
+link_step() {
+  local dir="$HOME/.local/bin" target="$HOME/.local/bin/loh" d on=0
+  local -a dirs
+  IFS=: read -ra dirs <<<"$PATH"
+  for d in "${dirs[@]}"; do
+    [[ "$d" == "$dir" ]] && on=1
+  done
+  ((on)) || return 0
+  if [[ -L "$target" && "$(readlink "$target")" == "$REPO/bin/loh" ]]; then
+    had "loh linked at $target"
+  elif [[ -e "$target" || -L "$target" ]]; then
+    skip "loh link ($target is not this repo's loh; leaving it alone)"
+  elif ln -s "$REPO/bin/loh" "$target"; then
+    did "linked $target to $REPO/bin/loh"
+  else
+    skip "loh link (could not link $target)"
+  fi
+}
+
+# loh_here: true when `loh` in this shell is this repo's bin/loh.
+loh_here() {
+  local p
+  p=$(command -v loh) || return 1
+  [[ ! -L "$p" ]] || p=$(readlink "$p")
+  [[ "$p" == "$REPO/bin/loh" ]]
 }
 path_step
+link_step
 
 say "Office mod"
 mod_step() {
@@ -230,7 +262,13 @@ if ((${#DID[@]} == 0 && ${#SKIPPED[@]} == 0)); then
   say "Nothing to do: everything is in place."
 fi
 say ""
-say "Next: in a repo, run 'loh init' (or 'loh init --new <owner>/<name>' for a new project)."
+if [[ -n "$RELOAD_RC" ]] && ! loh_here; then
+  say "Next:"
+  say "  1. Run 'source $RELOAD_RC' (or open a new terminal), so this shell finds loh."
+  say "  2. In a repo, run 'loh init' (or 'loh init --new <owner>/<name>' for a new project)."
+else
+  say "Next: in a repo, run 'loh init' (or 'loh init --new <owner>/<name>' for a new project)."
+fi
 say "Remember:"
 say "  - Start herdr-core from a normal terminal, never from inside Claude Code."
 say "  - Decline herdr core updates until they are tested here."

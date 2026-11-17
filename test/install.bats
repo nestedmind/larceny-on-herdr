@@ -219,3 +219,69 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"/plugin marketplace add $REPO_ROOT"* ]]
 }
+
+# on_path: put ~/.local/bin on the PATH install.sh sees, as a real folder.
+on_path() {
+  mkdir -p "$HOME/.local/bin"
+  INSTALL_PATH="$HOME/.local/bin:$INSTALL_PATH"
+}
+
+@test "loh is linked into ~/.local/bin when that folder is on PATH" {
+  stub_all
+  on_path
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(readlink "$HOME/.local/bin/loh")" = "$REPO_ROOT/bin/loh" ]
+  [[ "$output" != *"source "* ]]
+}
+
+@test "no symlink is made when ~/.local/bin is not on PATH" {
+  stub_all
+  mkdir -p "$HOME/.local/bin"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [ ! -e "$HOME/.local/bin/loh" ]
+  [ ! -L "$HOME/.local/bin/loh" ]
+}
+
+@test "a different loh in ~/.local/bin is left alone and reported" {
+  stub_all
+  on_path
+  printf '#!/bin/sh\n' >"$HOME/.local/bin/loh"
+  chmod +x "$HOME/.local/bin/loh"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [ ! -L "$HOME/.local/bin/loh" ]
+  [[ "$output" == *"$HOME/.local/bin/loh"*"not this repo's"* ]]
+  [[ "$output" == *"source "* ]]
+}
+
+@test "the reload step comes first in Next when the PATH line was just added" {
+  stub_all
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  next=${output#*Next:}
+  [[ "$next" == *"source $HOME/.bashrc"* ]]
+  [[ "${next%%source*}" != *"loh init"* ]]
+}
+
+@test "no reload step when the PATH line was already there and loh resolves" {
+  stub_all
+  on_path
+  printf 'export PATH="%s/bin:$PATH"\n' "$REPO_ROOT" >"$HOME/.bashrc"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [[ "${output#*Next:}" != *"source "* ]]
+}
+
+@test "a second run with the link in place changes nothing" {
+  stub_all
+  on_path
+  inst </dev/null
+  cp "$HOME/.bashrc" "$BATS_TEST_TMPDIR/rc.before"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  cmp "$HOME/.bashrc" "$BATS_TEST_TMPDIR/rc.before"
+  [ "$(readlink "$HOME/.local/bin/loh")" = "$REPO_ROOT/bin/loh" ]
+  [[ "$output" == *"everything is in place"* ]]
+}
