@@ -5,10 +5,11 @@
 # a new tab and then closing the old one. The new tab opens first: closing the
 # only tab closes the whole space. The id of the tab it opened is kept in
 # <workspace>/.loh/office-tab, because herdr-app has no command that lists
-# tabs. The old tab is closed only while the office's heartbeat
-# (.loh/office-open, see `loh office-ping`) is fresh: with a stale one the tab
-# is gone already. An office opened by hand has no saved id, so the old tab
-# has to be closed by hand. `loh office --close` closes the saved tab.
+# tabs. A saved id is closed whatever the heartbeat says, because a hidden
+# office tab sends none; if that close fails the tab is already gone, which is
+# only a note. The heartbeat (.loh/office-open, see `loh office-ping`) matters
+# for one case: it is fresh and no id is saved, an office opened by hand, so
+# the old tab has to be closed by hand. `loh office --close` closes the saved tab.
 set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -64,12 +65,10 @@ if ! app_up; then
   exit 0
 fi
 
-# Decide on the old tab before opening: the heartbeat answers for the tab that
-# is open now.
-old="" by_hand=""
-if office_open "$ws"; then
-  old="$(saved_tab)"
-  [[ -n "$old" ]] || by_hand=1
+# Read the old tab before opening, which overwrites the file.
+old="$(saved_tab)" by_hand=""
+if [[ -z "$old" ]] && office_open "$ws"; then
+  by_hand=1
 fi
 
 if ! out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props")"; then
@@ -89,7 +88,7 @@ if [[ -n "$old" ]]; then
   if herdr-app "do" tab.close --id "$old" >/dev/null; then
     echo "closed the old office tab"
   else
-    echo "loh: warning: could not close the old office tab $old; close it in herdr-app by hand" >&2
+    echo "note: could not close the old office tab $old; it is probably gone already"
   fi
 elif [[ -n "$by_hand" ]]; then
   echo "an office was already open that loh did not open: close the old one by hand"

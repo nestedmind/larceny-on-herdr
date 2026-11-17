@@ -54,23 +54,34 @@ fresh_heartbeat() { date +%s >"$WS/.loh/office-open"; }
   [ "$(cat "$WS/.loh/office-tab")" = tb1 ]
 }
 
-@test "a failed close is a warning: exit 0, new id saved" {
+@test "a failed close is only a note: exit 0, no warning, the old id replaced by the new one" {
   fresh_heartbeat
   echo tbOLD >"$WS/.loh/office-tab"
   export FAKE_APP_CLOSE_EXIT=1
   run --separate-stderr "$LOH" office
   [ "$status" -eq 0 ]
-  [[ "$stderr" == *"could not close"* ]]
+  [[ "$output" == *"note: could not close the old office tab tbOLD"* ]]
+  [[ "$stderr" != *warning* ]]
   [ "$(cat "$WS/.loh/office-tab")" = tb1 ]
 }
 
-@test "a saved id with a stale heartbeat is not closed: that tab is gone" {
+@test "a saved id with a stale heartbeat is still closed: a hidden office tab sends no heartbeat" {
   echo tbOLD >"$WS/.loh/office-tab"
   echo 1 >"$WS/.loh/office-open"
   run "$LOH" office
   [ "$status" -eq 0 ]
-  ! grep -q $'^do\ttab.close' "$FAKE_APP_LOG"
+  grep $'^do\t' "$FAKE_APP_LOG" | cut -f2 >"$BATS_TEST_TMPDIR/order"
+  [ "$(cat "$BATS_TEST_TMPDIR/order")" = $'tab.new\ntab.close' ]
+  grep -qxF $'do\ttab.close\t--id\ttbOLD' "$FAKE_APP_LOG"
   [ "$(cat "$WS/.loh/office-tab")" = tb1 ]
+}
+
+@test "a saved id with no heartbeat file at all is closed too, and no by-hand message is printed" {
+  echo tbOLD >"$WS/.loh/office-tab"
+  run "$LOH" office
+  [ "$status" -eq 0 ]
+  grep -qxF $'do\ttab.close\t--id\ttbOLD' "$FAKE_APP_LOG"
+  [[ "$output" != *"by hand"* ]]
 }
 
 @test "--close closes the saved tab and clears the file" {
