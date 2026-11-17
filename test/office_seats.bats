@@ -158,7 +158,7 @@ console.log(a.map((L) => P(L, "sucre").place).join(" "), P(last(a), "sucre").pad
   run crew_js "$HELPERS"'
 const esc = T("whip", "idle", {role: "coder", task: "web#2", pr: "5", note: "escalation:stuck"});
 const w = T("sucre", "idle", {role: "coder", task: "api#4", pr: "9", round: "1"});
-const a = play([[0, [esc, w]], [3, [esc, w]], [20, [esc, w]]]);
+const a = play([[0, [esc, w]], [2, [esc, w]], [20, [esc, w]]]);
 console.log(a.map((L) => P(L, "whip").place + "/" + P(L, "sucre").place).join(" "));'
   [ "$status" -eq 0 ]
   [ "$output" = "pong/kitchen pong/kitchen pong/pong" ]

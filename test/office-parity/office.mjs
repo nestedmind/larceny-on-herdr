@@ -108,7 +108,7 @@ export async function drawOffice({ Office, crew, draw }, { agents, repos, stage,
     for (let i = 0; i < 60; i++) { root = office.render(cx); if (office.shown) break; }
     // Time passes with the crew as it is: what it changes is seen, held for the office's hold time, and walked to.
     if (advance) { clock += advance; root = office.render(cx); }
-    clock += 3000;
+    clock += crew.GOAL_HOLD + 500; // past the hold, so the walks are handed over
     root = office.render(cx);
     // A walk is armed in one render and handed over in the next (the arm frame).
     clock += 100;

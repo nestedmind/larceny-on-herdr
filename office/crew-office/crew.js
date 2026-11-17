@@ -592,7 +592,7 @@ export function legsOf(from, points, speed = WALK_SPEED) {
 }
 
 /** How long a new place has to hold before the person sets off for it, in ms. */
-export const GOAL_HOLD = 2500;
+export const GOAL_HOLD = 1000;
 
 /**
  * One render's decision about where someone goes. `planned` is the place they are at or walking to,

@@ -21,27 +21,27 @@ const run = (events) => { let pending = null, out = []; for (const [t, goal, wal
 '
 
 @test "a new place does not send anyone until it has held for the hold time" {
-  run crew_js "$step_js"'console.log(hold, run([[0, B, false], [1000, B, false], [hold - 1, B, false], [hold, B, false]]));'
+  run crew_js "$step_js"'console.log(hold, run([[0, B, false], [400, B, false], [hold - 1, B, false], [hold, B, false]]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "2500 wait2500 wait1500 wait1 go" ]
+  [ "$output" = "1000 wait1000 wait600 wait1 go" ]
 }
 
 @test "a place that flips back before the hold ends sends nobody anywhere" {
-  run crew_js "$step_js"'console.log(run([[0, B, false], [1500, A, false], [2600, A, false]]));'
+  run crew_js "$step_js"'console.log(run([[0, B, false], [500, A, false], [1600, A, false]]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait2500 idle idle" ]
+  [ "$output" = "wait1000 idle idle" ]
 }
 
 @test "a flip to a third place restarts the hold" {
-  run crew_js "$step_js"'console.log(run([[0, B, false], [2000, C, false], [4400, C, false], [4500, C, false]]));'
+  run crew_js "$step_js"'console.log(run([[0, B, false], [800, C, false], [1700, C, false], [1800, C, false]]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait2500 wait2500 wait100 go" ]
+  [ "$output" = "wait1000 wait1000 wait100 go" ]
 }
 
 @test "someone who is walking is never sent a new way, and goes when the walk ends" {
-  run crew_js "$step_js"'console.log(run([[0, B, true], [3000, B, true], [9000, B, true], [9100, B, false]]));'
+  run crew_js "$step_js"'console.log(run([[0, B, true], [1500, B, true], [9000, B, true], [9100, B, false]]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait2500 idle idle go" ]
+  [ "$output" = "wait1000 idle idle go" ]
 }
 
 # Wall check: sample a leg and see where it goes. A change between two regions is allowed only between a

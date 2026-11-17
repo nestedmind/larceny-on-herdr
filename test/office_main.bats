@@ -387,12 +387,12 @@ render();
 terms()[1].labels.pr = "9"; terms()[1].status = "done";
 render();
 const wake = timers.filter((t) => !t.cancelled && !(office.wake && t === office.wake.task)).map((t) => t.ms);
-later(1500);
+later(500);
 terms()[1].status = "working";
 render();
 later(5000);
 render();
-console.log(wake.length, wake[0] > 2400 && wake[0] < 2600, walk().legs.length, walk().goal === walk().at || (walk().goal.x === walk().at.x && walk().goal.y === walk().at.y));'
+console.log(wake.length, wake[0] > 900 && wake[0] < 1100, walk().legs.length, walk().goal === walk().at || (walk().goal.x === walk().at.x && walk().goal.y === walk().at.y));'
   [ "$status" -eq 0 ]
   [ "$output" = "1 true 0 true" ]
 }
