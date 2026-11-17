@@ -8,6 +8,16 @@ It uses larceny's crew, process and skills, and changes only how agents start an
 
 ## Quick start
 
+On a new machine, one command does the setup below (steps 1, 3 and 4, the `PATH` line and the office mod link) and is safe to run again:
+
+```
+git clone https://github.com/nestedmind/larceny-on-herdr ~/llm-ws/larceny-on-herdr && ~/llm-ws/larceny-on-herdr/install.sh
+```
+
+`install.sh` checks for `hc`, `herdr-app`, `gh`, `git`, `jq` and `claude`, and compares `hc` and herdr-app with the tested versions. A different version is a warning, never a change. For each missing tool it shows the install command and runs it only after you answer yes. herdr-core and `hc` install pinned to the tested version, with `curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh`. herdr-app's installer has no version option, so `install.sh` says it installs the latest herdr-app and that 0.1.15 is the tested one, before it asks. It installs with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` (macOS on Apple silicon, Linux x86-64 and ARM64). `git`, `jq` and `gh` use `brew` on macOS, or `apt-get`, `dnf` or `pacman` on Linux; with none of those it prints the step and carries on. It runs `gh auth login` when you are not logged in, adds this repo as a marketplace and installs the plugin with `claude plugin` (or prints the two slash commands if that needs a prompt), adds the `PATH` line to `~/.zshrc` or `~/.bashrc` once, and links `office/crew-office` into `~/.config/herdr-app/mods` when that path is free. It never writes token files, runs `gh auth setup-git`, or changes `~/.claude` settings itself. When it finishes it lists what it did, what was already in place and what it skipped.
+
+The manual steps follow. Steps 2 and 3 below are still yours, and `install.sh` repeats them as reminders.
+
 1. **Prerequisites.**
    - herdr-core and its `hc` command. Tested: herdr 0.9.5, `hc` 0.1.20 and herdr-app 0.1.15. herdr-app is needed only for the office window.
    - larceny 0.1.4, which the plugin installs as a dependency. Tested at commit dd27cf1.

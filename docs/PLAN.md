@@ -238,7 +238,7 @@ herdr-app runs on Apple Silicon Macs and on Linux with Vulkan (x86-64 and ARM64)
 
 ## Setup
 
-There is no setup command, `doctor` or `install.sh`. A README checklist covers it.
+`install.sh` at the repo root does the setup in one safe-to-repeat run (ticket #111): it checks the prerequisites and asks before installing any, runs `gh auth login` when needed, installs the plugin with `claude plugin`, adds the `PATH` line and links the office mod. herdr-core and `hc` install pinned to the tested version with `curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh` (the installer reads `HC_VERSION`). herdr-app's installer has no version pin, so the script says it installs the latest and that 0.1.15 is the tested one, then asks. It installs with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` (macOS Apple silicon, Linux x86-64 and ARM64). The README checklist stays below it.
 
 1. **Prerequisites:** herdr-core and `hc` 0.1.20, herdr 0.9.5, larceny 0.1.4, `gh` logged in, and optionally persona token files under `~/.config/larceny/`. herdr-app 0.1.15 is needed for the office.
 2. **Install the plugin** from this repo as a local marketplace.
@@ -294,7 +294,7 @@ Phase 0 is done. Each later phase is usable on its own, and the office waits unt
 
 Each gate is the test for moving on. No dates are set yet.
 
-Cut from v1: `/setup`, `doctor` and `install.sh` (the README checklist replaces them), Windows work, the polling bridge that wakes a coder when a review lands on GitHub (Amy prompts the coder directly), and the coder cap as code.
+Cut from v1: `/setup` and `doctor` (the README checklist replaces them; `install.sh` came later, in #111), Windows work, the polling bridge that wakes a coder when a review lands on GitHub (Amy prompts the coder directly), and the coder cap as code.
 
 ## Risks and open questions
 
