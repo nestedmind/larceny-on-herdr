@@ -1,10 +1,15 @@
 # shellcheck shell=bash
-# loh transcript <name> [--last N]: the chat of an agent, from its Claude Code
+# loh transcript [--archived] <name> [--last N]: the chat of an agent, from its Claude Code
 # session file, as one JSON array on stdout:
 #   [{"role":"user"|"assistant","text":"...","ts":"<ISO time>","id":"<session line uuid>"}, ...]
 # oldest first, newest last; N turns (default 40). The session's first user turn carries
 # "launch":true when it is the launch prompt loh sent (a pasted block), even when it
 # is older than the N turns shown.
+#
+# --archived reads a transcript that `loh release` (or `loh down`) archived: <name> is the
+# folder name under <workspace>/.loh/transcripts/ (<coder>-<repo>-<ticket>, with -2, -3 when
+# that was taken), the newest session file in it is used, and no terminal is asked. A missing
+# archive is an error.
 #
 # Which file: Claude Code keeps sessions in
 #   ${LOH_CLAUDE_PROJECTS:-~/.claude/projects}/<cwd, every non-alphanumeric
@@ -30,9 +35,14 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
-  echo "Usage: loh transcript <name> [--last N]" >&2
+  echo "Usage: loh transcript [--archived] <name> [--last N]" >&2
   exit 2
 }
+archived=""
+if [[ "${1:-}" == "--archived" ]]; then
+  archived=1
+  shift
+fi
 [[ $# -eq 1 || $# -eq 3 ]] || usage
 name="$1"
 last=40
@@ -40,7 +50,13 @@ if [[ $# -eq 3 ]]; then
   [[ "$2" == "--last" ]] || usage
   last="$3"
 fi
-if [[ ! "$name" =~ ^[a-z][a-z0-9-]*$ ]]; then
+if [[ -n "$archived" ]]; then
+  # a folder name: starts with a letter or digit, so "." and ".." are out; no "/"
+  if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "loh: invalid archive name: $name" >&2
+    exit 2
+  fi
+elif [[ ! "$name" =~ ^[a-z][a-z0-9-]*$ ]]; then
   echo "loh: invalid target name: $name" >&2
   exit 2
 fi
@@ -48,18 +64,23 @@ if [[ ! "$last" =~ ^[1-9][0-9]*$ ]]; then
   echo "loh: --last must be a positive integer, got: $last" >&2
   exit 2
 fi
-need hc
 need jq
 
-info="$(hc_json get "$name")" || die "cannot look up $name"
-cwd="$(jq -r '.cwd // ""' <<<"$info")"
-agent="$(jq -r '(.argv // []) as $a | ([range(0; $a | length - 1) | select($a[.] == "--agent") | $a[. + 1]] | first) // ""' <<<"$info")"
-[[ -n "$cwd" ]] || {
-  echo "[]"
-  exit 0
-}
-
-dir="${LOH_CLAUDE_PROJECTS:-$HOME/.claude/projects}/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')"
+agent=""
+if [[ -n "$archived" ]]; then
+  dir="$(workspace_root)/.loh/transcripts/$name"
+  [[ -d "$dir" ]] || die "no archived transcript named $name"
+else
+  need hc
+  info="$(hc_json get "$name")" || die "cannot look up $name"
+  cwd="$(jq -r '.cwd // ""' <<<"$info")"
+  agent="$(jq -r '(.argv // []) as $a | ([range(0; $a | length - 1) | select($a[.] == "--agent") | $a[. + 1]] | first) // ""' <<<"$info")"
+  [[ -n "$cwd" ]] || {
+    echo "[]"
+    exit 0
+  }
+  dir="$(claude_session_dir "$cwd")"
+fi
 file=""
 if [[ -d "$dir" ]]; then
   # newest first; names are uuids, so plain ls -t is safe

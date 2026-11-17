@@ -97,3 +97,49 @@ setup() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Usage: loh down"* ]]
 }
+
+@test "down archives each coder's transcript before ending it, and leaves other folders" {
+  export LOH_CLAUDE_PROJECTS="$BATS_TEST_TMPDIR/projects"
+  cwd="$WS/.worktrees/sucre-api-12"
+  src="$LOH_CLAUDE_PROJECTS/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')"
+  mkdir -p "$src" "$LOH_CLAUDE_PROJECTS/-coordinator"
+  echo '{"a":1}' >"$src/s1.jsonl"
+  echo keep >"$LOH_CLAUDE_PROJECTS/-coordinator/c.jsonl"
+  hc_reply get.sucre "$(jq -nc --arg c "$cwd" '{state:"live",cwd:$c,labels:{crew:"demo",role:"coder",task:"api#12"},status:{state:"working"}}')"
+  run "$LOH" down
+  [ "$status" -eq 0 ]
+  [ "$(cat "$WS/.loh/transcripts/sucre-api-12/s1.jsonl")" = '{"a":1}' ]
+  [ ! -e "$src" ]
+  [ -f "$LOH_CLAUDE_PROJECTS/-coordinator/c.jsonl" ]
+  grep -qxF $'kill\tsucre' "$FAKE_HC_LOG"
+}
+
+@test "down --all archives coders but not scofield or amy" {
+  export LOH_CLAUDE_PROJECTS="$BATS_TEST_TMPDIR/projects"
+  mkdir -p "$LOH_CLAUDE_PROJECTS"
+  cwd="$WS/.worktrees/sucre-api-12"
+  src="$LOH_CLAUDE_PROJECTS/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')"
+  mkdir -p "$src"
+  echo x >"$src/s1.jsonl"
+  hc_reply get.sucre "$(jq -nc --arg c "$cwd" '{state:"live",cwd:$c,labels:{crew:"demo",role:"coder",task:"api#12"}}')"
+  run "$LOH" down --all
+  [ "$status" -eq 0 ]
+  [ -f "$WS/.loh/transcripts/sucre-api-12/s1.jsonl" ]
+  [ "$(ls "$WS/.loh/transcripts" | wc -l)" -eq 1 ]
+  grep -qxF $'kill\tscofield' "$FAKE_HC_LOG"
+}
+
+@test "down still ends the coder and exits 1 when its transcript cannot be archived" {
+  export LOH_CLAUDE_PROJECTS="$BATS_TEST_TMPDIR/projects"
+  cwd="$WS/.worktrees/sucre-api-12"
+  src="$LOH_CLAUDE_PROJECTS/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')"
+  mkdir -p "$src"
+  echo x >"$src/s1.jsonl"
+  : >"$WS/.loh/transcripts"
+  hc_reply get.sucre "$(jq -nc --arg c "$cwd" '{state:"live",cwd:$c,labels:{crew:"demo",role:"coder",task:"api#12"}}')"
+  run --separate-stderr "$LOH" down
+  [ "$status" -eq 1 ]
+  [ -f "$src/s1.jsonl" ]
+  grep -qxF $'kill\tsucre' "$FAKE_HC_LOG"
+  grep -qxF $'kill\tmahone' "$FAKE_HC_LOG"
+}
