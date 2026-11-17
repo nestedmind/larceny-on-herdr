@@ -591,7 +591,9 @@ export class Panel {
     const end = log.length ? `${log[log.length - 1].key}|${lastChips}` : null;
     if (end !== this.logEnd && end !== null) {
       this.logEnd = end;
-      const last = log.length - 1;
+      // The last child is an empty spacer that stands for the gap above the message box, so revealing it
+      // brings the end of the newest row and that gap into view; a row's own bounds stop short of the gap.
+      const last = rows.length;
       this.scroll.scroll_to_item(last);
       // A row added in this render is not laid out yet when the request is read, so the reveal can stop short
       // of it (or miss it) until something redraws the log. Ask once more a moment later, with a render.
@@ -606,8 +608,8 @@ export class Panel {
     // The rows are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest one out of reach.
     const empty = this.fetchedKey === null && !shown.length ? "Loading the conversation…" : `No messages with ${a.name} yet. Anything you send goes to their terminal.`;
-    return v_flex().id("panel-log").flex_1().min_h(0).gap(0).pb(8).overflow_y_scroll().track_scroll(this.scroll)
-      .children(rows.length ? rows : [div().px(12).text_size(12).text_color(t.muted).child(empty)]);
+    return v_flex().id("panel-log").flex_1().min_h(0).gap(0).overflow_y_scroll().track_scroll(this.scroll)
+      .children(rows.length ? [...rows, div().id("panel-log-end").flex_none().h(8)] : [div().px(12).text_size(12).text_color(t.muted).child(empty)]);
   }
 
   // Every change since the office opened, oldest first, scrolled to the newest.

@@ -256,7 +256,7 @@ panel.pending = [{ text: "mine" }];
 draw();
 console.log(JSON.stringify(globalThis.SCROLLS));'
   [ "$status" -eq 0 ]
-  [ "$output" = "[39,39,40]" ]
+  [ "$output" = "[40,40,41]" ]
 }
 
 @test "scroll: a sent message is drawn at once, before loh has delivered it" {
@@ -320,7 +320,7 @@ globalThis.SCROLLS = [];
 stale.forEach((t) => t.fn({ notify() {} }));
 console.log(JSON.stringify([now, after, globalThis.SCROLLS]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "[[2],[2,2],[]]" ]
+  [ "$output" = "[[3],[3,3],[]]" ]
 }
 
 @test "scroll: the activity feed follows its newest row when it is full" {
@@ -644,4 +644,11 @@ await fs.rm(process.env.PHOME + "/.config/herdr-app/mods", { recursive: true });
 click((cx) => panel.loadEmoji(cx)); await settle();
 console.log(panel.glyphKind("👍"));'
   [ "$output" = "image" ]
+}
+
+@test "scroll: the log ends in a spacer row, which is what the log reveals, so the gap above the message box shows" {
+  run grep -c 'id("panel-log").*\.pb(8)' "$(mod_dir)/panel.js"
+  [ "$output" = "0" ]
+  run grep -c 'id("panel-log-end")' "$(mod_dir)/panel.js"
+  [ "$output" = "1" ]
 }
