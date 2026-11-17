@@ -262,7 +262,8 @@ coordinator_section() {
 }
 @test "waiting-on-the-owner rule fits the wake timeout, the Discord chat id and one reminder per item" {
   line=$(coordinator_section | grep 'Waiting on the owner')
-  [[ "$line" == *"--timeout 600"* ]]
+  [[ "$line" == *"--timeout 300"* ]]
+  [[ "$line" == *"the second wake"* ]]
   [[ "$line" == *"when you reported"* ]]
   [[ "$line" == *"chat id of a Discord message the owner sent"* ]]
   [[ "$line" == *".loh/status.md"* ]]
