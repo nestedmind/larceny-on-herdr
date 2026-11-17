@@ -383,6 +383,39 @@ function deskArt(g, d, mat) {
 }
 
 /**
+ * A percentage floor layer as one SVG picture in world units: what it would draw, as a file herdr can load
+ * with image() and keep, so a frame paints a picture and does not build the floor's paths again.
+ * Circles and the ellipse images (`div.svg`) become ellipses, other rounded divs rects; an eight-digit colour keeps
+ * its alpha as fill-opacity. The viewBox is the world; `scale` sets the picture's own size (width and height) to that
+ * many pixels a world unit, because herdr rasterises an image at its own size, so a small one drawn large is blurred.
+ */
+export function floorSvg(layer, W, H, scale = 1) {
+  const n = (v) => +Number(v).toFixed(3);
+  const col = (f) => (f.length === 9 ? `fill="${f.slice(0, 7)}" fill-opacity="${n(parseInt(f.slice(7), 16) / 255)}"` : `fill="${f}"`);
+  const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(W)} ${n(H)}" width="${n(W * scale)}" height="${n(H * scale)}">`];
+  for (const o of layer.ops) {
+    if (o.div) {
+      const d = o.div;
+      out.push(d.r < 0 || d.svg
+        ? `<ellipse cx="${n(d.x + d.w / 2)}" cy="${n(d.y + d.h / 2)}" rx="${n(d.w / 2)}" ry="${n(d.h / 2)}" ${col(o.fill)}/>`
+        : `<rect x="${n(d.x)}" y="${n(d.y)}" width="${n(d.w)}" height="${n(d.h)}" rx="${n(d.r)}" ${col(o.fill)}/>`);
+      continue;
+    }
+    const d = o.cmds.map((c) => (c[0] === "move_to" ? `M${n(c[1])} ${n(c[2])}` : c[0] === "line_to" ? `L${n(c[1])} ${n(c[2])}` : "Z")).join("");
+    out.push(`<path d="${d}" ${col(o.fill)}/>`);
+  }
+  return out.join("") + "</svg>";
+}
+
+/** The file name of a floor's SVG: it follows the plan's key (crew.js floorKey) and the picture's size, so the same plan at the same size finds the same file. */
+export function floorSvgName(key, scale) {
+  let h = 0x811c9dc5;
+  key = `svg2|${scale}|${key}`; // the format of the file: another format, another name
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `crew-office-floor-${h.toString(16).padStart(8, "0")}.svg`;
+}
+
+/**
  * The rooms, walls, furniture and floors: everything that does not move. Built once per plan: its
  * paths are percentages of its box, so a new scale (`at(k)`) only resizes the box.
  */

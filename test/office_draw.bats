@@ -438,3 +438,48 @@ import("./crew.mjs").then((crew) => {
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 3 3" ]
 }
+
+@test "the floor as an SVG: its paths, circles and rounded rectangles in world units, alpha as fill-opacity" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 100, 50, "", true).rounded().rect(10, 5, 20, 10, "#112233").circ(50, 25, 5, "#445566").rr(60, 10, 30, 20, 4, "#77889988");
+console.log(draw.floorSvg(g, 100, 50));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"><path d="M10 5L30 5L30 15L10 15Z" fill="#112233"/><ellipse cx="50" cy="25" rx="5" ry="5" fill="#445566"/><rect x="60" y="10" width="30" height="20" rx="4" fill="#778899" fill-opacity="0.533"/></svg>' ]
+}
+
+@test "the floor's SVG can be drawn at a larger size, with the same viewBox, so a bigger picture is not a stretched small one" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 100, 50, "", true).rect(10, 5, 20, 10, "#112233");
+console.log(draw.floorSvg(g, 100, 50, 4));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="400" height="200"><path d="M10 5L30 5L30 15L10 15Z" fill="#112233"/></svg>' ]
+}
+
+@test "the live floor's SVG has one shape for every shape the floor layer draws, and no bad number or colour" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const L = crew.layoutCrew([], ["api", "web"], 0, {});
+  const g = draw.floorLayer(L, 3);
+  const svg = draw.floorSvg(g, L.W, L.H);
+  const shapes = (svg.match(/<(path|rect|ellipse) /g) || []).length;
+  // Each kind to its own element: circles and the ellipse images are ellipses, other rounded divs rects, the rest paths.
+  const ellipses = g.ops.filter((o) => o.div && (o.div.r < 0 || o.div.svg)).length;
+  const rects = g.ops.filter((o) => o.div && o.div.r >= 0 && !o.div.svg).length;
+  const kinds = [(svg.match(/<ellipse /g) || []).length === ellipses, (svg.match(/<rect /g) || []).length === rects, ellipses > 10 && g.ops.some((o) => o.div && o.div.svg)].join("");
+  const fills = [...svg.matchAll(/fill="([^"]*)"/g)].map((m) => m[1]);
+  console.log(kinds, shapes === g.ops.length, g.ops.length > 500, /NaN|undefined|Infinity/.test(svg), fills.every((f) => /^#[0-9a-f]{6}$/i.test(f)), svg.length < 400000);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "truetruetrue true true false true true" ]
+}
+
+@test "a floor's SVG file name follows its plan and its size: the same, the same name; another plan or another size, another" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const k1 = crew.floorKey(crew.layoutCrew([], ["api"], 0, {})), k2 = crew.floorKey(crew.layoutCrew([], ["api", "web"], 0, {}));
+  const a = draw.floorSvgName(k1, 4), b = draw.floorSvgName(k1, 4), c = draw.floorSvgName(k2, 4), d = draw.floorSvgName(k1, 6);
+  console.log(/^crew-office-floor-[0-9a-f]{8}\.svg$/.test(a), a === b, a === c, a === d);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false false" ]
+}
