@@ -7,7 +7,7 @@
 bats_require_minimum_version 1.5.0
 load test_helper
 
-TOOLS="bash env jq cat sed tr cut head tail dirname basename mkdir date printf grep wc mktemp rm timeout ls sort"
+TOOLS="bash env jq cat sed tr cut head tail dirname basename mkdir date printf grep wc mktemp rm timeout ls sort mv"
 
 setup() {
   make_plugin_tree
@@ -195,4 +195,30 @@ run_wake() { run --separate-stderr env PATH="$BIN" "$LOH" wake "$@"; }
   [ "$status" -eq 2 ]
   run_wake --bogus
   [ "$status" -eq 2 ]
+}
+
+@test "a coder change between two runs is reported by the next run" {
+  run_wake --timeout 1
+  [ "$output" = "timeout after 1s" ]
+  : >"$D/hc.log"
+  coder 1 idle "" ""
+  run_wake --timeout 5
+  [ "$output" = "coder name=sucre event=turn-ended state=idle" ]
+}
+
+@test "a PR review between two runs is reported by the next run, once" {
+  prs 1 "$(pr_json aaaaaaaa1111 MERGEABLE '[]')"
+  run_wake --timeout 1
+  prs 1 "$(pr_json aaaaaaaa1111 MERGEABLE '[{"id":"R1","state":"APPROVED","author":{"login":"amy"},"commit":{"oid":"aaaaaaaa1111"}}]')"
+  : >"$D/gh.log"
+  run_wake --timeout 5
+  [ "$output" = "review repo=api number=12 by=amy state=APPROVED head=aaaaaaa" ]
+  run_wake --timeout 1
+  [ "$output" = "timeout after 1s" ]
+}
+
+@test "a damaged state file is ignored" {
+  echo 'garbage' >"$WS/.loh/wake-state.json"
+  run_wake --timeout 1
+  [ "$output" = "timeout after 1s" ]
 }

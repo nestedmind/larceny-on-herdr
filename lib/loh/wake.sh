@@ -27,6 +27,10 @@
 # value of UNKNOWN (GitHub still computing) is ignored. If `hc events` ends,
 # it is started again after 1 s, doubling up to 16 s.
 #
+# The last state looked at is kept in .loh/wake-state.json (LOH_WAKE_STATE), so
+# a change between one exit and the next start is reported by the next run.
+# The first run, with no file, reports nothing.
+#
 # Written for bash 3.2 (macOS): no associative arrays; diffs are done by jq.
 set -euo pipefail
 # shellcheck source=common.sh
@@ -174,8 +178,32 @@ close_state() {
 
 # Main loop ------------------------------------------------------------------
 
-hc_old="$(hc_snapshot)" || hc_old='{"coders":{},"self":""}'
-gh_old="$(gh_snapshot '{}')"
+state_file="${LOH_WAKE_STATE:-$WS_ROOT/.loh/wake-state.json}"
+have_base=""
+
+# save_state: remember what has been looked at, for the next run.
+save_state() {
+  [[ -n "$have_base" ]] || return 0
+  if jq -cn --argjson h "$hc_old" --argjson g "$gh_old" '{hc: $h, gh: $g}' >"$state_file.tmp" 2>/dev/null; then
+    mv -f "$state_file.tmp" "$state_file" 2>/dev/null || true
+  fi
+}
+
+# The baseline is the state the last run left. A change between two runs (the
+# coordinator was busy in its own turn) shows up as the first diff. With no
+# usable file, the current state is the baseline and nothing is reported.
+saved=""
+if [[ -f "$state_file" ]] &&
+  saved="$(jq -c 'select((.hc.coders | type) == "object" and (.hc.self | type) == "string" and (.gh | type) == "object")' "$state_file" 2>/dev/null)" &&
+  [[ -n "$saved" ]]; then
+  hc_old="$(jq -c .hc <<<"$saved")"
+  gh_old="$(jq -c .gh <<<"$saved")"
+else
+  saved=""
+  hc_old="$(hc_snapshot)" || hc_old='{"coders":{},"self":""}'
+  gh_old="$(gh_snapshot '{}')"
+fi
+have_base=1
 last_poll=$SECONDS
 deadline=$((SECONDS + timeout))
 ev_pid=""
@@ -189,7 +217,7 @@ close_events() {
   [[ -z "$ev_pid" ]] || kill "$ev_pid" 2>/dev/null || true
   ev_pid=""
 }
-trap close_events EXIT
+trap 'close_events; save_state' EXIT
 
 # report <lines>: print and exit when there are any.
 report() {
@@ -202,18 +230,24 @@ report() {
 }
 
 check_hc() {
-  local new
+  local new out
   new="$(hc_snapshot)" || return 0
-  report "$(hc_diff "$hc_old" "$new")"
+  out="$(hc_diff "$hc_old" "$new")"
   hc_old="$new"
+  report "$out"
 }
 check_gh() {
-  local new
+  local new out
   new="$(gh_snapshot "$gh_old")"
-  report "$(gh_diff "$gh_old" "$new")"
+  out="$(gh_diff "$gh_old" "$new")"
   gh_old="$new"
+  report "$out"
 }
 
+[[ -z "$saved" ]] || {
+  check_hc
+  check_gh
+}
 open_events
 delay=1
 while :; do
