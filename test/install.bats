@@ -26,7 +26,7 @@ inst() {
 # no marketplace or plugin yet.
 stub_all() {
   stub hc 'echo "hc 0.1.20"'
-  stub herdr-app 'echo "herdr-app 0.1.15"'
+  stub herdr-app 'echo "herdr-app 0.1.16"'
   stub git 'echo "git version 2.0.0"'
   stub jq 'echo "jq-1.7"'
   stub gh 'case "$1 $2" in "auth status") [[ -e "$STATE/gh-authed" ]] ;; "auth login") touch "$STATE/gh-authed" ;; esac'
@@ -125,14 +125,14 @@ setup() {
   [ -e "$STATE/core-installer-ran" ]
 }
 
-@test "herdr-app's install is shown with a note that it installs the latest, not the tested 0.1.15" {
+@test "herdr-app's install is shown with a note that it installs the latest, not the tested 0.1.16" {
   stub_all
   rm "$STUBS/herdr-app"
   stub curl 'echo true'
   run inst <<<"n"
   [ "$status" -eq 0 ]
   [[ "$output" == *"https://releases.herdr.dev/app/install.sh | sh"* ]]
-  [[ "$output" == *"installs the latest herdr-app"*"0.1.15"*"tested"* ]]
+  [[ "$output" == *"installs the latest herdr-app"*"0.1.16"*"tested"* ]]
   ! grep -Fq "curl" "$STUB_LOG"
 }
 

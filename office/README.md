@@ -11,7 +11,7 @@ ln -s "$PWD/office/crew-office" ~/.config/herdr-app/mods/crew-office
 herdr-app check ~/.config/herdr-app/mods/crew-office
 ```
 
-A copy works too (`cp -r`), but a symlink picks up changes on save, because herdr-app hot-reloads a mod when its files change.
+A copy works too (`cp -r`), but a symlink picks up changes on save, because herdr-app 0.1.16 reloads an open mod tab in place when a file in the mod's folder is saved. Link it before herdr-app starts, or restart herdr-app after linking: on 0.1.16 a symlinked mod linked while the app was running did not reload.
 
 ## Open it
 
@@ -21,7 +21,7 @@ As a pane beside your shell:
 herdr-app do pane.split --direction right --mod crew-office
 ```
 
-Or as its own tab: `herdr-app do tab.new --name office --mod crew-office`. `loh office` does this with the props filled in, and it is also how you reload: herdr-app does not reload a mod's code while its tab is open, so after pulling office changes run `loh office` inside the workspace. It opens a new tab, then closes the old one (the id of the tab it opened is in `<workspace>/.loh/office-tab`). `loh office --close` closes it.
+Or as its own tab: `herdr-app do tab.new --name office --mod crew-office`. `loh office` does this with the props filled in, and it is how you give the office new props or recover it. Office code needs no command: on herdr-app 0.1.16, saving or pulling a file under the mod's folder (a README or an image too) reloads the open tab in place within about 3 seconds, keeping its tab id and its props. Run `loh office` inside the workspace when no tab is open, when a change adds or changes a prop, or when the saved id is stale. It opens a new tab, then closes the old one (the id of the tab it opened is in `<workspace>/.loh/office-tab`). `loh office --close` closes it.
 
 Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`):
 

@@ -26,7 +26,7 @@ Out of scope for v1: cloud or headless runs, running the crew in CI, changing la
 
 ## Phase 0 results
 
-Phase 0 ran from Nov 12 to Nov 13, 2026, on herdr 0.9.5, herdr-core (`hc`) 0.1.20, herdr-app 0.1.15 and larceny 0.1.4 at commit dd27cf1.
+Phase 0 ran from Nov 12 to Nov 13, 2026, on herdr 0.9.5, herdr-core (`hc`) 0.1.20, herdr-app 0.1.15 and larceny 0.1.4 at commit dd27cf1. The office and its install were rechecked on herdr-app 0.1.16 on Nov 17, 2026 (see the hot-reload line under the mod notes).
 
 | Spike | Question | Result |
 | --- | --- | --- |
@@ -199,7 +199,7 @@ The office is a view over herdr's state and holds no state of its own except the
 
 Mod facts from spike 2:
 
-- A mod is `mods/<name>/main.js` plus `mod.json`, in `~/.config/herdr-app/`. It hot-reloads on save, and `herdr-app check <folder>` validates it.
+- A mod is `mods/<name>/main.js` plus `mod.json`, in `~/.config/herdr-app/`. It hot-reloads on save, and `herdr-app check <folder>` validates it. Checked on herdr-app 0.1.16 (2026-11-17, throwaway mods, never the office tab): saving a file in a mod folder reloads its open tab in place within about 3 seconds, `README.md` and a PNG included, and the tab id and the props the tab was opened with stay the same; a tab that is not shown starts only when first shown. A symlinked mod linked while the app was running did not reload on save (a symlink present at app start did, as the office did after #135), so link it before the app starts or restart the app. `loh office` is still needed to open the office, to give it new props, and to recover from a missing or stale tab. An imported file reloads too: #135 changed only `panel.js` (imported by `main.js`) and the open office, whose symlink predates the app's start, reloaded when it was pulled. My own test of an imported file used a symlink linked while the app ran, which did not reload.
 - Click handlers, panels, native animation and absolute positioning are available. A shipped mod already focuses an agent on click.
 - A mod reads agent status (`idle`, `working`, `blocked`, `done`), each terminal's folder and branch, and its labels. There is no role field, so roles come from `role=` labels.
 - The API is versioned and its type file is rewritten at each start, so a herdr-app update can break the mod. The repaint is whole-window, so animations use `.frames()` and `.loop()`, not timers.
@@ -238,9 +238,9 @@ herdr-app runs on Apple Silicon Macs and on Linux with Vulkan (x86-64 and ARM64)
 
 ## Setup
 
-`install.sh` at the repo root does the setup in one safe-to-repeat run (ticket #111): it checks the prerequisites and asks before installing any, runs `gh auth login` when needed, installs the plugin with `claude plugin`, adds the `PATH` line and links the office mod. herdr-core and `hc` install pinned to the tested version with `curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh` (the installer reads `HC_VERSION`). herdr-app's installer has no version pin, so the script says it installs the latest and that 0.1.15 is the tested one, then asks. It installs with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` (macOS Apple silicon, Linux x86-64 and ARM64). The README checklist stays below it.
+`install.sh` at the repo root does the setup in one safe-to-repeat run (ticket #111): it checks the prerequisites and asks before installing any, runs `gh auth login` when needed, installs the plugin with `claude plugin`, adds the `PATH` line and links the office mod. herdr-core and `hc` install pinned to the tested version with `curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh` (the installer reads `HC_VERSION`). herdr-app's installer has no version pin, so the script says it installs the latest and that 0.1.16 is the tested one, then asks. It installs with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` (macOS Apple silicon, Linux x86-64 and ARM64). The README checklist stays below it.
 
-1. **Prerequisites:** herdr-core and `hc` 0.1.20, herdr 0.9.5, larceny 0.1.5, `gh` logged in, and optionally persona token files under `~/.config/larceny/`. herdr-app 0.1.15 is needed for the office.
+1. **Prerequisites:** herdr-core and `hc` 0.1.20, herdr 0.9.5, larceny 0.1.5, `gh` logged in, and optionally persona token files under `~/.config/larceny/`. herdr-app 0.1.16 is needed for the office.
 2. **Install the plugin** from this repo as a local marketplace.
 3. **Write `.loh/workspace.md`** in the workspace root.
 4. **Run `loh up`**, then open herdr-app, where `herdr-app do terminal.keep --terminal <tN>` shows a terminal. Talk to Scofield.
@@ -315,7 +315,7 @@ The four unknowns that phase 0 set out to answer are resolved. The risks that re
 | A finished terminal still holds its name | The next coder cannot start under that name | `loh spawn` removes a finished terminal before reusing the name, and refuses a live one |
 | Standing agents' context grows | Amy gets slower and vaguer | Restart standing agents after a set number of reviews, as larceny already advises; coders stay fresh per ticket |
 | Six to eight sessions on one machine | Plan limits, memory, CPU, and about 228k startup tokens per session on the first machine | A cap of 4 live coders, written in the skill; long-lived standing agents amortise the startup cost |
-| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.15, larceny 0.1.5 at 03a9bfc); decline core updates; phase 4 adds a check on the overridden sections |
+| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.16, larceny 0.1.5 at 03a9bfc); decline core updates; phase 4 adds a check on the overridden sections |
 | Whether a label change alone redraws a mod is untested | Status cards might lag | Test it in phase 2 before phase 3 relies on it |
 | Amy's approval comment has its attribution line first | A check that reads only the first line misses `APPROVED at <sha>` | Read the whole comment, and prefer the formal review |
 
