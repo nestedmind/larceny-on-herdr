@@ -78,7 +78,7 @@ Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`
 ### What herdr-app cannot do
 
 - No radial gradient (`Background` has solid, linear, slash and checkerboard only), so a screen's night glow is stacked translucent discs.
-- No per-frame callback and no stepped easing: the arm swing, bob, typing taps and ball are `.loop()` between two values (smooth, not the prototype's square wave). The screen cursor steps with `.frames()` as a text glyph. A walker's facing changes at each leg, not smoothly. The arms and the bob have ids of their own (`<id>-arm0`, `<id>-arm1`, `<id>-bob`) and both axes always loop, so a turn changes the loops' values and leaves the elements in place; whether herdr then keeps their phase at a turn has not been confirmed on screen.
+- No per-frame callback and no stepped easing: the arm swing, bob, typing taps and ball are `.loop()` between two values (smooth, not the prototype's square wave). The screen cursor is a 3 by 0.8 bar inside the green strip that sweeps its four places with a linear `.loop()` (a text glyph put it outside the strip, and the font decides where a glyph sits). A typing person's sleeves run to their hand's nearest place in the tap, so the hand always covers the sleeve's end. A walker's facing changes at each leg, not smoothly. The arms and the bob have ids of their own (`<id>-arm0`, `<id>-arm1`, `<id>-bob`) and both axes always loop, so a turn changes the loops' values and leaves the elements in place; whether herdr then keeps their phase at a turn has not been confirmed on screen.
 - A stroke has no line-cap setting, so the arms' ends are square.
 - No visibility event: motion stops when the tab is hidden because native loops and transitions stop when not drawn.
 
