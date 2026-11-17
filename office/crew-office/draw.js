@@ -496,10 +496,14 @@ export function floorLayer(world, k, mod = () => "crew-office") {
   g.circ(md.x + 4, md.y + 11, 1.7, PAL.books[1]);
   edge(matt, 88, 278, () => plant(g, 88, 278, 5)); edge(matt, 10, 170, () => plant(g, 10, 170, 4));
   // kitchen: counters along the top wall, the fridge in the bottom corner, the table in the middle
-  at(kitchen, 0.5, 0, () => {
-    [[99, 163, 39], [154, 163, 40]].forEach(([x, y, w]) => { g.rr(x, y, w, 11, 1.5, PAL.counter); g.rr(x + 1, y + 1, w - 2, 9, 1, PAL.counterTop); });
+  // the left counter keeps to the left wall and the right counter to the right wall, so a wider kitchen opens up between them
+  at(kitchen, 0, 0, () => {
+    g.rr(99, 163, 39, 11, 1.5, PAL.counter); g.rr(100, 164, 37, 9, 1, PAL.counterTop);
     g.circ(108, 168.5, 3, PAL.counter); g.circ(108, 168.5, 2, PAL.fridge);
     g.rr(118, 165, 9, 7, 1.2, PAL.appliance); g.circ(122.5, 168.5, 1.2, PAL.accent);
+  });
+  at(kitchen, 1, 0, () => {
+    g.rr(154, 163, 40, 11, 1.5, PAL.counter); g.rr(155, 164, 38, 9, 1, PAL.counterTop);
     g.circ(164, 168.5, 2.2, PAL.appliance); g.circ(172, 168.5, 2.2, PAL.appliance); g.rr(180, 165, 9, 7, 1.2, PAL.appliance);
   });
   at(kitchen, 1, 1, () => { g.rr(175, 262, 18, 22, 2, PAL.fridge); g.rect(176, 270, 16, 0.6, PAL.counter); g.rect(189, 264, 0.8, 4, PAL.counter); });
