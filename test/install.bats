@@ -285,3 +285,28 @@ on_path() {
   [ "$(readlink "$HOME/.local/bin/loh")" = "$REPO_ROOT/bin/loh" ]
   [[ "$output" == *"everything is in place"* ]]
 }
+
+@test "no reload step when the PATH line was already in the rc file, even if loh does not resolve" {
+  stub_all
+  printf 'export PATH="%s/bin:$PATH"\n' "$REPO_ROOT" >"$HOME/.bashrc"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Next:"* ]]
+  [[ "${output#*Next:}" != *"source "* ]]
+}
+
+@test "a ~/.local/bin that is on PATH but missing is created and linked" {
+  stub_all
+  INSTALL_PATH="$HOME/.local/bin:$INSTALL_PATH"
+  run inst </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(readlink "$HOME/.local/bin/loh")" = "$REPO_ROOT/bin/loh" ]
+}
+
+@test "a trailing slash on the PATH entry still counts as ~/.local/bin" {
+  stub_all
+  on_path
+  INSTALL_PATH="${INSTALL_PATH/$HOME\/.local\/bin:/$HOME/.local/bin/:}"
+  run inst </dev/null
+  [ -L "$HOME/.local/bin/loh" ]
+}

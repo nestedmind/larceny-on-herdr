@@ -201,14 +201,15 @@ link_step() {
   local -a dirs
   IFS=: read -ra dirs <<<"$PATH"
   for d in "${dirs[@]}"; do
-    [[ "$d" == "$dir" ]] && on=1
+    d="${d/#\~/$HOME}"
+    [[ "${d%/}" == "$dir" || "$d" -ef "$dir" ]] && on=1
   done
   ((on)) || return 0
-  if [[ -L "$target" && "$(readlink "$target")" == "$REPO/bin/loh" ]]; then
+  if [[ -L "$target" && "$target" -ef "$REPO/bin/loh" ]]; then
     had "loh linked at $target"
   elif [[ -e "$target" || -L "$target" ]]; then
     skip "loh link ($target is not this repo's loh; leaving it alone)"
-  elif ln -s "$REPO/bin/loh" "$target"; then
+  elif mkdir -p "$dir" && ln -s "$REPO/bin/loh" "$target"; then
     did "linked $target to $REPO/bin/loh"
   else
     skip "loh link (could not link $target)"
@@ -219,8 +220,7 @@ link_step() {
 loh_here() {
   local p
   p=$(command -v loh) || return 1
-  [[ ! -L "$p" ]] || p=$(readlink "$p")
-  [[ "$p" == "$REPO/bin/loh" ]]
+  [[ "$p" -ef "$REPO/bin/loh" ]]
 }
 path_step
 link_step
