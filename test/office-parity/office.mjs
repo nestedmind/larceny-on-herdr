@@ -110,6 +110,9 @@ export async function drawOffice({ Office, crew, draw }, { agents, repos, stage,
     if (advance) { clock += advance; root = office.render(cx); }
     clock += crew.GOAL_HOLD + 500; // past the hold, so the walks are handed over
     root = office.render(cx);
+    // A walk is armed in one render and handed over in the next (the arm frame).
+    clock += 100;
+    root = office.render(cx);
     const L = office.layoutNow;
     const fit = crew.fitScale(office.size, L);
     const floor = all(root.node).find((n) => "relative" in n.props && v(n, "w") !== undefined && all(n).some((m) => String(v(m, "id") || "").startsWith("m-")));

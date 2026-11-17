@@ -383,6 +383,39 @@ function deskArt(g, d, mat) {
 }
 
 /**
+ * A percentage floor layer as one SVG picture in world units: what it would draw, as a file herdr can load
+ * with image() and keep, so a frame paints a picture and does not build the floor's paths again.
+ * Circles and the ellipse images (`div.svg`) become ellipses, other rounded divs rects; an eight-digit colour keeps
+ * its alpha as fill-opacity. The viewBox is the world; `scale` sets the picture's own size (width and height) to that
+ * many pixels a world unit, because herdr rasterises an image at its own size, so a small one drawn large is blurred.
+ */
+export function floorSvg(layer, W, H, scale = 1) {
+  const n = (v) => +Number(v).toFixed(3);
+  const col = (f) => (f.length === 9 ? `fill="${f.slice(0, 7)}" fill-opacity="${n(parseInt(f.slice(7), 16) / 255)}"` : `fill="${f}"`);
+  const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(W)} ${n(H)}" width="${n(W * scale)}" height="${n(H * scale)}">`];
+  for (const o of layer.ops) {
+    if (o.div) {
+      const d = o.div;
+      out.push(d.r < 0 || d.svg
+        ? `<ellipse cx="${n(d.x + d.w / 2)}" cy="${n(d.y + d.h / 2)}" rx="${n(d.w / 2)}" ry="${n(d.h / 2)}" ${col(o.fill)}/>`
+        : `<rect x="${n(d.x)}" y="${n(d.y)}" width="${n(d.w)}" height="${n(d.h)}" rx="${n(d.r)}" ${col(o.fill)}/>`);
+      continue;
+    }
+    const d = o.cmds.map((c) => (c[0] === "move_to" ? `M${n(c[1])} ${n(c[2])}` : c[0] === "line_to" ? `L${n(c[1])} ${n(c[2])}` : "Z")).join("");
+    out.push(`<path d="${d}" ${col(o.fill)}/>`);
+  }
+  return out.join("") + "</svg>";
+}
+
+/** The file name of a floor's SVG: it follows the plan's key (crew.js floorKey) and the picture's size, so the same plan at the same size finds the same file. */
+export function floorSvgName(key, scale) {
+  let h = 0x811c9dc5;
+  key = `svg2|${scale}|${key}`; // the format of the file: another format, another name
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `crew-office-floor-${h.toString(16).padStart(8, "0")}.svg`;
+}
+
+/**
  * The rooms, walls, furniture and floors: everything that does not move. Built once per plan: its
  * paths are percentages of its box, so a new scale (`at(k)`) only resizes the box.
  */
@@ -553,11 +586,12 @@ export function glow(d, s, k) {
   const g = new Layer(k, d.cx - 6.5, y, 13, 1.6, s === "dim" ? "e6" : "f2").rr(d.cx - 6.5, y, 13, 1.6, 0.8, col);
   const out = [s === "q" || s === "perm" || s === "esc" ? blink(g.el()) : g.el()];
   if (s === "work") {
-    // The prototype's cursor steps along the line, two units every 240 ms. frames() swaps text, so the
-    // cursor is a glyph padded with em spaces: the font is sized so one em is two world units.
-    const step = ["", " ", "  ", "   "].map((pad) => pad + "▬");
-    out.push(div().absolute().left((d.cx - 5) * k).top((y - 0.6) * k).text_size(2 * k).line_height(2 * k)
-      .text_color(PAL.screenInk).whitespace_nowrap().frames(step, 240));
+    // The prototype's cursor is a 3 by 0.8 bar in the middle of the strip that steps two units every 240 ms
+    // over four places. herdr's native motion has no steps, so it sweeps the same places back and forth
+    // at the same speed (6 units in 720 ms). It sits in the strip's own box, so it cannot drift off it.
+    const x0 = d.cx - 5;
+    out.push(div().absolute().left(x0 * k).top((y + 0.4) * k).w(3 * k).h(0.8 * k).bg(PAL.screenInk + "e6")
+      .loop("left", { from: x0 * k, to: (x0 + 6) * k, period: 1440, easing: "linear" }));
   }
   return out;
 }
@@ -624,8 +658,10 @@ export function personEls(p, k, face, walking, world, rest = false) {
     const kbY = !d ? y : p.id === "matt" ? d.y + 11.2 : d.side === "n" ? d.y + 4.2 : d.y + d.h - 3.8;
     const reach = d ? Math.abs(kbY - p.y) : 4.6;
     const hl = { x: x - 2.6, y: y + fy * reach }, hr = { x: x + 2.6, y: y + fy * (reach - 0.7) };
-    under.line(x - 4.2, y + fy * 1.5, hl.x, hl.y - fy * 1.2, shirt, 1.8);
-    under.line(x + 4.2, y + fy * 1.5, hr.x, hr.y - fy * 1.2, shirt, 1.8);
+    // Each sleeve runs to the hand's nearest place in its tap, so the hand covers its end at every moment of the tap.
+    const near = y + fy * (reach - 0.7);
+    under.line(x - 4.2, y + fy * 1.5, hl.x, near, shirt, 1.8);
+    under.line(x + 4.2, y + fy * 1.5, hr.x, near, shirt, 1.8);
     for (const [h, other] of [[hl, hr.y], [hr, hl.y]]) {
       const hand = new Layer(k, 0, 0, 3.2, 3.2, a).circ(1.6, 1.6, 1.4, skin);
       hands.push(hand.el().left((h.x - 1.6) * k).top((h.y - 1.6) * k)

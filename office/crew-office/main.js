@@ -6,11 +6,13 @@
 // (.loop(), .transition()); no repeating timer. A whole walk is handed to the renderer in one render
 // (see motion()); one-shot timers only turn the walker to face the next leg and end the gait.
 
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
 import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
-import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { imagePath } from "./photos.js";
+import * as fs from "fs/promises";
 import { Panel } from "./panel.js";
 
 // How long one render may spend building a big layer's paths before it carries on in the next one.
@@ -20,6 +22,9 @@ const BUILD_MS = 12;
 const ARRIVE_SLACK = 60;
 // How long a walker stands at rest, movers put back, between the end of one walk and the start of the next.
 const SETTLE_MS = 50;
+// Where the floor pictures go, under herdr's folder, and how many stay there.
+const FLOOR_DIR = "crew-office-floors";
+const FLOOR_FILES = 12;
 // The name tag's own slide, for when the tags restack at rest.
 const TAG_SLIDE = { duration: 220, easing: "ease-out" };
 
@@ -136,6 +141,7 @@ export default class CrewOffice extends View {
     // The floor and the night layers: built once for a plan, kept across scales. See render().
     this.floor = null;
     this.floors = new Map();
+    this.pics = new Map();
     this.floorId = `floor-${++floorSeq}`;
     FLOORS.set(this.floorId, { layer: null, drawn: null });
     this.floorView = cx.new(Floor, { id: this.floorId });
@@ -476,6 +482,41 @@ export default class CrewOffice extends View {
     if (await this.undoByExec(f.plan, f.pane)) { try { setShared(FS_KEY, null); } catch (_) { /* nothing to clear */ } }
   }
 
+  // The floor is the same for as long as the plan is, but drawn as paths it was painted again on every animated frame
+  // (about a third of a frame's time). Its SVG goes once into a folder of its own in herdr's folder, named by the plan and
+  // the picture's size; image() then loads it and the renderer keeps it. herdr rasterises an image at its own size, so the
+  // picture is written at a whole number of pixels a world unit, 2 to 6 and about one and a half times the scale (a bigger one costs memory by the square), and a new size means a new file;
+  // until that one is there the last one for the plan stays. Returns the path image() takes when there is a file, else
+  // null (the floor view draws). Each copy of the mod (MOD) has a folder of its own, so a copy under test never deletes the picture another is using; at most FLOOR_FILES pictures stay in it.
+  floorPicture(key, layer, L, k) {
+    const per = Math.min(6, Math.max(2, Math.ceil(1.5 * k)));
+    const id = `${key}|${per}`;
+    let p = this.pics.get(id);
+    if (!p) {
+      const dir = `${appHome()}/${FLOOR_DIR}/${MOD}`;
+      const name = floorSvgName(key, per);
+      p = { key, rel: imagePath(appHome(), `${dir}/${name}`), name, ready: false };
+      this.pics.set(id, p);
+      // Built and written in a task of its own, not in this render: building the text of a big floor takes a while.
+      this.acx.timer.after(1, (c) => {
+        fs.mkdir(dir, { recursive: true })
+          .then(() => fs.writeFile(`${dir}/${name}`, floorSvg(layer, L.W, L.H, per)))
+          .then(() => { p.ready = true; try { c.notify(); } catch (_) { /* the view was reloaded or closed */ } })
+          .then(() => fs.readdir(dir))
+          .then((names) => {
+            const mine = new Set([...this.pics.values()].map((q) => q.name));
+            const stale = names.filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f) && !mine.has(f));
+            const over = names.filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f)).length - FLOOR_FILES;
+            return Promise.all(stale.slice(0, Math.max(0, over)).map((f) => fs.unlink(`${dir}/${f}`).catch(() => {})));
+          })
+          .catch(() => { /* no file: the floor view keeps drawing it */ });
+      });
+    }
+    if (p.ready) return p.rel;
+    const same = [...this.pics.values()].filter((q) => q.key === key && q.ready).pop();
+    return same ? same.rel : null;
+  }
+
   // Where each person is drawn this render. A person whose place changed walks there door to door:
   // crew.js gives the legs, and this render hands the whole walk to the renderer at once as a chain of
   // movers (draw.js's mover), each leg a native transition that starts when the one before ends. The
@@ -494,9 +535,17 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [], gen: 0 }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.arming = null; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
       else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
+      if (w.arming) {
+        // The arm frame: the walk's transition policies on movers still at zero, drawn before any offset changes.
+        const a = w.arming;
+        const c = walkChain(a.from, a.legs, SLOTS);
+        c.links = c.links.map((l) => ({ ...l, dx: 0, dy: 0 }));
+        out.set(p.id, { rest: false, walking: true, from: a.from, chain: { ...c, gen: w.gen }, x: a.from.x, y: a.from.y, face: a.legs[0].face });
+        continue;
+      }
       const walking = w.legs.length > 0;
       const pos = walking ? posAt(w.from, w.legs, now - w.t0) : w.at;
       const face = walking ? w.legs[Math.min(w.i, w.legs.length - 1)].face : p.face;
@@ -532,6 +581,25 @@ export default class CrewOffice extends View {
   // The next walk is handed over only after a render that drew the rest frame ran to its end. A render that herdr cuts off at its
   // deadline has run motion() but drawn nothing, and a walk handed over after it would be drawn from the old offsets.
   holdOrGo(w, p, L, goal, now) {
+    if (w.arming) {
+      // A walk's policies (durations, delays) and its offsets are never changed in one render: a mover whose
+      // policy changes with its value is drawn at the new value for a frame. The walk is armed first, with
+      // its policies at zero offsets, and starts in the render after that one was drawn to its end.
+      this.restSeen.add(w);
+      if (!w.restDrawn) {
+        if (!w.wake) {
+          w.wake = this.acx.timer.after(SETTLE_MS + 5, (c) => {
+            w.wake = null;
+            try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+          });
+        }
+        return;
+      }
+      const a = w.arming;
+      w.arming = null;
+      this.beginWalk(w, a.from, a.legs);
+      return;
+    }
     if (w.resting) {
       this.restSeen.add(w);
       if (!w.restDrawn) {
@@ -562,7 +630,11 @@ export default class CrewOffice extends View {
     w.goal = goal;
     const legs = legsOf(start, pathTo(L, p.id, start, goal), p.id === "dog" ? WALK_SPEED * 1.5 : WALK_SPEED);
     if (!legs.length) { w.at = goal; w.legs = []; w.i = 0; return; }
-    this.beginWalk(w, start, legs);
+    w.arming = { from: start, legs }; w.restDrawn = false;
+    this.restSeen.add(w);
+    w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => {
+      try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+    }));
   }
 
   beginWalk(w, from, legs) {
@@ -946,7 +1018,10 @@ export default class CrewOffice extends View {
 
     // One box for the whole floor: the floor view, the people, the click targets and the tags are all placed in it at k.
     // The view sits in a box of that same size (not in one that takes its size from its content or the stage).
-    const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H)).child(this.floorView);
+    // The finished floor as a picture, once its file is there; until then (or if the file cannot be written) the floor view draws it.
+    const pic = this.floorPicture(this.shown.key, this.shown.layer, L, k);
+    const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H))
+      .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
     const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
       .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)

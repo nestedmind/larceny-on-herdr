@@ -240,6 +240,51 @@ import("./crew.mjs").then((crew) => {
   [ "$output" = 'matt 2 [["top",260],["top",260]] lounge 0 0' ]
 }
 
+@test "a working screen's cursor is a bar inside its green strip that sweeps along it, on desks facing either way" {
+  run draw_js '
+const world = (await import("./crew.mjs")).worldFor(["api", "web"]);
+const k = 4;
+const num = (v) => parseFloat(v[0]);
+const rows = [world.desks.find((d) => d.side === "n"), world.desks.find((d) => d.side === "s"), world.mattDesk].map((d) => {
+  const [strip, cur] = draw.glow(d, "work", k).map((e) => e.node);
+  const [x0, y0] = [d.cx - 6.5, d.side === "n" ? d.y + d.h - 6.6 : d.y + 5];
+  const [l, t, w, h] = ["left", "top", "w", "h"].map((n) => num(cur.props[n]) / k);
+  const loop = cur.props.loop[1];
+  const [a, b] = [loop.from / k, loop.to / k];
+  const inside = (left) => left >= x0 - 1e-6 && left + w <= x0 + 13 + 1e-6 && t >= y0 - 1e-6 && t + h <= y0 + 1.6 + 1e-6;
+  return [inside(l), inside(a), inside(b), Math.abs(l - a) < 1e-6, b > a, w, h];
+});
+console.log(JSON.stringify(rows));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[true,true,true,true,true,3,0.8],[true,true,true,true,true,3,0.8],[true,true,true,true,true,3,0.8]]' ]
+}
+
+@test "a typing person's sleeves end inside their hands at both ends of every tap, facing either way" {
+  run draw_js '
+const crew = await import("./crew.mjs");
+const k = 4;
+const walk = (n, f) => { f(n); (n.kids || []).forEach((c) => walk(c.node, f)); };
+const wrap = (els) => ({ kids: els });
+const rows = [["north", "api"], ["south", "api"]].map(([facing]) => {
+  const L = crew.layoutCrew([], ["api"], 0, { mattTyping: true });
+  const people = L.people.filter((p) => p.id !== "matt" && p.id !== "dog");
+  const m = L.people.find((p) => p.id === "matt");
+  const d = facing === "north" ? L.desks.find((q) => q.side === "n") : L.desks.find((q) => q.side === "s");
+  const p = { ...people[0], typing: true, desk: d.key, x: d.seat.x, y: d.seat.y, face: facing === "north" ? "s" : "n" };
+  const root = wrap(draw.personEls(p, k, p.face, false, L, true));
+  const ends = [], hands = [];
+  walk(root, (n) => {
+    if (n.path && n.path.stroke > 0) { const c = n.path.cmds; const last = c[c.length - 1]; ends.push([last[1], last[2]]); }
+    if (n.props && n.props.loop && n.props.loop[0] === "top") { const l = n.props.loop[1]; hands.push({ x: n.props.left[0] + 1.6 * k, ys: [l.from + 1.6 * k, l.to + 1.6 * k] }); }
+  });
+  const gap = Math.max(...hands.map((h) => { const e = ends.reduce((b, c) => (Math.abs(c[0] - h.x) < Math.abs(b[0] - h.x) ? c : b)); return Math.max(...h.ys.map((y) => Math.hypot(e[0] - h.x, e[1] - y))); }));
+  return [ends.length, hands.length, gap <= 1.4 * k];
+});
+console.log(JSON.stringify(rows));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[2,2,true],[2,2,true]]' ]
+}
+
 @test "the live crew's layers still use pixel coordinates, scaled when drawn" {
   run draw_js '
 const g = new draw.Layer(3, 0, 0, 10, 10).rect(1, 2, 3, 4, "#111111");
@@ -392,4 +437,49 @@ import("./crew.mjs").then((crew) => {
 });'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true 3 3" ]
+}
+
+@test "the floor as an SVG: its paths, circles and rounded rectangles in world units, alpha as fill-opacity" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 100, 50, "", true).rounded().rect(10, 5, 20, 10, "#112233").circ(50, 25, 5, "#445566").rr(60, 10, 30, 20, 4, "#77889988");
+console.log(draw.floorSvg(g, 100, 50));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"><path d="M10 5L30 5L30 15L10 15Z" fill="#112233"/><ellipse cx="50" cy="25" rx="5" ry="5" fill="#445566"/><rect x="60" y="10" width="30" height="20" rx="4" fill="#778899" fill-opacity="0.533"/></svg>' ]
+}
+
+@test "the floor's SVG can be drawn at a larger size, with the same viewBox, so a bigger picture is not a stretched small one" {
+  run draw_js '
+const g = new draw.Layer(1, 0, 0, 100, 50, "", true).rect(10, 5, 20, 10, "#112233");
+console.log(draw.floorSvg(g, 100, 50, 4));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="400" height="200"><path d="M10 5L30 5L30 15L10 15Z" fill="#112233"/></svg>' ]
+}
+
+@test "the live floor's SVG has one shape for every shape the floor layer draws, and no bad number or colour" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const L = crew.layoutCrew([], ["api", "web"], 0, {});
+  const g = draw.floorLayer(L, 3);
+  const svg = draw.floorSvg(g, L.W, L.H);
+  const shapes = (svg.match(/<(path|rect|ellipse) /g) || []).length;
+  // Each kind to its own element: circles and the ellipse images are ellipses, other rounded divs rects, the rest paths.
+  const ellipses = g.ops.filter((o) => o.div && (o.div.r < 0 || o.div.svg)).length;
+  const rects = g.ops.filter((o) => o.div && o.div.r >= 0 && !o.div.svg).length;
+  const kinds = [(svg.match(/<ellipse /g) || []).length === ellipses, (svg.match(/<rect /g) || []).length === rects, ellipses > 10 && g.ops.some((o) => o.div && o.div.svg)].join("");
+  const fills = [...svg.matchAll(/fill="([^"]*)"/g)].map((m) => m[1]);
+  console.log(kinds, shapes === g.ops.length, g.ops.length > 500, /NaN|undefined|Infinity/.test(svg), fills.every((f) => /^#[0-9a-f]{6}$/i.test(f)), svg.length < 400000);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "truetruetrue true true false true true" ]
+}
+
+@test "a floor's SVG file name follows its plan and its size: the same, the same name; another plan or another size, another" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const k1 = crew.floorKey(crew.layoutCrew([], ["api"], 0, {})), k2 = crew.floorKey(crew.layoutCrew([], ["api", "web"], 0, {}));
+  const a = draw.floorSvgName(k1, 4), b = draw.floorSvgName(k1, 4), c = draw.floorSvgName(k2, 4), d = draw.floorSvgName(k1, 6);
+  console.log(/^crew-office-floor-[0-9a-f]{8}\.svg$/.test(a), a === b, a === c, a === d);
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false false" ]
 }
