@@ -33,14 +33,29 @@ JS
 export const terminals = () => [];
 export const home = () => process.env.PHOME || "/nohome";
 export const appHome = () => (process.env.PHOME || "/nohome") + "/.config/herdr-app";
+import { execFile } from "node:child_process";
 export const exec = (c, a, o) => new Promise((resolve, reject) => {
   // `loh photos thumbs` answers at once (set globalThis.THUMBS to what it prints), so a test need not settle it by hand.
   if (a[0] === "photos") { (globalThis.THUMB_CALLS ||= []).push(a.join(" ")); resolve({ code: 0, stdout: globalThis.THUMBS || "thumbs: 0 made, 0 up to date (magick)\n" }); return; }
+  // `loh react --set-owner` runs for real: the office saves the owner's reactions through it.
+  if (a[0] === "react") { (globalThis.REACT_CALLS ||= []).push({ a, cwd: o && o.cwd }); execFile(process.env.LOH_BIN, a, { cwd: o && o.cwd }, (e, stdout, stderr) => (e && typeof e.code !== "number" ? reject(e) : resolve({ code: e ? e.code : 0, stdout, stderr }))); return; }
   (globalThis.CALLS ||= []).push({ c, a, resolve, reject });
 });
 JS
+  # herdr's fs/promises, as its docs and declarations give it: no rename, and writes only under herdr-app's folder.
+  cat > "$d/herdrfs.mjs" <<'JS'
+import * as real from "node:fs/promises";
+const app = (process.env.PHOME || "/nohome") + "/.config/herdr-app";
+const home = (p) => { if (!(p === app || p.startsWith(app + "/"))) throw new Error("fs: write outside " + app + ": " + p); };
+export const readFile = real.readFile, readdir = real.readdir, exists = (p) => real.access(p).then(() => true, () => false);
+export const writeFile = (p, c) => { home(p); return real.writeFile(p, c); };
+export const mkdir = (p, o) => { home(p); return real.mkdir(p, o); };
+export const unlink = (p) => { home(p); return real.unlink(p); };
+export const rmdir = (p) => { home(p); return real.rmdir(p); };
+JS
   echo '{"type":"module"}' > "$d/package.json"
-  for f in panel chat crew draw photos reactions; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in panel chat crew draw photos reactions; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#; s#from "fs/promises"#from "./herdrfs.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  export LOH_BIN="${LOH_BIN:-$REPO_ROOT/bin/loh}"
   cat > "$d/run.mjs" <<EOF
 import { Panel } from "./panel.mjs";
 const deadUses = [];
@@ -463,7 +478,7 @@ console.log(JSON.stringify([first, globalThis.THUMB_CALLS.length, globalThis.THU
 }
 
 # Reactions (#77): the owner's clicks, the lines the next message carries, and the stores read back.
-react_dir() { mkdir -p "$BATS_TEST_TMPDIR/reactions"; printf '%s' "$BATS_TEST_TMPDIR/reactions"; }
+react_dir() { mkdir -p "$BATS_TEST_TMPDIR/ws/.loh/reactions"; : >"$BATS_TEST_TMPDIR/ws/.loh/workspace.md"; printf '%s' "$BATS_TEST_TMPDIR/ws/.loh/reactions"; }
 
 @test "reactions: a transcript turn's id is kept and its leading reaction lines are not shown" {
   run panel_js '
@@ -490,6 +505,52 @@ const off = JSON.parse(await fs.readFile(process.env.RDIR + "/scofield.owner.jso
 console.log(JSON.stringify([on, off, globalThis.CALLS || [], taskErrors, deadUses]));'
   [ "$status" -eq 0 ]
   [ "$output" = '[[{"id":"a1","emoji":"👍","excerpt":"#61 is merged","told":false,"gone":false}],[],[],[],[]]' ]
+}
+
+@test "reactions: a click is saved under herdr's fs rules, in a folder not made yet, and a new panel reads it back (the office reopened)" {
+  local d; d="$BATS_TEST_TMPDIR/ws2/.loh/reactions"
+  mkdir -p "$BATS_TEST_TMPDIR/ws2/.loh"; : >"$BATS_TEST_TMPDIR/ws2/.loh/workspace.md"
+  RDIR="$d" run panel_js '
+panel.host.reactDir = () => process.env.RDIR;
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "#61 is merged", ts: "" }, "👍", cx)); await settle();
+const again = new Panel({ loh: () => "loh", reactDir: () => process.env.RDIR });
+click((cx) => again.select(agent, cx));
+await again.loadReactions(agent);
+console.log(JSON.stringify([again.owner, globalThis.REACT_CALLS.map((c) => [c.a.slice(0, 3), c.cwd]), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[{"id":"a1","emoji":"👍","excerpt":"#61 is merged","told":false,"gone":false}],[[["react","--set-owner","scofield"],"'"$BATS_TEST_TMPDIR"'/ws2"]],[],[]]' ]
+}
+
+@test "reactions: a click made before the folder is known is saved once it is, merged with what the file holds" {
+  local d; d="$(react_dir)"
+  printf '[{"id":"old","emoji":"✅","excerpt":"older","told":true,"gone":false}]\n' >"$d/scofield.owner.json"
+  RDIR="$d" run panel_js '
+let dir = "";
+panel.host.reactDir = () => dir;
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "hi", ts: "" }, "👍", cx)); await settle();
+const before = [globalThis.REACT_CALLS || [], panel.owner.length];
+dir = process.env.RDIR;
+panel.wantKey = "k";
+click((cx) => panel.load(cx));
+calls()[0].resolve({ code: 0, stdout: "[]", stderr: "" });
+await settle();
+const fs = await import("node:fs/promises");
+const saved = JSON.parse(await fs.readFile(dir + "/scofield.owner.json", "utf8"));
+console.log(JSON.stringify([before, saved.map((e) => e.id + e.emoji), panel.owner.map((e) => e.id + e.emoji), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[[],1],["old✅","a1👍"],["old✅","a1👍"],[],[]]' ]
+}
+
+@test "reactions: a save that fails is logged and shows no error in the panel, and the chip stays" {
+  local d; d="$(react_dir)"
+  printf '#!/bin/sh\necho "disk full" >&2\nexit 1\n' >"$BATS_TEST_TMPDIR/failing-loh"; chmod +x "$BATS_TEST_TMPDIR/failing-loh"
+  LOH_BIN="$BATS_TEST_TMPDIR/failing-loh" RDIR="$d" run panel_js '
+const logged = []; console.error = (...a) => logged.push(a.join(" "));
+panel.host.reactDir = () => process.env.RDIR;
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "hi", ts: "" }, "👍", cx)); await settle();
+console.log(JSON.stringify([logged, panel.error, panel.owner.length, taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["office reactions: saving scofield'"'"'s owner reactions failed: disk full"],"",1,[],[]]' ]
 }
 
 @test "reactions: the next message carries a line for each reaction, shows only what was typed, and marks them told once sent" {
