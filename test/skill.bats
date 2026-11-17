@@ -262,8 +262,11 @@ coordinator_section() {
 }
 @test "waiting-on-the-owner rule fits the wake timeout, the Discord chat id and one reminder per item" {
   line=$(coordinator_section | grep 'Waiting on the owner')
-  [[ "$line" == *"--timeout 300"* ]]
-  [[ "$line" == *"the second wake"* ]]
+  [[ "$line" == *"start \`loh wake --timeout 300\`"* ]]
+  [[ "$line" != *"\`hc wait\` with"* ]]
+  [[ "$line" == *"first turn at least 10 minutes after the report"* ]]
+  [[ "$line" == *"record the chat id in \`.loh/status.md\`"* ]]
+  [[ "$line" == *"A Discord answer counts as an answer"* ]]
   [[ "$line" == *"longer wake interval"* ]]
   [[ "$line" == *"when you reported"* ]]
   [[ "$line" == *"chat id of a Discord message the owner sent"* ]]
