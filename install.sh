@@ -237,6 +237,7 @@ mod_step() {
   else
     if mkdir -p "$mods" && ln -s "$src" "$target"; then
       did "linked $target to $src"
+      say "  Restart herdr-app if it is running, so it reloads the office on save."
     else
       skip "office mod (could not link $target)"
     fi

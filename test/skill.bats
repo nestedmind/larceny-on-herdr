@@ -48,8 +48,13 @@ named_commands() {
   [ "$(wc -l <"$(skill_file)")" -lt 250 ]
 }
 
-@test "skill cites larceny commit dd27cf1" {
-  grep -q 'dd27cf1' "$(skill_file)"
+@test "skill cites larceny 0.1.5 and its commit" {
+  grep -q 'larceny 0.1.5, commit ' "$(skill_file)"
+  ! grep -q 'dd27cf1' "$(skill_file)"
+}
+
+@test "plugin.json pins larceny to exactly 0.1.5" {
+  grep -q '"version": "=0.1.5"' "$REPO_ROOT/.claude-plugin/plugin.json"
 }
 
 @test "skill names the six loh commands" {

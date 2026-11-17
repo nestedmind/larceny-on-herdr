@@ -20,7 +20,7 @@ The manual steps follow. Steps 2 and 3 below are still yours, and `install.sh` r
 
 1. **Prerequisites.**
    - herdr-core and its `hc` command. Tested: herdr 0.9.5, `hc` 0.1.20 and herdr-app 0.1.16. herdr-app is needed only for the office window.
-   - larceny 0.1.4, which the plugin installs as a dependency. Tested at commit dd27cf1.
+   - larceny 0.1.5, which the plugin installs as a dependency. Tested at commit 03a9bfc.
    - `gh`, logged in, plus `git`, `jq` and `bash`.
    - Optional: one token file per persona, `~/.config/larceny/gh-<persona>-token` (for example `gh-sucre-token`), so each agent acts under its own GitHub account. Without a token file, an agent uses your own login.
    - With persona tokens, run `gh auth setup-git` once, so that `git push` uses the token that `loh git` passes to it. It edits your git config, so `loh` does not do it for you.
@@ -131,7 +131,7 @@ herdr-app check ~/.config/herdr-app/mods/crew-office
 herdr-app do tab.new --name office --mod crew-office
 ```
 
-After pulling office changes, the open office reloads by itself (herdr-app 0.1.16) and everyone walks back to their starting places. Run `loh office` from inside the workspace only to open the office, to give it new props, or when no tab is open: it opens the office in a new tab and closes the old one.
+After pulling office changes, the open office reloads by itself (herdr-app 0.1.16) and everyone walks back to their starting places. Run `loh office` from inside the workspace only to open the office, to give it new props, when no tab is open, or when the saved tab id is stale: it opens the office in a new tab and closes the old one.
 
 ## Permissions
 

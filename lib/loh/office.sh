@@ -20,6 +20,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
   echo "Usage: loh office [--close]" >&2
+  echo "  Opens the office tab with its props, to open it, to change props, or when no tab is open or its saved id is stale. Office code reloads by itself." >&2
   exit 2
 }
 
