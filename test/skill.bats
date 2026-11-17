@@ -225,3 +225,23 @@ named_commands() {
   [[ "$section" == *'At most 4 review subagents run at once'* ]]
   [[ "$section" == *'wait in order'* ]]
 }
+
+@test "override table lists the larceny rules that forbid reviewer subagents" {
+  table=$(awk '/^## What this overrides/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$table" == *'`agents/reviewer.md`'* ]]
+  [[ "$table" == *'`agents/amy.md`'* ]]
+  [[ "$table" == *'`skills/adversarial-review/SKILL.md`'* ]]
+  [[ "$table" == *'Reviewer section below'* ]]
+}
+
+@test "the hc wait row covers coders and standing agents, not review subagents" {
+  table=$(awk '/^## What this overrides/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  run grep -F '| Any wait on a background agent or a Monitor |' "$(skill_file)"
+  [ "$status" -ne 0 ]
+  [[ "$table" == *"Any wait on a coder or a standing agent"* ]]
+}
+
+@test "the subagent brief forbids posting and messaging" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'forbid it `post-review.sh`, `gh pr review` and `loh say`'* ]]
+}
