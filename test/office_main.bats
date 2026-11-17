@@ -1433,19 +1433,24 @@ console.log(head.text_size[0], head.line_height[0], head.font_bold !== undefined
   [ "${lines[1]}" = "12.5 16.875px true 12.5 16.875px true 11.5 15.525px" ]
 }
 
-@test "the toast takes the prototype's --toast-bg, --toast-ink and --toast-muted in the light theme and in the dark" {
+@test "the toast is the light card while the lights are on and the dark card while they are off, whatever herdr's theme" {
   run office_js "$TOAST_HELPERS"'
 const colours = () => { const t = toasts(render())[0]; const k = t.kids.map((x) => x.node.props.text_color[0]); return [t.props.bg[0], ...k].join(" "); };
 render();
 block(1, "question", "Which?");
 render(); later(100);
-const light = colours();
-globalThis.DARK = true;
-const dark = colours();
-console.log(light); console.log(dark);'
+const out = [];
+for (const d of [false, true]) {
+  globalThis.DARK = d;
+  office.lights = true; out.push(colours());
+  office.lights = false; out.push(colours());
+}
+out.forEach((x) => console.log(x));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "#ffffff #151a24 #151a24 #5b6272" ]
   [ "${lines[1]}" = "#222937 #e3e8f0 #e3e8f0 #9ba5b8" ]
+  [ "${lines[2]}" = "#ffffff #151a24 #151a24 #5b6272" ]
+  [ "${lines[3]}" = "#222937 #e3e8f0 #e3e8f0 #9ba5b8" ]
 }
 
 @test "the edge colours are the prototype's --st-q, --st-perm, --st-esc and --st-idle" {
