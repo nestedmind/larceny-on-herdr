@@ -757,18 +757,19 @@ export default class CrewOffice extends View {
     if (!dir) notify({ title: "Could not start", body: "No folder to find the workspace from. Set the dir prop to a folder in the workspace.", level: "warning" });
     else {
       const started = this.runLoh(call, { name: o.plan.kind === "spawn" || o.plan.kind === "start" ? o.person.name : "the crew" }, "start");
-      // A persona started from the office opens its chat once loh has started it, as a click on a running agent does.
+      // A persona started from the office shows its chat once loh has started it, as a click on a
+      // running agent does. No terminal split: that opens only from the panel's Terminal button.
       if (o.plan.kind === "start") started.then((ok) => { if (ok) this.openStarted(o.person.id); });
     }
     cx.notify();
   }
 
-  // Open the chat on a persona that has just been started, once herdr lists its terminal.
+  // Select a persona that has just been started, once herdr lists its terminal, so its chat shows.
   // (The click's cx is dead by then, so the chat opens from a timer's own.)
   openStarted(id) {
     let a = null;
     try { a = crewOf(terminals(), pickWorkspace(terminals(), (props() || {}).crew)).find((x) => String(x.rawName || x.name || "").toLowerCase() === id); } catch (_) { /* no listing */ }
-    if (a && this.acx) this.acx.timer.after(0, (c) => { try { this.panel.select(a, c); this.open(a, c); } catch (_) { /* the view was reloaded or closed */ } });
+    if (a && this.acx) this.acx.timer.after(0, (c) => { try { this.panel.select(a, c); c.notify(); } catch (_) { /* the view was reloaded or closed */ } });
   }
 
   // Keys while a coder's form is open: digits make the ticket, Enter starts, Esc cancels.
