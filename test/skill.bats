@@ -198,3 +198,30 @@ named_commands() {
   run grep -E 'hc send[^`]*--force' "$(skill_file)"
   [ "$status" -ne 0 ]
 }
+
+@test "reviewer section has Amy dispatch one background subagent per PR and drops the no-subagents rule" {
+  run grep -F 'dispatch no subagents' "$(skill_file)"
+  [ "$status" -ne 0 ]
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'one reviewer subagent for that PR'* ]]
+  [[ "$section" == *'`Agent` tool'* ]]
+  [[ "$section" == *'in the background'* ]]
+  [[ "$section" == *'posts nothing and messages no one'* ]]
+}
+
+@test "reviewer section makes Amy the gate before any verdict" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'read the diff yourself'* ]]
+  [[ "$section" == *'keep it, correct it, or throw it out with a reason'* ]]
+  [[ "$section" == *'concurrency, boundaries'* ]]
+  [[ "$section" == *'never posted as it is'* ]]
+  [[ "$section" == *'never counts as an approval'* ]]
+}
+
+@test "reviewer section gives a follow-up round a fresh subagent and caps them at 4" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'fresh subagent'* ]]
+  [[ "$section" == *"earlier review on GitHub"* ]]
+  [[ "$section" == *'At most 4 review subagents run at once'* ]]
+  [[ "$section" == *'wait in order'* ]]
+}

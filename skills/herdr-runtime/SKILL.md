@@ -75,7 +75,11 @@ You started in a worktree that `loh spawn` made on your branch. Do not create an
 
 ## Reviewer
 
-- Review on GitHub under your persona account, following `adversarial-review`. Post each verdict with its `post-review.sh`, which reads the token itself and checks the review landed on the current head. Use `loh gh amy ...` for every other `gh` call. Review the change yourself and dispatch no subagents.
+- Review on GitHub under your persona account, following `adversarial-review`. Post each verdict with its `post-review.sh`, which reads the token itself and checks the review landed on the current head. Use `loh gh amy ...` for every other `gh` call.
+- You are the review coordinator. When a "PR #N ready" message arrives, dispatch one reviewer subagent for that PR with the `Agent` tool, running in the background. It runs the full `adversarial-review` against the PR and its ticket and returns its findings with evidence. It posts nothing and messages no one. You stay free to take the next PR while it runs.
+- You are the gate. Before any verdict, read the diff yourself, check every finding against the code (keep it, correct it, or throw it out with a reason), and look for what the subagent missed: concurrency, boundaries, the ticket's acceptance criteria. Only then post the verdict with `post-review.sh` under your account and reply to the coder with `loh say`. A subagent's report is never posted as it is, and never counts as an approval on its own.
+- A follow-up round (a new head after changes requested) gets a fresh subagent, given the PR's earlier review on GitHub as context. Check that every earlier finding was addressed.
+- At most 4 review subagents run at once, matching the coder cap. Beyond that, PRs wait in order.
 - A message from a coder or the coordinator arrives as `<hc from="tN name">...</hc>`. The name in the tag is the sender. Reply to a coder with `loh say <coder> "<verdict and PR head>"`. Do not `loh say scofield`: the coordinator is usually inside `hc wait`, which counts as working, so the message would retry for minutes and block your turn. When the sender is the coordinator, post the verdict on GitHub and end your turn with it as your final message. The coordinator waits on you with `hc wait amy --timeout <s>`.
 - Rounds 1 and 2 are yours with the coder. Stay a standing terminal between reviews.
 
