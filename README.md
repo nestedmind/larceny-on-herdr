@@ -8,7 +8,7 @@ It uses larceny's crew, process and skills, and changes only how agents start an
 
 ## Quick start
 
-On a new machine, one command does the setup below (steps 1, 3 and 4, the `PATH` line and the office mod link) and is safe to run again:
+On a new machine, one command does the setup below (steps 1 and 4, the `PATH` line and the office mod link) and is safe to run again:
 
 ```
 git clone https://github.com/nestedmind/larceny-on-herdr ~/llm-ws/larceny-on-herdr && ~/llm-ws/larceny-on-herdr/install.sh
