@@ -669,6 +669,35 @@ export function walkChain(from, legs, slots = 6) {
 }
 
 /** Where a walker is `elapsed` ms into a walk, and which leg `i` that is (legs.length once it has arrived). */
+/**
+ * On a frame drawn without walking (a new scale or floor), where someone stays instead of being put at `goal`:
+ * where they stand now, carried onto the new floor `L` (from `Lold`, the floor of their walk record), when
+ * their place changed in this render or they were still walking. Null: put them at `goal`, as before.
+ * `w` is main.js's walk record { at, goal, from, legs, t0 }.
+ */
+export function snapStay(w, goal, now, Lold, L) {
+  if (!w || !w.goal || !Lold || !L) return null;
+  const walking = w.legs && w.legs.length > 0;
+  const was = carryPoint(w.goal, Lold, L);
+  const moved = Math.abs(was.x - goal.x) > 0.5 || Math.abs(was.y - goal.y) > 0.5;
+  if (!moved && !walking) return null;
+  return carryPoint(walking ? posAt(w.from, w.legs, now - w.t0) : w.at, Lold, L);
+}
+
+/**
+ * A point of floor `Lold` on floor `L`: a point in a room moves with that room's middle, as the room's own
+ * furniture and seats do (shiftOf); a point outside every room (the corridor) keeps its share of the floor.
+ */
+export function carryPoint(p, Lold, L) {
+  const r = (Lold.rooms || []).find((q) => p.x >= q.x && p.x <= q.x + q.w && p.y >= q.y && p.y <= q.y + q.h);
+  const n = r && (L.rooms || []).find((q) => q.key === r.key);
+  if (r && n) {
+    const a = shiftOf(r), b = shiftOf(n);
+    return { x: p.x - a.dx + b.dx, y: p.y - a.dy + b.dy };
+  }
+  return { x: (p.x * L.W) / Lold.W, y: (p.y * L.H) / Lold.H };
+}
+
 export function posAt(from, legs, elapsed) {
   let at = from, t = elapsed;
   for (let i = 0; i < legs.length; i++) {
