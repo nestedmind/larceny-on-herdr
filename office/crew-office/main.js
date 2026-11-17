@@ -726,12 +726,12 @@ export default class CrewOffice extends View {
 
   // The toasts, top right of the stage, newest first, as the prototype's `.toast` (crew-office.html): 280 wide, a 4px edge in the kind's
   // colour, 8px radius, padding 7px 10px, 12.5px text on a 1.35 line, a bold head, a 11.5px muted hint, 6px between, the prototype's
-  // --toast-bg / --toast-ink / --toast-muted for the theme. Each is placed by its own top (the heights are measured, so a new toast
+  // --toast-bg / --toast-ink / --toast-muted for the office lights (on: the light card, off: the dark one, whatever herdr's theme). Each is placed by its own top (the heights are measured, so a new toast
   // pushes the others down with a slide and not a jump), and slides and fades in and out (TOAST_SLIDE_MS): a mounted toast is first
   // drawn faded and 8px up, and the render one tick on draws it in place. The shadow is the nearest the renderer has (shadow_lg: it
   // takes no offset or blur of its own).
-  toastEls(t, dark, now, floorW) {
-    const tok = dark ? TOAST_DARK : TOAST_LIGHT;
+  toastEls(t, now, floorW) {
+    const tok = this.lights ? TOAST_LIGHT : TOAST_DARK;
     const colour = { q: PAL.q, perm: PAL.perm, esc: PAL.esc, done: PAL.work, info: PAL.idle };
     const slide = { duration: TOAST_SLIDE_MS, easing: "ease-out" };
     const shown = [...this.toasts.list, ...this.toasts.leaving];
@@ -1129,7 +1129,7 @@ export default class CrewOffice extends View {
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags)
       // The toasts are in the floor's box, as the prototype's are in its stage: after everything, so they are on top.
-      .when(this.toasts.list.length + this.toasts.leaving.length > 0, (el) => el.child(this.toastEls(t, dark, Date.now(), u(L.W))));
+      .when(this.toasts.list.length + this.toasts.leaving.length > 0, (el) => el.child(this.toastEls(t, Date.now(), u(L.W))));
 
     const out = this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
     for (const w of this.restSeen) w.restDrawn = true;
