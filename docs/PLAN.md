@@ -315,7 +315,7 @@ The four unknowns that phase 0 set out to answer are resolved. The risks that re
 | A finished terminal still holds its name | The next coder cannot start under that name | `loh spawn` removes a finished terminal before reusing the name, and refuses a live one |
 | Standing agents' context grows | Amy gets slower and vaguer | Restart standing agents after a set number of reviews, as larceny already advises; coders stay fresh per ticket |
 | Six to eight sessions on one machine | Plan limits, memory, CPU, and about 228k startup tokens per session on the first machine | A cap of 4 live coders, written in the skill; long-lived standing agents amortise the startup cost |
-| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.15, larceny 0.1.5 at TAG-COMMIT-PENDING); decline core updates; phase 4 adds a check on the overridden sections |
+| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.15, larceny 0.1.5 at 03a9bfc); decline core updates; phase 4 adds a check on the overridden sections |
 | Whether a label change alone redraws a mod is untested | Status cards might lag | Test it in phase 2 before phase 3 relies on it |
 | Amy's approval comment has its attribution line first | A check that reads only the first line misses `APPROVED at <sha>` | Read the whole comment, and prefer the formal review |
 
