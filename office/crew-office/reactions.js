@@ -137,3 +137,31 @@ export async function writeOwner(fs, dir, agent, entries) {
   await fs.writeFile(`${path}.tmp`, JSON.stringify(entries) + "\n");
   await fs.rename(`${path}.tmp`, path);
 }
+
+// The six as images (ticket #77): herdr draws emoji text in one colour, so the office draws these PNGs (emoji/NOTICE.md).
+const CODEPOINT = { "👍": "1f44d", "✅": "2705", "❌": "274c", "👀": "1f440", "❤️": "2764", "😂": "1f602" };
+/** The sizes the images are made at, in device pixels: a 16 px emoji at a scale of 1, 1.25, 1.5 and 2. */
+export const EMOJI_PX = [16, 20, 24, 32];
+export const EMOJI_BOX = 16;
+
+/** The image size for a screen scale: the made size nearest to 16 px times the scale. A scale that is not a positive number is 1.25. */
+export function pxFor(scale) {
+  const s = typeof scale === "number" && scale > 0 ? scale : 1.25;
+  const want = EMOJI_BOX * s;
+  return EMOJI_PX.reduce((best, px) => (Math.abs(px - want) < Math.abs(best - want) ? px : best));
+}
+
+/** The one place an emoji becomes an image: its file, relative to the mod's folder, at the size for `scale`; null for anything but the six. */
+export function emojiFile(emoji, scale) {
+  const code = CODEPOINT[normalise(emoji)];
+  return code ? `emoji/${code}-${pxFor(scale)}.png` : null;
+}
+
+/** Whether `buf` is a PNG whose header says px by px: an image that is missing, cut short or the wrong size is not drawn. */
+export function pngIsSize(buf, px) {
+  if (!buf || buf.length < 24) return false;
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (!sig.every((b, i) => buf[i] === b)) return false;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return view.getUint32(16) === px && view.getUint32(20) === px;
+}

@@ -176,7 +176,7 @@ export default class CrewOffice extends View {
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
     this.termWin = null; // the one this copy opened: { id, agent, loh, at, seen }
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW, person: () => (this.names && this.names.person) || "", reactDir: () => this.reactDir });
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW, person: () => (this.names && this.names.person) || "", reactDir: () => this.reactDir, emojiScale: () => (props() || {}).emojiScale, modName: () => MOD });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar

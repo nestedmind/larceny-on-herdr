@@ -510,3 +510,73 @@ click((cx) => panel.render(th, {}, cx));
 console.log("drawn");'
   [ "$output" = "drawn" ]
 }
+
+# The six as images (#77): drawn from emoji/ in a mod's folder under herdr-app's (import.meta.url is empty in herdr, so the
+# folders are searched), and a glyph when an image cannot be used.
+emoji_home() {
+  local h="$BATS_TEST_TMPDIR/ehome" m="$BATS_TEST_TMPDIR/ehome/.config/herdr-app/mods"
+  mkdir -p "$m/aaa-old" "$m/crew-office-test"
+  cp -r "$REPO_ROOT/office/crew-office/emoji" "$m/crew-office-test/emoji"
+  printf '%s' "$h"
+}
+
+@test "emoji images: each of the six is an image once checked, and a glyph before that" {
+  PHOME="$(emoji_home)" run panel_js '
+const six = ["👍", "✅", "❌", "👀", "❤️", "😂"];
+const before = six.map((e) => panel.glyphKind(e));
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(JSON.stringify([before, six.map((e) => panel.glyphKind(e)), panel.emojiSrc("👍"), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["text","text","text","text","text","text"],["image","image","image","image","image","image"],"mods/crew-office-test/emoji/1f44d-20.png",[],[]]' ]
+}
+
+@test "emoji images: a missing, cut-short or wrong-size image is a glyph, and the rest stay images" {
+  PHOME="$(emoji_home)" run panel_js '
+const fs = await import("node:fs/promises");
+const d = process.env.PHOME + "/.config/herdr-app/mods/crew-office-test/emoji/";
+await fs.rm(d + "2705-20.png");
+await fs.truncate(d + "274c-20.png", 10);
+await fs.copyFile(d + "1f440-32.png", d + "1f440-20.png");
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(JSON.stringify(["👍", "✅", "❌", "👀", "❤️", "😂"].map((e) => panel.glyphKind(e))));'
+  [ "$output" = '["image","text","text","text","image","image"]' ]
+}
+
+@test "emoji images: an image missing from one copy of the mod is taken from another, and the office's own copy comes first" {
+  local h; h="$(emoji_home)"
+  local m="$h/.config/herdr-app/mods"
+  mkdir "$m/zzz-mine"
+  cp -r "$REPO_ROOT/office/crew-office/emoji" "$m/zzz-mine/emoji"
+  rm "$m/crew-office-test/emoji/2705-20.png" "$m/zzz-mine/emoji/1f44d-20.png"
+  PHOME="$h" run panel_js '
+panel.host.modName = () => "zzz-mine";
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(JSON.stringify([panel.emojiSrc("👍"), panel.emojiSrc("✅"), panel.emojiSrc("❌")]));'
+  [ "$output" = '["mods/crew-office-test/emoji/1f44d-20.png","mods/zzz-mine/emoji/2705-20.png","mods/zzz-mine/emoji/274c-20.png"]' ]
+}
+
+@test "emoji images: the emojiScale the office gives picks the size" {
+  PHOME="$(emoji_home)" run panel_js '
+panel.host.emojiScale = () => 2;
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(JSON.stringify([panel.glyphKind("👍"), panel.emojiSrc("👍"), panel.emojiSrc("🎉")]));'
+  [ "$output" = '["image","mods/crew-office-test/emoji/1f44d-32.png",null]' ]
+}
+
+@test "emoji images: with no mods folder at all every chip is a glyph, never empty" {
+  PHOME="$BATS_TEST_TMPDIR/nohome" run panel_js '
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(JSON.stringify([["👍", "❤️"].map((e) => panel.glyphKind(e)), taskErrors]));'
+  [ "$output" = '[["text","text"],[]]' ]
+}
+
+@test "emoji images: the images are read once, not again on a later render or hover" {
+  local h; h="$(emoji_home)"
+  PHOME="$h" run panel_js '
+const fs = await import("node:fs/promises");
+click((cx) => panel.loadEmoji(cx)); await settle();
+await fs.rm(process.env.PHOME + "/.config/herdr-app/mods", { recursive: true });
+click((cx) => panel.loadEmoji(cx)); await settle();
+console.log(panel.glyphKind("👍"));'
+  [ "$output" = "image" ]
+}

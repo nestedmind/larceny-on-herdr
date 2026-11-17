@@ -9,7 +9,7 @@ import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from 
 import { terminals, exec, home, appHome } from "herdr";
 import { bustEl, iconEl } from "./draw.js";
 import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
-import { chipsFor, normalise, ownerHas, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, withReactionLines, writeOwner } from "./reactions.js";
+import { chipsFor, emojiFile, normalise, ownerHas, pngIsSize, pxFor, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, withReactionLines, writeOwner } from "./reactions.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, ownerName, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -67,6 +67,8 @@ export class Panel {
     this.agentR = []; // the agent's reactions on the owner's messages
     this.ownerFor = null; // the agent whose owner store this.owner was read from
     this.saved = Promise.resolve(); // the owner's store writes, one after another
+    this.emojiAsked = false; // the six images have been looked at (once; see loadEmoji)
+    this.emojiSrcs = new Map(); // emoji -> the path of its image, for each that is there and the right size; the rest are drawn as glyphs
   }
 
   // The folder the reactions are kept in (`loh react --dir`, found by the office), "" when not known yet.
@@ -133,6 +135,7 @@ export class Panel {
     this.seen = d.seen;
     this.started = true;
     this.loadPhotos(cx);
+    this.loadEmoji(cx);
     if (d.events.length) this.feed = pushFeed(this.feed, d.events, clock(new Date()));
     if (!this.address) return;
     const a = crew.find((c) => c.address === this.address);
@@ -203,6 +206,49 @@ export class Panel {
       }
       cx.notify();
     });
+  }
+
+  // Check the six emoji images once. They sit in emoji/ in a copy of this mod under herdr-app's `mods/` (the same in every
+  // copy; a mod cannot read its own folder, import.meta is empty in herdr), so the office's own copy (host.modName) is looked in
+  // first and then the others. One that is missing, cut short or not the size its name says is drawn as a glyph instead, so a chip
+  // is never empty. herdr shrinks an image without smoothing, so they are made at the size they are drawn at on screen, picked by
+  // the office's `emojiScale` prop (host.emojiScale, default 1.25).
+  loadEmoji(cx) {
+    if (this.emojiAsked) return;
+    this.emojiAsked = true;
+    const scale = this.host.emojiScale ? this.host.emojiScale() : undefined;
+    const own = this.host.modName ? this.host.modName() : "";
+    cx.spawn(async (cx) => {
+      const names = own ? [own] : [];
+      try { for (const n of (await fs.readdir(`${appHome()}/mods`)).sort()) if (!names.includes(n)) names.push(n); } catch (_) { /* no copies to look in */ }
+      const found = new Map();
+      for (const e of REACTIONS) {
+        const file = emojiFile(e, scale);
+        for (const n of names) {
+          try {
+            if (pngIsSize(await fs.readFile(`${appHome()}/mods/${n}/${file}`), pxFor(scale))) { found.set(e, `mods/${n}/${file}`); break; }
+          } catch (_) { /* not in this copy */ }
+        }
+      }
+      this.emojiSrcs = found;
+      cx.notify();
+    });
+  }
+
+  // The path `image()` takes for an emoji's image (relative to herdr-app's folder), or null when there is no usable one.
+  emojiSrc(emoji) {
+    return this.emojiSrcs.get(normalise(emoji)) || null;
+  }
+
+  glyphKind(emoji) {
+    return this.emojiSrc(emoji) ? "image" : "text";
+  }
+
+  // An emoji in a 20 px box: its image at 16 px, or its glyph when there is no usable image.
+  glyph(emoji, t) {
+    const box = div().flex_none().w(20).h(20).flex().items_center().justify_center();
+    if (this.glyphKind(emoji) === "image") return box.child(image(this.emojiSrc(emoji)).w(16).h(16));
+    return box.text_size(16).line_height("20px").text_color(t.foreground).child(emoji);
   }
 
   // Read both reaction stores of the agent. The owner's is read once per agent (this panel is its only writer); the
@@ -377,11 +423,11 @@ export class Panel {
     const cell = (emoji) => {
       const on = ownerHas(this.owner, m.id, emoji);
       return h_flex().id(`react-${id}-${emoji}`).w(24).h(24).flex_none().items_center().justify_center().rounded(5)
-        .text_size(16).line_height("20px").cursor_pointer().tooltip(on ? `Remove ${emoji}` : `React ${emoji}`)
+        .cursor_pointer().tooltip(on ? `Remove ${emoji}` : `React ${emoji}`)
         .when(on, (el) => el.bg(t.accent + "26").border_1().border_color(t.accent))
         .hover((e) => e.bg(t.hover))
         .on_click((_e, c) => { c.stop_propagation(); this.react(m, emoji, c); })
-        .child(emoji);
+        .child(this.glyph(emoji, t));
     };
     return h_flex().items_center().p(1).rounded(6).border_1().border_color(t.border).bg(t.popover)
       .children(REACTIONS.map(cell))
@@ -398,9 +444,8 @@ export class Panel {
       .children(list.map((c) => {
         const mine = c.by === "owner";
         const el = h_flex().id(`chip-${m.id}-${c.emoji}`).h(24).px(6).items_center().rounded_full().border_1()
-          .text_size(16).line_height("20px")
           .tooltip(mine ? `You reacted ${c.emoji}. Click to remove` : c.seen ? `Seen by ${agentName}` : `${agentName} reacted ${c.emoji}`)
-          .child(c.emoji);
+          .child(this.glyph(c.emoji, t));
         return mine
           ? el.bg(t.accent + "26").border_color(t.accent).cursor_pointer().hover((e) => e.bg(t.hover))
             .on_click((_e, cx) => { cx.stop_propagation(); this.react(m, c.emoji, cx); })

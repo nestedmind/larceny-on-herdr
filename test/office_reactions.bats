@@ -146,3 +146,21 @@ import("node:fs/promises").then(async (fs) => {
   [ "$status" -eq 0 ]
   [ "$output" = '[{"cmd":"/bin/loh","args":["react","--dir"],"options":{"cwd":"/ws/x","timeout":5000}},"/ws/.loh/reactions","",""]' ]
 }
+
+@test "one function maps an emoji to its image file at the size the screen shows it, and the heart with or without its selector is the same file" {
+  run react_js 'console.log(JSON.stringify([r.emojiFile("👍", 1), r.emojiFile("✅", 1.25), r.emojiFile("❌", 1.5), r.emojiFile("👀", 2), r.emojiFile("❤️", 1.25), r.emojiFile("❤", 1.25), r.emojiFile("😂", 1.25), r.emojiFile("🎉", 1.25)]))'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["emoji/1f44d-16.png","emoji/2705-20.png","emoji/274c-24.png","emoji/1f440-32.png","emoji/2764-20.png","emoji/2764-20.png","emoji/1f602-20.png",null]' ]
+}
+
+@test "a scale between the sizes made takes the nearest size, and a scale that is not a positive number takes the one for 1.25" {
+  run react_js 'console.log(JSON.stringify([r.pxFor(1.1), r.pxFor(1.4), r.pxFor(3), r.pxFor(0.5), r.pxFor(0), r.pxFor("x"), r.pxFor(undefined)]))'
+  [ "$output" = "[16,24,32,16,20,20,20]" ]
+}
+
+@test "an image counts only when it is a PNG of the size its name says" {
+  run react_js '
+const png = (w, h) => { const b = Buffer.alloc(33); Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(b); b.writeUInt32BE(13, 8); b.write("IHDR", 12); b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); return b; };
+console.log(JSON.stringify([r.pngIsSize(png(20, 20), 20), r.pngIsSize(png(32, 32), 20), r.pngIsSize(png(20, 16), 20), r.pngIsSize(Buffer.from("not a picture at all, nothing like one!!"), 20), r.pngIsSize(Buffer.alloc(0), 20), r.pngIsSize(null, 20)]))'
+  [ "$output" = "[true,false,false,false,false,false]" ]
+}
