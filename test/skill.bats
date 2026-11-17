@@ -198,3 +198,50 @@ named_commands() {
   run grep -E 'hc send[^`]*--force' "$(skill_file)"
   [ "$status" -ne 0 ]
 }
+
+@test "reviewer section has Amy dispatch one background subagent per PR and drops the no-subagents rule" {
+  run grep -F 'dispatch no subagents' "$(skill_file)"
+  [ "$status" -ne 0 ]
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'one reviewer subagent for that PR'* ]]
+  [[ "$section" == *'`Agent` tool'* ]]
+  [[ "$section" == *'in the background'* ]]
+  [[ "$section" == *'posts nothing and messages no one'* ]]
+}
+
+@test "reviewer section makes Amy the gate before any verdict" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'read the diff yourself'* ]]
+  [[ "$section" == *'keep it, correct it, or throw it out with a reason'* ]]
+  [[ "$section" == *'concurrency, boundaries'* ]]
+  [[ "$section" == *'never posted as it is'* ]]
+  [[ "$section" == *'never counts as an approval'* ]]
+}
+
+@test "reviewer section gives a follow-up round a fresh subagent and caps them at 4" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'fresh subagent'* ]]
+  [[ "$section" == *"earlier review on GitHub"* ]]
+  [[ "$section" == *'At most 4 review subagents run at once'* ]]
+  [[ "$section" == *'wait in order'* ]]
+}
+
+@test "override table lists the larceny rules that forbid reviewer subagents" {
+  table=$(awk '/^## What this overrides/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$table" == *'`agents/reviewer.md`'* ]]
+  [[ "$table" == *'`agents/amy.md`'* ]]
+  [[ "$table" == *'`skills/adversarial-review/SKILL.md`'* ]]
+  [[ "$table" == *'Reviewer section below'* ]]
+}
+
+@test "the hc wait row covers coders and standing agents, not review subagents" {
+  table=$(awk '/^## What this overrides/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  run grep -F '| Any wait on a background agent or a Monitor |' "$(skill_file)"
+  [ "$status" -ne 0 ]
+  [[ "$table" == *"Any wait on a coder or a standing agent"* ]]
+}
+
+@test "the subagent brief forbids posting and messaging" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'forbid it `post-review.sh`, `gh pr review` and `loh say`'* ]]
+}
