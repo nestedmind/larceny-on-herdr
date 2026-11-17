@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -126,6 +126,7 @@ export default class CrewOffice extends View {
     this.names = null;
     // The idle time the workspace sets (`idle_minutes` in its manifest, through `loh status --settings`); the idleMinutes prop wins.
     this.idleMinutes = undefined;
+    this.reactDir = ""; // where the chat keeps its reactions (`loh react --dir`), "" until loh has said
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
     this.mem = newMemory();
     this.mattLast = 0;
@@ -175,7 +176,7 @@ export default class CrewOffice extends View {
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
     this.termWin = null; // the one this copy opened: { id, agent, loh, at, seen }
-    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW, person: () => (this.names && this.names.person) || "" });
+    this.panel = new Panel({ loh: () => (props() || {}).loh, terminal: (a, cx) => this.open(a, cx), fullTerminal: (a, cx) => this.fullTerminal(a, cx), busy: () => this.termOpen, photos: () => (props() || {}).photos, typed: (cx) => this.typed(cx), width: () => this.panelW, person: () => (this.names && this.names.person) || "", reactDir: () => this.reactDir, emojiScale: () => (props() || {}).emojiScale, modName: () => MOD });
   }
 
   // Full terminal: the agent's own terminal over the whole herdr window (an overlay window: a slim bar
@@ -253,6 +254,12 @@ export default class CrewOffice extends View {
       if (nr.code !== 0) return;
       const names = namesOf(nr.stdout);
       if (names && JSON.stringify(names) !== JSON.stringify(this.names)) { this.names = names; cx.notify(); }
+      // Where the chat's reactions are kept (`loh react --dir`): an older loh has no such command and keeps the last folder.
+      const d = reactDirCall({ cwd: dir }, (props() || {}).loh);
+      let dr = null;
+      try { dr = await exec(d.cmd, d.args, d.options); } catch (_) { return; }
+      const where = dr.code === 0 ? reactDirOf(dr.stdout) : "";
+      if (where && where !== this.reactDir) { this.reactDir = where; cx.notify(); }
     });
   }
 

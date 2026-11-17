@@ -55,7 +55,7 @@ export const openOverlay = () => "o1"; export const closeOverlay = () => null;
 export const window = () => ({ fullscreen: false });
 export const focused = () => null;
 `;
-const FILES = ["crew", "draw", "panel", "chat", "photos", "main"];
+const FILES = ["crew", "draw", "panel", "chat", "photos", "reactions", "main"];
 
 /** Copies the mod next to the stubs in a temp folder and loads its modules from there. */
 export async function loadOffice(modDir) {
