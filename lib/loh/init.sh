@@ -374,8 +374,8 @@ fi
 
 # --- the office ------------------------------------------------------------
 
-props="$(jq -cn --arg crew "$WS_NAME" --arg dir "$ws" --arg loh "$LOH_ROOT/bin/loh" '{crew: $crew, dir: $dir, loh: $loh}')"
-printf -v open_cmd 'herdr-app do tab.new --name office --mod crew-office --folder %q --props %q' "$ws" "$props"
+props="$(office_props "$WS_NAME" "$ws")"
+open_cmd="$(office_open_cmd "$ws" "$props")"
 if office_open "$ws"; then
   echo "the office is already open for $WS_NAME"
 elif command -v herdr-app >/dev/null 2>&1 && herdr-app status >/dev/null 2>&1; then

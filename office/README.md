@@ -21,7 +21,7 @@ As a pane beside your shell:
 herdr-app do pane.split --direction right --mod crew-office
 ```
 
-Or as its own tab: `herdr-app do tab.new --name office --mod crew-office`.
+Or as its own tab: `herdr-app do tab.new --name office --mod crew-office`. `loh office` does this with the props filled in, and it is also how you reload: herdr-app does not reload a mod's code while its tab is open, so after pulling office changes run `loh office` inside the workspace. It opens a new tab, then closes the old one (the id of the tab it opened is in `<workspace>/.loh/office-tab`). `loh office --close` closes it.
 
 Props (optional, set as `props` on a layout block or on `pane.split` / `tab.new`):
 

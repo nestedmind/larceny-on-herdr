@@ -61,6 +61,21 @@ office_open() {
   ((t <= now + 5 && now - t <= fresh))
 }
 
+# office_props <crew> <workspace root>: print the props the office mod opens
+# with, as one line of JSON: the crew name, the workspace folder and this loh.
+# `loh init` and `loh office` both open the tab with them.
+office_props() {
+  need jq
+  jq -cn --arg crew "$1" --arg dir "$2" --arg loh "$LOH_ROOT/bin/loh" \
+    '{crew: $crew, dir: $dir, loh: $loh}'
+}
+
+# office_open_cmd <workspace root> <props>: print the herdr-app command that
+# opens the office tab, quoted so it pastes whole.
+office_open_cmd() {
+  printf 'herdr-app do tab.new --name office --mod crew-office --folder %q --props %q\n' "$1" "$2"
+}
+
 # manifest_path: print the path of the workspace manifest,
 # <root>/.loh/workspace.md. Every reader of the manifest goes through here.
 # When the file is missing it still prints that path, so callers report it.
