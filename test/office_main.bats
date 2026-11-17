@@ -1501,7 +1501,7 @@ console.log(before.join(","), after.join(","));'
   [ "$output" = "0,71 0,56" ]
 }
 
-@test "the toast stack sits inside the floor, as the prototype's .toasts sit in its stage: 58px under its top, 12px from its right edge, 280 wide, and not scaled with it" {
+@test "the toast stack sits inside the floor, as the prototype's .toasts sit in its stage: 7px under its top, which is where the prototype's 58px under its stage falls on its floor (the floor starts 31px topbar + 20px under the stage), 12px from its right edge, 280 wide, and not scaled with it" {
   run office_js "$TOAST_HELPERS"'
 render();
 block(1, "question", "Which?");
@@ -1510,7 +1510,7 @@ const floor = find(root, "floor");
 const stack = find(root, "toasts");
 console.log(all(floor).includes(stack), floor.props.relative !== undefined, stack.props.top[0], stack.props.right[0], stack.props.w[0], stack.props.left === undefined, floor.props.w[0] > 304);'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true 58 12 280 true true" ]
+  [ "$output" = "true true 7 12 280 true true" ]
 }
 
 @test "on a floor narrower than 304 px the toasts shrink to the floor less 24 px, so they never run off its edge (min(280px, 100% - 24px))" {

@@ -74,10 +74,10 @@ function unhold(a, loh, id) {
 }
 
 // The prototype's toast, in its units (crew-office.html, `.toasts` and `.toast`): the stack's width, the gap, how far under the top of
-// the stage it starts (the stack is a child of the floor's own box, in px and not scaled with it, so it is 12 from the floor's right edge, whole, and never under the chat panel), and the colours of both themes (--toast-bg, --toast-ink, --toast-muted).
+// the floor it starts (the prototype puts it 58 under the top of its stage, and its floor starts 51 under that, the topbar's 31 and 20, so 7 under the floor's top, on its top wall; the stack is a child of the floor's own box, in px and not scaled with it, so it is 12 from the floor's right edge, whole, and never under the chat panel), and the colours of both themes (--toast-bg, --toast-ink, --toast-muted).
 const TOAST_W = 280;
 const TOAST_GAP = 6;
-const TOAST_TOP = 58;
+const TOAST_TOP = 7;
 // How far up a toast is drawn while it is entering or leaving, and the height taken for one until it has been measured (three lines).
 const TOAST_RISE = 8;
 const TOAST_H = 65;
