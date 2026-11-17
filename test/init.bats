@@ -279,7 +279,26 @@ MD
   fresh_start
   run "$LOH" init
   [ "$status" -eq 0 ]
-  [[ "$output" == *'"loh":"'"$TREE"'/bin/loh"'* ]]
+  line="herdr-app do tab.new${output##*herdr-app do tab.new}"
+  : >"$FAKE_APP_LOG"
+  bash -c "herdr-app() { printf '%s\\n' \"\$@\" >>\"$FAKE_APP_LOG\"; }; ${line}"
+  grep -qxF -- "$HOME_DIR/code/shop-crew" "$FAKE_APP_LOG"
+  grep -qF -- '"loh":"'"$TREE"'/bin/loh"' "$FAKE_APP_LOG"
+}
+
+@test "the printed open command pastes whole when the workspace path has a space" {
+  export FAKE_APP_RUNNING=0
+  WS="$BATS_TEST_TMPDIR/my crew"
+  hc_seq get.scofield "$ABSENT" "$IDLE"
+  hc_seq get.amy "$ABSENT" "$IDLE"
+  run "$LOH" init --workspace "$WS"
+  [ "$status" -eq 0 ]
+  line="herdr-app do tab.new${output##*herdr-app do tab.new}"
+  : >"$FAKE_APP_LOG"
+  bash -c "herdr-app() { printf '%s\\n' \"\$@\" >>\"$FAKE_APP_LOG\"; }; ${line}"
+  grep -qxF -- "$WS" "$FAKE_APP_LOG"
+  props="$(tail -n 1 "$FAKE_APP_LOG")"
+  [ "$(jq -r .dir <<<"$props")" = "$WS" ]
 }
 
 @test "init only prints the open command when an office is already open" {
@@ -424,4 +443,63 @@ MD
   [ "$status" -eq 0 ]
   grep -q "  - name: brand-new" "$WS/.loh/workspace.md"
   [ ! -e "$HOME_DIR/fresh/brand-new-crew" ]
+}
+
+# A workspace that already lists shop, for the --new refusals.
+listed_workspace() {
+  new_env
+  WS="$BATS_TEST_TMPDIR/shared"
+  mkdir -p "$WS/.loh"
+  cat >"$WS/.loh/workspace.md" <<MD
+name: shop
+repos:
+  - name: shop
+    path: $HOME_DIR/code/shop
+    branch: main
+    github: acme/shop
+MD
+  hc_reply get.scofield "$LIVE"
+  hc_reply get.amy "$LIVE"
+}
+
+@test "init --new refuses a name that is already listed, before making anything" {
+  listed_workspace
+  before="$(cat "$WS/.loh/workspace.md")"
+  run --separate-stderr "$LOH" init --new other/shop --workspace "$WS"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"name 'shop' is already listed"*"nothing was made"* ]]
+  [ ! -e shop ]
+  ! grep -q 'repo create' "$FAKE_GH_LOG"
+  ! grep -q 'repo view' "$FAKE_GH_LOG"
+  [ "$(cat "$WS/.loh/workspace.md")" = "$before" ]
+}
+
+@test "init --new refuses a slug that is already listed, before making anything" {
+  listed_workspace
+  sed -i 's/github: acme\/shop/github: Acme\/Shop-Two/' "$WS/.loh/workspace.md"
+  run --separate-stderr "$LOH" init --new acme/shop-two --workspace "$WS"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"already listed"*"nothing was made"* ]]
+  [ ! -e shop-two ]
+  ! grep -q 'repo create' "$FAKE_GH_LOG"
+}
+
+@test "init --new refuses a workspace whose manifest fails its check, before making anything" {
+  listed_workspace
+  printf 'bogus_key: 1\n' >>"$WS/.loh/workspace.md"
+  run --separate-stderr "$LOH" init --new acme/brand-new --workspace "$WS"
+  [ "$status" -eq 1 ]
+  [ ! -e brand-new ]
+  ! grep -q 'repo create' "$FAKE_GH_LOG"
+}
+
+@test "init --new names the GitHub repo when a step after creating it fails" {
+  new_env
+  hc_reply get.scofield '{"state":"live","status":{"state":"idle"},"labels":{"crew":"other"}}'
+  hc_reply get.amy "$LIVE"
+  run --separate-stderr "$LOH" init --new acme/brand-new
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"done so far: "*"created private GitHub repo acme/brand-new and pushed"* ]]
+  [[ "$stderr" == *"not done: "* ]]
+  [ -f brand-new/README.md ]
 }

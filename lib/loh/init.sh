@@ -141,51 +141,23 @@ canon() {
   if [[ -d "$1" ]]; then (cd -P "$1" && pwd); else printf '%s' "$1"; fi
 }
 
-# --- --new: make the repo first --------------------------------------------
-
-if [[ -n "$new_slug" ]]; then
-  need gh
-  new_name="${new_slug#*/}"
-  new_dir="$PWD/$new_name"
-  [[ ! -e "$new_dir" ]] || die "$new_dir already exists, so nothing was made"
-  if gh repo view "$new_slug" --json name >/dev/null 2>&1; then
-    die "$new_slug already exists on GitHub, so nothing was made (to use it, clone it and run loh init in the clone)"
-  fi
-  done_steps=()
-  # new_fail <what failed>: say what was done and what was not, keep the folder.
-  new_fail() {
-    local done_list="nothing" k
-    for k in "${!done_steps[@]}"; do
-      if ((k == 0)); then done_list="${done_steps[k]}"; else done_list+=", ${done_steps[k]}"; fi
-    done
-    {
-      echo "loh: $1"
-      echo "loh: done so far: $done_list"
-      echo "loh: not done: the rest of loh init --new, and no workspace was made or changed"
-      echo "loh: $new_dir was left as it is; look at it, fix the problem, and finish by hand (or remove it yourself and run again)"
-    } >&2
-    exit 1
-  }
-  mkdir "$new_dir" || die "cannot make $new_dir"
-  done_steps+=("made $new_dir")
-  git -C "$new_dir" init -q -b main || new_fail "git init failed"
-  done_steps+=("git init on main")
-  printf '# %s\n' "$new_name" >"$new_dir/README.md" || new_fail "cannot write README.md"
-  git -C "$new_dir" add README.md || new_fail "git add failed"
-  git -C "$new_dir" commit -q -m "Add README" || new_fail "git commit failed (is your git user.name and user.email set?)"
-  done_steps+=("committed README.md")
-  (cd "$new_dir" && gh repo create "$new_slug" --private --source . --push >/dev/null) ||
-    new_fail "gh repo create $new_slug failed"
-  done_steps+=("created private repo $new_slug and pushed")
-  echo "made $new_dir and the private GitHub repo $new_slug"
-  repo_args=("$new_dir")
-fi
-
 # --- the workspace ---------------------------------------------------------
 
 # Resolve every repo first, so a bad one stops us before anything is written.
 cand_names=() cand_paths=() cand_branches=() cand_githubs=()
-for arg in "${repo_args[@]}"; do
+if [[ -n "$new_slug" ]]; then
+  # Nothing exists yet, so the entry is known: the folder will be <name> here,
+  # the branch is main (we make it), and the repo is the slug.
+  need gh
+  new_name="${new_slug#*/}"
+  new_dir="$(canon "$PWD")/$new_name"
+  cand_names+=("$new_name")
+  cand_paths+=("$new_dir")
+  cand_branches+=(main)
+  cand_githubs+=("$new_slug")
+  repo_args=()
+fi
+for arg in ${repo_args[@]+"${repo_args[@]}"}; do
   [[ -d "$arg" ]] || die "$arg is not a folder"
   top="$(git -C "$arg" rev-parse --show-toplevel 2>/dev/null)" || die "$arg is not a git repo"
   top="$(canon "$top")"
@@ -236,13 +208,62 @@ for i in "${!cand_names[@]}"; do
   [[ -z "$listed" ]] || continue
   for j in "${!cur_names[@]}"; do
     [[ "${cur_names[j]}" != "${cand_names[i]}" ]] ||
-      die "name '${cand_names[i]}' is already listed in $manifest for ${cur_githubs[j]}; ${cand_paths[i]} was not added"
+      die "name '${cand_names[i]}' is already listed in $manifest for ${cur_githubs[j]}; ${cand_paths[i]} was not added${new_slug:+, so nothing was made}"
   done
   add_i+=("$i")
   cur_names+=("${cand_names[i]}")
   cur_paths+=("${cand_paths[i]}")
   cur_githubs+=("${cand_githubs[i]}")
 done
+
+# --- --new: every check that can refuse comes first, then the repo is made --
+
+if [[ -n "$new_slug" ]]; then
+  [[ ${#add_i[@]} -gt 0 ]] || die "$new_slug is already listed in $manifest, so nothing was made"
+  [[ ! -e "$new_dir" ]] || die "$new_dir already exists, so nothing was made"
+  if gh repo view "$new_slug" --json name >/dev/null 2>&1; then
+    die "$new_slug already exists on GitHub, so nothing was made (to use it, clone it and run loh init in the clone)"
+  fi
+  done_steps=()
+  not_done="the rest of loh init --new, and no workspace was made or changed"
+  # new_report: what was done and what was not; the folder stays.
+  new_report() {
+    local done_list="nothing" k
+    for k in "${!done_steps[@]}"; do
+      if ((k == 0)); then done_list="${done_steps[k]}"; else done_list+=", ${done_steps[k]}"; fi
+    done
+    {
+      echo "loh: done so far: $done_list"
+      echo "loh: not done: $not_done"
+      echo "loh: $new_dir was left as it is; look at it, fix the problem, and finish by hand (or remove it yourself and run again)"
+    } >&2
+  }
+  # new_fail <what failed>: report it, keep the folder.
+  new_fail() {
+    echo "loh: $1" >&2
+    new_report
+    exit 1
+  }
+  mkdir "$new_dir" || die "cannot make $new_dir"
+  done_steps+=("made $new_dir")
+  git -C "$new_dir" init -q -b main || new_fail "git init failed"
+  done_steps+=("git init on main")
+  printf '# %s\n' "$new_name" >"$new_dir/README.md" || new_fail "cannot write README.md"
+  git -C "$new_dir" add README.md || new_fail "git add failed"
+  git -C "$new_dir" commit -q -m "Add README" || new_fail "git commit failed (is your git user.name and user.email set?)"
+  done_steps+=("committed README.md")
+  (cd "$new_dir" && gh repo create "$new_slug" --private --source . --push >/dev/null) ||
+    new_fail "gh repo create $new_slug failed"
+  done_steps+=("created private GitHub repo $new_slug and pushed")
+  echo "made $new_dir and the private GitHub repo $new_slug"
+  # From here on, any failure also reports what was made.
+  not_done="adding $new_name to the workspace, starting the crew and opening the office"
+  die() {
+    printf 'loh: %s\n' "$*" >&2
+    new_report
+    exit 1
+  }
+fi
 
 # --- write the manifest ----------------------------------------------------
 
@@ -312,6 +333,10 @@ if [[ ${#add_i[@]} -gt 0 ]]; then
   fi
   mv -f "$tmp" "$manifest"
   tmp=""
+  if [[ -n "$new_slug" ]]; then
+    done_steps+=("added $new_name to $manifest")
+    not_done="starting the crew and opening the office (run loh init again to finish)"
+  fi
   for i in "${add_i[@]}"; do added_names+=("${cand_names[i]}"); done
   echo "wrote $manifest: added ${added_names[*]}"
 else
@@ -329,7 +354,7 @@ if [[ -z "$is_new" && ${#add_i[@]} -gt 0 ]]; then
   [[ "$(agent_state "$COORD")" == live ]] && coord_was_live=1
 fi
 
-"$LOH_ROOT/bin/loh" up
+"$LOH_ROOT/bin/loh" up || die "loh up failed"
 
 # Tell a coordinator who was already running, so he onboards the new repos.
 if [[ -n "$coord_was_live" ]]; then
@@ -350,7 +375,7 @@ fi
 # --- the office ------------------------------------------------------------
 
 props="$(jq -cn --arg crew "$WS_NAME" --arg dir "$ws" --arg loh "$LOH_ROOT/bin/loh" '{crew: $crew, dir: $dir, loh: $loh}')"
-open_cmd="herdr-app do tab.new --name office --mod crew-office --folder $ws --props '$props'"
+printf -v open_cmd 'herdr-app do tab.new --name office --mod crew-office --folder %q --props %q' "$ws" "$props"
 if office_open "$ws"; then
   echo "the office is already open for $WS_NAME"
 elif command -v herdr-app >/dev/null 2>&1 && herdr-app status >/dev/null 2>&1; then
