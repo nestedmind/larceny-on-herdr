@@ -115,7 +115,7 @@ named_commands() {
   run grep -F 'loh up [' "$(skill_file)"
   [ "$status" -ne 0 ]
   grep -qF 'LOH_WORKSPACE' "$(skill_file)"
-  grep -qF '`loh spawn <coder> <repo> <ticket> [--model M]`' "$(skill_file)"
+  grep -qF '`loh spawn <coder> <repo> <ticket> [--model M] [--brief <text> \| --brief-file <path>]`' "$(skill_file)"
 }
 
 @test "the coordinator releases a merged coder with loh release, not hc kill and hc rm" {
@@ -129,8 +129,11 @@ named_commands() {
   [[ "$row" == *"working or not"* ]]
 }
 
-@test "extra dispatch context goes through loh say after spawn" {
+@test "extra dispatch context goes through --brief, and loh say is for later messages" {
   grep -qF 'fills only its template' "$(skill_file)"
+  grep -qF 'with `--brief <text>`, or `--brief-file <path>` for long text' "$(skill_file)"
+  grep -qF 'use it only for later messages' "$(skill_file)"
+  ! grep -qF 'Send anything else right after with `loh say <coder>`' "$(skill_file)"
 }
 
 @test "the coder checks approval through loh gh, not a token read" {

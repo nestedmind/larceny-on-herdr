@@ -1,22 +1,40 @@
 # shellcheck shell=bash
 # loh spawn: make a worktree for a ticket and start a coder in it.
-# Usage: loh spawn <coder> <repo> <ticket> [--model M]
+# Usage: loh spawn <coder> <repo> <ticket> [--model M] [--brief <text> | --brief-file <path>]
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
-  echo "Usage: loh spawn <coder> <repo> <ticket> [--model M]" >&2
+  [[ $# -eq 0 ]] || echo "loh: $1" >&2
+  echo "Usage: loh spawn <coder> <repo> <ticket> [--model M] [--brief <text> | --brief-file <path>]" >&2
   exit 2
 }
 
 pos=()
 model=""
+brief=""
+brief_set=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model)
       [[ $# -ge 2 ]] || usage
       model="$2"
+      shift 2
+      ;;
+    --brief)
+      [[ $# -ge 2 ]] || usage
+      [[ -z "$brief_set" ]] || usage "use --brief or --brief-file, not both"
+      brief_set=1
+      brief="$2"
+      shift 2
+      ;;
+    --brief-file)
+      [[ $# -ge 2 ]] || usage
+      [[ -z "$brief_set" ]] || usage "use --brief or --brief-file, not both"
+      brief_set=1
+      [[ -f "$2" && -r "$2" ]] || usage "brief file not found or not readable: $2"
+      brief="$(<"$2")"
       shift 2
       ;;
     -*) usage ;;
@@ -27,6 +45,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ ${#pos[@]} -eq 3 ]] || usage
+if [[ -n "$brief_set" && ! "$brief" =~ [^[:space:]] ]]; then
+  usage "the brief is empty"
+fi
 coder="${pos[0]}"
 repo="${pos[1]}"
 ticket="${pos[2]}"
@@ -108,21 +129,36 @@ done < <(config_values "$config" rules)
 [[ -n "$rules" ]] || rules="- (none listed)"$'\n'
 rules="${rules%$'\n'}"
 
-prompt="$(<"$LOH_ROOT/lib/loh/prompts/coder.md")"
-prompt="${prompt//'{{coder}}'/$coder}"
-prompt="${prompt//'{{reviewer_name}}'/$CREW_REVIEWER}"
-prompt="${prompt//'{{reviewer}}'/$(agent_name "$CREW_REVIEWER")}"
-prompt="${prompt//'{{coordinator}}'/$(agent_name "$CREW_COORDINATOR")}"
-prompt="${prompt//'{{workspace}}'/$WS_NAME}"
-prompt="${prompt//'{{github}}'/$github}"
-prompt="${prompt//'{{ticket}}'/$ticket}"
-prompt="${prompt//'{{worktree}}'/$worktree}"
-prompt="${prompt//'{{branch}}'/$branch}"
-prompt="${prompt//'{{base}}'/$base}"
-prompt="${prompt//'{{test}}'/$(value_or test "(not set)")}"
-prompt="${prompt//'{{lint}}'/$(value_or lint "(not set)")}"
-prompt="${prompt//'{{build}}'/$(value_or build "(not set)")}"
-prompt="${prompt//'{{rules}}'/$rules}"
+# The brief goes in at {{brief}}. Split the template there first, so nothing in
+# the brief (or in a rule) is ever read as a placeholder.
+template="$(<"$LOH_ROOT/lib/loh/prompts/coder.md")"
+head_part="${template%%'{{brief}}'*}"
+tail_part="${template#*'{{brief}}'}"
+brief_block=""
+[[ -z "$brief_set" ]] || brief_block="## From the coordinator, for this dispatch:"$'\n\n'"$brief"$'\n\n'
+
+fill() {
+  local s="$1"
+  s="${s//'{{coder}}'/$coder}"
+  s="${s//'{{reviewer_name}}'/$CREW_REVIEWER}"
+  s="${s//'{{reviewer}}'/$(agent_name "$CREW_REVIEWER")}"
+  s="${s//'{{coordinator}}'/$(agent_name "$CREW_COORDINATOR")}"
+  s="${s//'{{workspace}}'/$WS_NAME}"
+  s="${s//'{{github}}'/$github}"
+  s="${s//'{{ticket}}'/$ticket}"
+  s="${s//'{{worktree}}'/$worktree}"
+  s="${s//'{{branch}}'/$branch}"
+  s="${s//'{{base}}'/$base}"
+  s="${s//'{{test}}'/$(value_or test "(not set)")}"
+  s="${s//'{{lint}}'/$(value_or lint "(not set)")}"
+  s="${s//'{{build}}'/$(value_or build "(not set)")}"
+  s="${s//'{{rules}}'/$rules}"
+  filled="$s"
+}
+fill "$head_part"
+head_part="$filled"
+fill "$tail_part"
+prompt="$head_part$brief_block$filled"
 
 claude_args=(--agent "larceny:$coder" --permission-mode "$WS_PANE_MODE")
 [[ -z "$model" ]] || claude_args+=(--model "$model")

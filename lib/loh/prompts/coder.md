@@ -24,7 +24,7 @@ Rules for this repo:
 
 {{rules}}
 
-## Identity: use loh, never raw tokens
+{{brief}}## Identity: use loh, never raw tokens
 
 - GitHub: `loh gh {{coder}} <gh args...>`, for example `loh gh {{coder}} pr create ...`.
 - Git commands that write a commit or push: `loh git {{coder}} <git args...>`, for example `loh git {{coder}} commit -m "..."` and `loh git {{coder}} push -u origin {{branch}}`. loh sets the author and committer for you.

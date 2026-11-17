@@ -30,7 +30,7 @@ Paths are in larceny 0.1.5, commit 03a9bfc. Where one of these says to use `Agen
 | Command | Does |
 |---|---|
 | `loh up` | Starts `scofield` and `amy`, each `--no-parent`. Takes no argument: run it from the workspace folder, or set `LOH_WORKSPACE`. Leaves a live one alone |
-| `loh spawn <coder> <repo> <ticket> [--model M]` | Makes the worktree, starts the coder with `--outlive-parent`, sends the dispatch prompt |
+| `loh spawn <coder> <repo> <ticket> [--model M] [--brief <text> \| --brief-file <path>]` | Makes the worktree, starts the coder with `--outlive-parent`, sends the dispatch prompt, with the brief under its own heading before the closing instructions |
 | `loh say <to> <text>` | Sends a message. Idle target: `hc send --if idle`. Done target: plain `hc send`. Working or blocked: retries (default up to 40 times, 15 s apart; `LOH_SAY_TRIES=0` for no cap). `loh say --queue` hands the wait to a detached worker and returns 0 at once; if it finally fails, your card note becomes `undelivered:<to>: <why>` and `loh watch` announces it. Exits 4 if the target has `with_matt=1`, 11 if it has finished, 3 if it is still busy at the end |
 | `loh gh <persona> <args...>` | Runs `gh` as that persona |
 | `loh git <persona> <args...>` | Runs `git` as that persona |
@@ -45,7 +45,7 @@ Every agent is an `hc` terminal labelled `crew=<workspace>` and `role=<role>`. C
 ## Coordinator
 
 - Start the standing agents with `loh up`. Do not start a coder or the reviewer with the `Agent` tool.
-- Dispatch each ticket with `loh spawn <coder> <repo> <ticket>`. Resolve the coder name and `models:` by `docs/crew-resolution.md` first, as larceny says, and pass a resolved model as `--model M`. `loh spawn` fills only its template: the ticket, worktree, branch, the repo's commands and rules. Send anything else right after with `loh say <coder>`: what has landed, the board-move commands, the isolation values ("Dispatching a ticket").
+- Dispatch each ticket with `loh spawn <coder> <repo> <ticket>`. Resolve the coder name and `models:` by `docs/crew-resolution.md` first, as larceny says, and pass a resolved model as `--model M`. `loh spawn` fills only its template: the ticket, worktree, branch, the repo's commands and rules. Pass anything else for this dispatch in the first prompt with `--brief <text>`, or `--brief-file <path>` for long text: a hold for the owner's go, a placeholder to use, what has landed, the board-move commands, the isolation values ("Dispatching a ticket"). A `loh say <coder>` only arrives once the coder is idle, after their first turn, so use it only for later messages.
 - Keep at most 4 live coders. Count them with `hc ls --label crew=<workspace> --label role=coder --json`.
 - After a coder reports its merge and you have checked GitHub, run `loh release <coder>`. It archives the coder's transcript into `.loh/transcripts/` and ends its terminal (`hc kill`, then `hc rm`); it refuses a coder that is still working unless you pass `--force`. A finished coder stays live until you release it, so it would count against the cap and block its name from being used again.
 - After an office change merges, run `loh office` from the workspace so the owner's office tab picks it up. It opens the new tab and closes the old one.
