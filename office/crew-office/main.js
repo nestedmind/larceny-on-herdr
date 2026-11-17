@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -547,7 +547,9 @@ export default class CrewOffice extends View {
   // render describes the same chain for as long as the walk lasts, so a render for any other reason
   // leaves the walk alone and nothing depends on a timer arriving on time. One-shot timers do two
   // small things: turn the walker to face the next leg, and end the gait when the walk is over.
-  // `snap` (a new scale or floor) puts everyone in place.
+  // `snap` (a new scale or floor) puts everyone in place. Someone whose place changed in that same render (an
+  // agent whose chat closed as it ended) is put where they stood instead, carried onto the new floor with their
+  // room (snapStay), drawn at rest, and walks to the new place from the next render, as anyone else does.
   // Each person is { at, goal, from, legs, t0, i, tasks }: `at` is where they stand when not walking;
   // while walking they go from `from` along `legs`, which began at `t0` (ms), and `i` is the leg they face.
   motion(L, snap) {
@@ -559,7 +561,16 @@ export default class CrewOffice extends View {
       const goal = { x: p.x, y: p.y };
       let w = this.walks.get(p.id);
       if (!w) { w = { at: goal, goal, from: goal, legs: [], t0: 0, i: 0, tasks: [], gen: 0 }; this.walks.set(p.id, w); }
-      if (snap) { this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.arming = null; w.at = goal; w.goal = goal; w.from = goal; w.legs = []; w.i = 0; }
+      if (snap) {
+        const stay = snapStay(w, goal, now, this.motionL, L);
+        this.stopWalk(w); w.gen++; w.pending = null; w.settling = false; w.resting = false; w.arming = null; w.legs = []; w.i = 0;
+        if (stay) {
+          // Drawn at rest where they stand; the walk is handed over only once this frame was drawn to its end (#88).
+          w.at = stay; w.from = stay; w.goal = stay;
+          w.resting = true; w.restDrawn = false; this.restSeen.add(w);
+          w.tasks.push(this.acx.timer.after(SETTLE_MS, (c) => { try { c.notify(); } catch (_) { /* the view was reloaded or closed */ } }));
+        } else { w.at = goal; w.goal = goal; w.from = goal; }
+      }
       else if (w.settling) this.settle(w);
       else this.holdOrGo(w, p, L, goal, now);
       if (w.arming) {
@@ -576,6 +587,7 @@ export default class CrewOffice extends View {
       out.set(p.id, { rest: restAt(w.at, goal, walking), walking, from: walking ? w.from : w.at, chain: { ...walkChain(walking ? w.from : w.at, walking ? w.legs : [], SLOTS), gen: w.gen }, x: pos.x, y: pos.y, face });
     }
     for (const id of [...this.walks.keys()]) if (!here.has(id)) { this.stopWalk(this.walks.get(id)); this.walks.delete(id); }
+    this.motionL = L; // the floor the walk records are on, for the next snap
     return out;
   }
 

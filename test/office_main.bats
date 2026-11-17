@@ -1197,6 +1197,52 @@ console.log(arrived, afterCutOff, armed, w().legs.length > 0);'
 [ "$output" = "true 0 true true" ]
 }
 
+@test "someone whose place changes in the same render as a new scale and floor stays where they stood, carried with their room, then walks there once the rest frame was drawn" {
+  run office_js '
+const fire = () => { for (const t of timers.slice()) if (!t.cancelled && !t.done && t.at + t.ms <= clock) { t.done = true; t.fn(cx); } };
+const w = () => office.walks.get("sheba");
+render(); later(3000); render();
+const before = { ...w().at };
+const goalBefore = { ...w().goal };
+const roomOf = (L, p) => L.rooms.find((q) => p.x >= q.x && p.x <= q.x + q.w && p.y >= q.y && p.y <= q.y + q.h);
+const roomBefore = roomOf(office.motionL, before);
+const offBefore = { x: before.x - (roomBefore.x + roomBefore.w / 2), y: before.y - (roomBefore.y + roomBefore.h / 2) };
+// The chat closes as she leaves: a new scale and floor, and a new place, in one render.
+office.size = { width: 1600, height: 1000 };
+terms()[1].labels.pr = "9"; terms()[1].status = "done";
+render();
+const rn = office.motionL.rooms.find((q) => q.key === roomBefore.key);
+const off = { x: w().at.x - (rn.x + rn.w / 2), y: w().at.y - (rn.y + rn.h / 2) };
+const stayed = Math.abs(off.x - offBefore.x) < 0.01 && Math.abs(off.y - offBefore.y) < 0.01 && w().legs.length === 0 && !w().arming;
+const restDrawnAfterSnap = w().restDrawn;
+let armedBeforeDrawn = false, walked = false, n = 0;
+while (!walked && n++ < 200) {
+  later(100); fire();
+  const wasDrawn = w().restDrawn;
+  render();
+  if (w().arming && !wasDrawn && w().resting === false && n === 1) armedBeforeDrawn = true;
+  if (w().legs.length > 0) walked = true;
+}
+const goal = office.layoutNow.people.find((p) => p.id === "sheba");
+const last = w().legs[w().legs.length - 1];
+const end = last ? { x: last.x !== undefined ? last.x : last.to.x, y: last.y !== undefined ? last.y : last.to.y } : null;
+console.log(stayed, restDrawnAfterSnap, armedBeforeDrawn, walked, goal.x !== goalBefore.x || goal.y !== goalBefore.y);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false true true" ] || { echo "GOT: $output" >&2; false; }
+}
+
+@test "a new scale alone still puts everyone in place without a walk" {
+  run office_js '
+const w = () => office.walks.get("sheba");
+render(); later(3000); render();
+office.size = { width: 1600, height: 1000 };
+render();
+const goal = office.layoutNow.people.find((p) => p.id === "sheba");
+console.log(w().at.x === goal.x && w().at.y === goal.y, w().legs.length, !!w().arming, w().resting);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 0 false false" ]
+}
+
 @test "a walk's transition policies are drawn on zeroed movers one render before its offsets, so no mover changes policy and value together" {
   run office_js '
 const links = (root) => all(find(root, "m-sheba")).filter((n) => /^m-sheba-g[0-9]+-[0-9]/.test(id(n))).map((n) => ({ id: id(n), off: [n.props.left[0], n.props.top[0]], pol: JSON.stringify(n.props.transitions) }));
