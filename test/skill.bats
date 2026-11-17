@@ -245,3 +245,18 @@ named_commands() {
   section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
   [[ "$section" == *'forbid it `post-review.sh`, `gh pr review` and `loh say`'* ]]
 }
+
+# Print the Coordinator section (up to the next "## " heading).
+coordinator_section() {
+  awk '/^## Coordinator$/ {on=1; next} /^## / {on=0} on' "$(skill_file)"
+}
+
+@test "coordinator section has a waiting-on-the-owner rule that reaches Discord" {
+  sect=$(coordinator_section)
+  [[ "$sect" == *"Waiting on the owner"* ]]
+  [[ "$sect" == *"same report"* ]]
+  [[ "$sect" == *"every later report"* ]]
+  [[ "$sect" == *"10 minutes"* ]]
+  [[ "$sect" == *"Discord"* ]]
+  [[ "$sect" == *"idle on a hold"* ]]
+}
