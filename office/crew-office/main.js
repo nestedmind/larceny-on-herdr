@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -73,6 +73,18 @@ function unhold(a, loh, id) {
   return r.unlock ? lohQueue(a.address, () => lohRun(unlockCall(a, loh), a, "unlock")) : Promise.resolve();
 }
 
+// The prototype's toast, in its units (crew-office.html, `.toasts` and `.toast`): the stack's width, the gap, how far under the top of
+// the stage it starts (the stack is a child of the floor's own box, in px and not scaled with it, so it is 12 from the floor's right edge, whole, and never under the chat panel), and the colours of both themes (--toast-bg, --toast-ink, --toast-muted).
+const TOAST_W = 280;
+const TOAST_GAP = 6;
+const TOAST_TOP = 58;
+// How far up a toast is drawn while it is entering or leaving, and the height taken for one until it has been measured (three lines).
+const TOAST_RISE = 8;
+const TOAST_H = 65;
+const TOAST_FONT = "Noto Sans";
+const TOAST_LIGHT = { bg: "#ffffff", ink: "#151a24", muted: "#5b6272" };
+const TOAST_DARK = { bg: "#222937", ink: "#e3e8f0", muted: "#9ba5b8" };
+
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 
 // The floor is a retained nested view of its own. herdr runs a view's render() when that view is
@@ -129,6 +141,11 @@ export default class CrewOffice extends View {
     this.reactDir = ""; // where the chat keeps its reactions (`loh react --dir`), "" until loh has said
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
     this.mem = newMemory();
+    // The toasts showing, and what each agent was last seen with (crew.js toastStep). `pingAt` is when loh was last told the office is open.
+    this.toasts = newToasts();
+    // Each toast's measured height, by id.
+    this.toastH = new Map();
+    this.pingAt = 0;
     this.mattLast = 0;
     this.lastFocus = null;
     // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
@@ -674,6 +691,62 @@ export default class CrewOffice extends View {
     return workspaceDir(crew, props(), panes(), officePane(panes(), props(), MOD));
   }
 
+  // Tell loh an office is open, now and every OFFICE_PING_MS (a render is asked for then, as for the repo list): while it
+  // hears, `loh watch` sends no desktop notice, because the toast says it. It runs in an agent's folder, which is how loh finds the workspace.
+  pingLoh(crew, now) {
+    if (this.pingAt && now - this.pingAt < OFFICE_PING_MS) { this.wakeIn(this.pingAt + OFFICE_PING_MS - now); return; }
+    const dir = this.workspaceDir(crew);
+    // With no folder to find the workspace from there is nothing to run in; the next render for any reason looks again.
+    if (!dir) return;
+    this.pingAt = now;
+    this.wakeIn(OFFICE_PING_MS);
+    const c = pingCall({ cwd: dir }, (props() || {}).loh);
+    try { exec(c.cmd, c.args, c.options).catch(() => {}); } catch (_) { /* loh is missing: the desktop notices stay on */ }
+  }
+
+  // A toast was clicked: it goes, and that agent's chat opens as a click on the person opens it.
+  clickToast(x, cx) {
+    toastDismiss(this.toasts, x.id);
+    const a = (this.crewNow || []).find((q) => q.address === x.who);
+    if (a) this.pick({ agent: a, id: a.rawName }, cx);
+    else cx.notify();
+  }
+
+  // The toasts, top right of the stage, newest first, as the prototype's `.toast` (crew-office.html): 280 wide, a 4px edge in the kind's
+  // colour, 8px radius, padding 7px 10px, 12.5px text on a 1.35 line, a bold head, a 11.5px muted hint, 6px between, the prototype's
+  // --toast-bg / --toast-ink / --toast-muted for the theme. Each is placed by its own top (the heights are measured, so a new toast
+  // pushes the others down with a slide and not a jump), and slides and fades in and out (TOAST_SLIDE_MS): a mounted toast is first
+  // drawn faded and 8px up, and the render one tick on draws it in place. The shadow is the nearest the renderer has (shadow_lg: it
+  // takes no offset or blur of its own).
+  toastEls(t, dark, now, floorW) {
+    const tok = dark ? TOAST_DARK : TOAST_LIGHT;
+    const colour = { q: PAL.q, perm: PAL.perm, esc: PAL.esc, done: PAL.work, info: PAL.idle };
+    const slide = { duration: TOAST_SLIDE_MS, easing: "ease-out" };
+    const shown = [...this.toasts.list, ...this.toasts.leaving];
+    for (const id of [...this.toastH.keys()]) if (!shown.some((x) => x.id === id)) this.toastH.delete(id);
+    // min(280px, 100% - 24px) of the floor, as the prototype's `.toasts` (its stage is the floor).
+    const w = Math.max(0, Math.min(TOAST_W, floorW - 24));
+    let y = 0;
+    const cards = shown.map((x) => {
+      const here = y;
+      y += (this.toastH.get(x.id) || TOAST_H) + TOAST_GAP;
+      const live = toastPhase(x, now) === "show";
+      return v_flex().id(x.id).absolute().left(0).top(here + (live ? 0 : -TOAST_RISE)).w(w).opacity(live ? 1 : 0)
+        .transition("top", slide).transition("opacity", slide)
+        .px(10).py(7).gap(1).rounded(8).bg(tok.bg).border_l(4).border_color(colour[x.kind] || PAL.idle).shadow_lg().font_family(TOAST_FONT)
+        .cursor_pointer().on_click((_e, cx) => this.clickToast(x, cx))
+        .on_size_change((m, c) => {
+          if (Math.abs((this.toastH.get(x.id) || 0) - m.height) < 0.5) return;
+          this.toastH.set(x.id, m.height);
+          c.notify();
+        })
+        .child(div().text_size(12.5).line_height("16.875px").font_bold().text_color(tok.ink).child(x.head))
+        .child(div().text_size(12.5).line_height("16.875px").text_color(tok.ink).child(x.body))
+        .child(div().text_size(11.5).line_height("15.525px").text_color(tok.muted).child(x.hint));
+    });
+    return div().id("toasts").absolute().top(TOAST_TOP).right(12).w(w).children(cards);
+  }
+
   confirmStart(cx) {
     const o = this.offer;
     if (!o) return;
@@ -856,6 +929,14 @@ export default class CrewOffice extends View {
     const size = stageSize(this.size, this.sizeWithPanel, showPanel, this.panelW);
     this.drawnWithPanel = showPanel;
     const now = Date.now();
+    // The toasts: what the crew's change calls for, and when the oldest goes. (Not while the crew is still unlisted, so the
+    // first listing is only recorded, never announced.)
+    if (crew.length) {
+      const ts = toastStep(this.toasts, crew, now);
+      const due = [ts.nextMs, ts.animMs].filter((x) => x !== null);
+      if (due.length) this.wakeIn(Math.min(...due));
+    }
+    this.pingLoh(crew, now);
     let focus = null;
     try { focus = focused(); } catch (_) { /* no focus information: only the message box counts */ }
     // Focus arriving on a terminal he opened from the office counts as Matt at work for TYPING_HOLD, like a key in the message
@@ -1029,11 +1110,13 @@ export default class CrewOffice extends View {
     const pic = this.floorPicture(this.shown.key, this.shown.layer, L, k);
     const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H))
       .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
-    const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
+    const floor = div().id("floor").relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
       .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
-      .children(labels(L, k, crew.length)).children(tags);
+      .children(labels(L, k, crew.length)).children(tags)
+      // The toasts are in the floor's box, as the prototype's are in its stage: after everything, so they are on top.
+      .when(this.toasts.list.length + this.toasts.leaving.length > 0, (el) => el.child(this.toastEls(t, dark, Date.now(), u(L.W))));
 
     const out = this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
     for (const w of this.restSeen) w.restDrawn = true;

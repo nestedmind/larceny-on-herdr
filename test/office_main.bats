@@ -53,7 +53,7 @@ export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
 export const appHome = () => globalThis.APP_HOME || "/h/herdr-app";
-export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const exec = (c, a, o) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a, o) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
@@ -1266,4 +1266,223 @@ const svgs = names.filter((f) => f.endsWith(".svg"));
 console.log(svgs.length <= 12, svgs.filter((f) => !/^crew-office-floor-0000/.test(f)).length === 1, names.includes("notes.txt"), theirs.length === 1);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true true" ]
+}
+
+# ---- toasts (ticket #93) ----
+
+TOAST_HELPERS='
+const text = (n) => n.kids.filter((k) => typeof k === "string");
+const toasts = (root) => all(root.node).filter((n) => /^toast-/.test(id(n) || ""));
+const lines = (n) => all(n).flatMap(text);
+const block = (i, kind, msg) => { terms()[i].status = { state: "blocked", kind, msg }; };
+'
+
+@test "a coder that blocks on a permission gets a toast with its name, the whole text and the permission colour" {
+  run office_js "$TOAST_HELPERS"'
+render();
+const msg = "Bash: " + "x".repeat(150);
+block(1, "permission", msg);
+const t = toasts(render());
+console.log(t.length, lines(t[0]).join("|") === "Sheba needs you|permission: " + msg + "|Toast, no sound · click to open", t[0].props.border_color[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true #e7a43a" ]
+}
+
+@test "a question is blue, an escalation pink, and the toasts are the newest first" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(2, "question", "Which?");
+render();
+terms()[1].labels.note = "escalation:stuck on review";
+const t = toasts(render());
+console.log(t.map((n) => lines(n)[0] + "@" + n.props.border_color[0]).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "Sheba escalates@#d0509f,Sucre needs you@#4f8ff0" ]
+}
+
+@test "no toast shows for what was already pending when the office opened" {
+  run office_js "$TOAST_HELPERS"'
+fresh();
+block(1, "permission", "Bash: ls");
+console.log(toasts(render()).length, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0" ]
+}
+
+@test "a toast goes 7 s after it came, and the office asks to be drawn again then" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "A?");
+timers.length = 0;
+const a = toasts(render()).length;
+// (One timer is kept, the earliest wanted: a render for any reason asks for the next again.)
+const wake = office.wake ? [office.wake.at - Date.now()].filter((ms) => ms <= 7005) : [];
+const solid = () => toasts(render()).filter((n) => n.props.opacity[0] === 1).length;
+later(6999); const b = solid();
+later(1); const c = solid();
+later(249); const d = toasts(render()).length;
+later(1); const e = toasts(render()).length;
+console.log(a, wake.length > 0, b, c, d, e);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true 1 0 1 0" ]
+}
+
+@test "at most 3 toasts show at once" {
+  run office_js "$TOAST_HELPERS"'
+terms().push(...["amy", "bo", "cy"].map((n) => ({ address: "t" + n, name: n, state: "live", agent: "claude", status: "working", labels: { crew: "sandbox", role: "reviewer" } })));
+render();
+for (const t of terms()) t.status = { state: "blocked", kind: "question", msg: "?" };
+const at = toasts(render()).length;
+later(300);
+console.log(office.toasts.list.length, at, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3 6 3" ]
+}
+
+@test "clicking a toast opens that agent's chat, as clicking the person does, and the toast goes" {
+  run office_js "$TOAST_HELPERS"'
+const opened = [];
+office.panel.select = (a) => opened.push("select:" + a.name);
+office.open = (a) => opened.push("open:" + a.name);
+office.chat = { pane: "p1", office: "p1", address: "tscofield", name: "scofield", agent: {} };
+render();
+block(1, "permission", "Bash: ls");
+const root = render();
+const t = toasts(root)[0];
+t.props.on_click[0]({}, cx);
+console.log(opened.join(","), toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "select:sheba,open:sheba 0" ]
+}
+
+@test "the office tells loh it is open at once, then every 10 s, from the agents' folder" {
+  run office_js '
+const calls = [];
+globalThis.EXEC_HOOK = (c, a, o) => { calls.push([a[0], o && o.cwd]); return Promise.resolve({ code: 0, stdout: "", stderr: "" }); };
+for (const t of terms()) t.cwd = "/ws/" + t.name;
+office.pingAt = 0;
+render(); render();
+const first = calls.filter((c) => c[0] === "office-ping").length;
+later(9999); render();
+const mid = calls.filter((c) => c[0] === "office-ping").length;
+later(1); render();
+const last = calls.filter((c) => c[0] === "office-ping");
+console.log(first, mid, last.length, last[0][1]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 1 2 /ws/scofield" ]
+}
+
+@test "a toast has the prototype's .toast metrics: 280 wide, a 4px edge, 8px radius, padding 7px 10px, 12.5px text on a 1.35 line, a bold head, an 11.5px hint" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "Which?");
+render(); later(100);
+const t = toasts(render())[0];
+const p = t.props;
+const [head, body, hint] = t.kids.map((k) => k.node.props);
+console.log(p.w[0], p.border_l[0], p.rounded[0], p.px[0], p.py[0], p.gap[0], p.shadow_lg !== undefined);
+console.log(head.text_size[0], head.line_height[0], head.font_bold !== undefined, body.text_size[0], body.line_height[0], body.font_bold === undefined, hint.text_size[0], hint.line_height[0]);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "280 4 8 10 7 1 true" ]
+  [ "${lines[1]}" = "12.5 16.875px true 12.5 16.875px true 11.5 15.525px" ]
+}
+
+@test "the toast takes the prototype's --toast-bg, --toast-ink and --toast-muted in the light theme and in the dark" {
+  run office_js "$TOAST_HELPERS"'
+const colours = () => { const t = toasts(render())[0]; const k = t.kids.map((x) => x.node.props.text_color[0]); return [t.props.bg[0], ...k].join(" "); };
+render();
+block(1, "question", "Which?");
+render(); later(100);
+const light = colours();
+globalThis.DARK = true;
+const dark = colours();
+console.log(light); console.log(dark);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "#ffffff #151a24 #151a24 #5b6272" ]
+  [ "${lines[1]}" = "#222937 #e3e8f0 #e3e8f0 #9ba5b8" ]
+}
+
+@test "the edge colours are the prototype's --st-q, --st-perm, --st-esc and --st-idle" {
+  run office_js "$TOAST_HELPERS"'
+terms().push(...["amy", "bo"].map((n) => ({ address: "t" + n, name: n, state: "live", agent: "claude", status: "working", labels: { crew: "sandbox", role: "reviewer" } })));
+render();
+block(1, "permission", "a"); block(2, "question", "b"); terms()[3].labels.note = "escalation:c"; terms()[4].labels.note = "undelivered:d";
+console.log(toasts(render()).map((n) => n.props.border_color[0]).sort().join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "#4f8ff0 #aab2bf #d0509f #e7a43a" ]
+}
+
+@test "a toast slides and fades: it is drawn faded and 8px up when it comes, in place a moment later, and it fades out before it goes" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "Which?");
+const at = (ms) => { const t = toasts(render())[0]; return t ? [t.props.opacity[0], t.props.top[0]].join("/") : "none"; };
+const first = at(); later(40); const settled = at(); later(7000); const out = at(); later(250); const gone = at();
+const t = (render(), toasts(render())); 
+console.log(first, settled, out, gone);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0/-8 1/0 0/-8 none" ]
+}
+
+@test "a toast's top and opacity animate natively: both have a transition, 220 ms ease-out" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "Which?");
+const t = toasts(render())[0];
+console.log(JSON.stringify(t.props.transitions));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["top",{"duration":220,"easing":"ease-out"}],["opacity",{"duration":220,"easing":"ease-out"}]]' ]
+}
+
+@test "a new toast pushes the older ones down by its measured height and the gap, with the slide" {
+  run office_js "$TOAST_HELPERS"'
+terms().push({ address: "tamy", name: "amy", state: "live", agent: "claude", status: "working", labels: { crew: "sandbox", role: "reviewer" } });
+render();
+block(1, "question", "one"); render(); later(100); render();
+for (const n of toasts(render())) n.props.on_size_change[0]({ width: 280, height: 50 }, cx);
+block(2, "question", "two"); render(); later(100);
+const root = render();
+const before = toasts(root).map((n) => n.props.top[0]);
+for (const n of toasts(root)) n.props.on_size_change[0]({ width: 280, height: 50 }, cx);
+const after = toasts(render()).map((n) => n.props.top[0]);
+console.log(before.join(","), after.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0,71 0,56" ]
+}
+
+@test "the toast stack sits inside the floor, as the prototype's .toasts sit in its stage: 58px under its top, 12px from its right edge, 280 wide, and not scaled with it" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "Which?");
+const root = render();
+const floor = find(root, "floor");
+const stack = find(root, "toasts");
+console.log(all(floor).includes(stack), floor.props.relative !== undefined, stack.props.top[0], stack.props.right[0], stack.props.w[0], stack.props.left === undefined, floor.props.w[0] > 304);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 58 12 280 true true" ]
+}
+
+@test "on a floor narrower than 304 px the toasts shrink to the floor less 24 px, so they never run off its edge (min(280px, 100% - 24px))" {
+  run office_js "$TOAST_HELPERS"'
+office.size = { width: 200, height: 600 };
+render();
+block(1, "question", "Which?");
+const root = render();
+const floorW = find(root, "floor").props.w[0];
+const stack = find(root, "toasts");
+console.log(floorW < 304, stack.props.w[0] === floorW - 24, toasts(root)[0].props.w[0] === floorW - 24);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true" ]
+}
+
+@test "with the chat panel open the toasts are in the floor, beside the panel and not under it" {
+  run office_js "$TOAST_HELPERS"'
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+render();
+block(1, "question", "Which?");
+const root = render();
+const stack = find(root, "toasts");
+console.log(office.panel.open, all(find(root, "floor")).includes(stack), all(find(root, "panel")).includes(stack));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false" ]
 }

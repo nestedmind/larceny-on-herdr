@@ -41,6 +41,11 @@ export function clean(value, n) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
+/** Control characters and runs of line breaks become single spaces; nothing is cut. */
+export function oneLine(value) {
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+}
+
 /** Split a `task=<repo>#<n>` label. A label with no `#` is all repo. */
 export function parseTask(task) {
   const s = String(task ?? "");
@@ -87,6 +92,14 @@ export function repoNames(text) {
 /** The command that lists the workspace's repos. It runs in an agent's folder, inside the workspace. */
 export function reposCall(agent, loh) {
   return { cmd: loh || "loh", args: ["status", "--repos"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
+/** How often the office tells loh it is open, and so how stale `loh watch` may find the word (it allows 30 s). */
+export const OFFICE_PING_MS = 10000;
+
+/** The command that tells loh an office is open (`loh office-ping`): `loh watch` then leaves the notices to the toasts. */
+export function pingCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["office-ping"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
 /** The command that asks where the reactions are kept (loh react --dir). Same folder rules as reposCall. */
@@ -144,6 +157,9 @@ export function crewOf(terminals, workspace) {
       ticket: clean(task.number, 8),
       status: statusOf(t),
       kind: statusOf(t) === "blocked" ? blockedKind(t) : null,
+      // The whole block message and note, on one line, for the toasts: nothing there is cut.
+      msg: statusOf(t) === "blocked" ? oneLine(t.status && t.status.msg) : "",
+      noteFull: oneLine(l.note),
       step: clean(l.step, 60),
       pr: clean(l.pr, 8),
       // Set with the pr label cleared once the pull request merged or closed: the coder has no work in hand, whatever its ticket.
@@ -1316,4 +1332,98 @@ export function ownCwd(panes, minePane) {
 export function workspaceDir(crew, props, panes, minePane) {
   if (props && typeof props.dir === "string" && props.dir) return props.dir;
   return anchorCwd(crew, {}) || ownCwd(panes, minePane);
+}
+
+
+// ---------- toasts (ticket #93) ----------
+// What the office tells Matt, as the prototype's toasts do: a card with a bold head, a body and a hint, a colour by kind
+// (q question, perm permission, esc escalation, done, info), at most TOAST_MAX at once, each gone TOAST_MS after it came.
+// These are what `loh watch` would otherwise send to the desktop, and they carry the whole text: nothing is cut.
+export const TOAST_MAX = 3;
+export const TOAST_MS = 7000;
+// A toast is drawn faded and a little up for TOAST_ENTER_MS (so the renderer has a first frame to slide from), then slides and
+// fades in; at its end it fades and slides out for TOAST_EXIT_MS before it is taken away. Both slides take TOAST_SLIDE_MS.
+export const TOAST_ENTER_MS = 40;
+export const TOAST_EXIT_MS = 250;
+export const TOAST_SLIDE_MS = 220;
+// The prototype's hint line. It says what the toast does about sound: a question chimes only when the chime is on, and
+// the office has none, so a question says the chime is off.
+function toastHint(kind) {
+  const what = kind === "q" ? "Toast, chime is off" : kind === "perm" ? "Toast, no sound" : "Toast";
+  return `${what} · click to open`;
+}
+
+/** The state the toasts keep between renders: what each agent was last seen with, and what is showing. */
+export function newToasts() {
+  return { seen: null, list: [], leaving: [], n: 0 };
+}
+
+function titleCase(word) {
+  const w = String(word || "");
+  return w.slice(0, 1).toUpperCase() + w.slice(1);
+}
+
+/**
+ * The toasts the crew's change raises, newest last: an agent that has become blocked (once per block), a new
+ * escalation note, a new undelivered note. The first look at a crew only records what is there, as `loh watch`'s
+ * first snapshot does: what was already pending is not announced.
+ */
+function raised(mem, crew) {
+  const now = new Map();
+  const out = [];
+  for (const a of crew) {
+    const before = mem.seen ? mem.seen.get(a.address) : null;
+    const who = titleCase(a.name);
+    const blocked = a.status === "blocked";
+    const note = a.noteFull;
+    now.set(a.address, { blocked, note });
+    if (!mem.seen) continue;
+    if (blocked && !(before && before.blocked)) {
+      const kind = a.kind === "permission" ? "perm" : "q";
+      const body = a.kind === "other" ? a.msg || "blocked" : a.msg ? `${a.kind}: ${a.msg}` : a.kind;
+      out.push({ kind, head: `${who} needs you`, body, who: a.address });
+    }
+    if (note !== (before ? before.note : "")) {
+      if (note.startsWith("escalation:")) out.push({ kind: "esc", head: `${who} escalates`, body: note.slice("escalation:".length), who: a.address });
+      else if (note.startsWith("undelivered:")) out.push({ kind: "info", head: `${who}'s message was not delivered`, body: note.slice("undelivered:".length), who: a.address });
+    }
+  }
+  mem.seen = now;
+  return out;
+}
+
+/** Put a toast on the list as of `at` (ms): newest first. The oldest past TOAST_MAX leaves (fades out) at once. */
+export function toastPush(mem, ev, at) {
+  mem.n += 1;
+  // New arrays each time: a list a caller was handed never changes under it.
+  const all = [{ id: `toast-${mem.n}`, kind: ev.kind, head: ev.head, body: ev.body, hint: ev.hint || toastHint(ev.kind), who: ev.who || "", at, out: null }, ...mem.list];
+  mem.list = all.slice(0, TOAST_MAX);
+  mem.leaving = [...mem.leaving, ...all.slice(TOAST_MAX).map((t) => ({ ...t, out: at }))];
+}
+
+/** Take a toast away (it was clicked): at once, with no leaving. */
+export function toastDismiss(mem, id) {
+  mem.list = mem.list.filter((t) => t.id !== id);
+  mem.leaving = mem.leaving.filter((t) => t.id !== id);
+}
+
+/** Where a toast is in its life at `now`: "in" (just mounted, drawn faded and up), "show", or "out" (leaving). */
+export function toastPhase(t, now) {
+  if (t.out !== null && t.out !== undefined) return "out";
+  return now - t.at < TOAST_ENTER_MS ? "in" : "show";
+}
+
+/**
+ * One step: raise what the crew's change calls for, move the toasts whose time is up to `leaving`, drop those that have
+ * finished leaving, and say how long until the next one goes (`nextMs`, null when none is showing) and until the next
+ * change of phase (`animMs`, null when none), so the office asks for a render then and no timer repeats.
+ */
+export function toastStep(mem, crew, now) {
+  for (const ev of raised(mem, crew)) toastPush(mem, ev, now);
+  const expired = mem.list.filter((t) => now - t.at >= TOAST_MS);
+  mem.list = mem.list.filter((t) => now - t.at < TOAST_MS);
+  mem.leaving = [...mem.leaving, ...expired.map((t) => ({ ...t, out: t.at + TOAST_MS }))].filter((t) => now - t.out < TOAST_EXIT_MS);
+  const next = mem.list.length ? Math.min(...mem.list.map((t) => t.at + TOAST_MS - now)) : null;
+  const marks = [...mem.list.map((t) => t.at + TOAST_ENTER_MS), ...mem.leaving.map((t) => t.out + TOAST_EXIT_MS)].map((x) => x - now).filter((ms) => ms > 0);
+  return { list: mem.list, leaving: mem.leaving, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
 }
