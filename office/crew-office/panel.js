@@ -11,6 +11,8 @@ import { bustEl, iconEl } from "./draw.js";
 import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
 import { chipsFor, emojiFile, normalise, ownerHas, pngIsSize, pxFor, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, withReactionLines, writeOwner } from "./reactions.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, ownerName, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
+// How many of the newest rows' reactions the log follows (see chatLog).
+const FOLLOW_ROWS = 3;
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
@@ -311,6 +313,8 @@ export class Panel {
     const entry = { text };
     this.pending.push(entry);
     st.set_value("");
+    // Draw the message now, so it shows and the log scrolls to it at once, not when loh has delivered it.
+    cx.notify();
     // The reactions the agent has not heard of go in front of the text, one line each.
     const included = this.owner.filter((e) => e.gone || !e.told);
     const c = tellCall(a, this.host.loh(), withReactionLines(this.owner, ownerName(this.person()), text));
@@ -539,6 +543,7 @@ export class Panel {
     const { shown } = withPending(this.turns, this.pending);
     const log = groupLog(shown, a.name, this.person());
     const eyes = seenId(shown);
+    let lastChips = "";
     const rows = log.map(({ m, head, key: id }, i) => {
       const who = speaker(m, a.name, this.person());
       const mine = m.role === "user" && !m.launch;
@@ -553,6 +558,7 @@ export class Panel {
       // taller above and below his group, so its edge sits 8 px from the neighbour and 8 px from his own content.
       const pic = this.width < 320 ? 24 : 32;
       const chips = chipsFor(m, { owner: this.owner, agent: this.agentR, eyes });
+      if (i >= log.length - FOLLOW_ROWS) lastChips += `${i}:${chips.map((c) => `${c.by}${c.emoji}`).join("")};`;
       const sp = rowSpace(log, i);
       const text = v_flex().flex_1().min_w(0).gap(4)
         .when(head, (el) => el.child(h_flex().gap(6).items_baseline()
@@ -576,9 +582,11 @@ export class Panel {
       return row;
     });
     // Follow the newest turn. The window holds at most 40 turns, so once it is full a new turn leaves the count
-    // unchanged: the newest row's key is what says something arrived (or that Matt just sent one). The kit
-    // cannot read the scroll offset, so this always jumps.
-    const end = log.length ? log[log.length - 1].key : null;
+    // unchanged: the newest row's key is what says something arrived (or that Matt just sent one). A reaction
+    // added to or taken off one of the last FOLLOW_ROWS rows makes it taller or shorter and pushes the newest
+    // row out of view, so their chips are part of the key too. One on an older row leaves the log where it is.
+    // The kit cannot read the scroll offset, so this always jumps.
+    const end = log.length ? `${log[log.length - 1].key}|${lastChips}` : null;
     if (end !== this.logEnd && end !== null) {
       this.logEnd = end;
       this.scroll.scroll_to_item(log.length - 1);

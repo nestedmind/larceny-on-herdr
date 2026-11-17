@@ -48,7 +48,7 @@ const dead = (what) => { deadUses.push(what); throw new Error("cx is no longer v
 const tasks = [], taskErrors = [];
 const mkcx = () => {
   const cx = { alive: true,
-    notify() { if (!cx.alive) dead("notify"); },
+    notify() { if (!cx.alive) dead("notify"); globalThis.NOTIFIES = (globalThis.NOTIFIES || 0) + 1; },
     stop_propagation() { (globalThis.STOPS ||= []).push(1); },
     write_to_clipboard(t) { (globalThis.CLIP ||= []).push(t); },
     spawn(fn) {
@@ -256,6 +256,44 @@ draw();
 console.log(JSON.stringify(globalThis.SCROLLS));'
   [ "$status" -eq 0 ]
   [ "$output" = "[39,39,40]" ]
+}
+
+@test "scroll: a sent message is drawn at once, before loh has delivered it" {
+  run panel_js '
+input.text = "Hey Scofield";
+globalThis.NOTIFIES = 0;
+click((cx) => panel.send(cx));
+const before = globalThis.NOTIFIES;
+calls()[0].resolve({ code: 0, stdout: "", stderr: "" });
+await settle();
+console.log(before > 0, panel.pending.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 1" ]
+}
+
+@test "scroll: a reaction added to or taken off one of the newest turns scrolls the log to the end again; one on an older turn does not" {
+  run panel_js '
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" };
+const draw = () => click((cx) => panel.render(th, {}, cx));
+panel.turns = [{ role: "assistant", id: "a0", text: "old", ts: "2026-11-15T10:00:00Z" }, { role: "user", id: "u0", text: "x", ts: "2026-11-15T10:00:30Z" }, { role: "assistant", id: "a2", text: "y", ts: "2026-11-15T10:00:40Z" }, { role: "user", id: "u1", text: "Hi", ts: "2026-11-15T10:01:00Z" }, { role: "assistant", id: "a1", text: "newest", ts: "2026-11-15T10:02:00Z" }];
+draw(); draw();
+const n0 = globalThis.SCROLLS.length;
+panel.owner = [{ id: "a1", emoji: "👍" }];
+draw(); draw();
+const n1 = globalThis.SCROLLS.length;
+panel.owner = [{ id: "a1", emoji: "👍" }, { id: "a0", emoji: "❤️" }];
+draw();
+const n2 = globalThis.SCROLLS.length;
+panel.owner = [{ id: "a0", emoji: "❤️" }];
+draw();
+const n3 = globalThis.SCROLLS.length;
+panel.pending = [{ text: "mine" }];
+draw();
+panel.owner = [{ id: "a0", emoji: "❤️" }, { id: "a1", emoji: "😂" }];
+draw();
+console.log(n0, n1, n2, n3, globalThis.SCROLLS.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 2 2 3 5" ]
 }
 
 @test "scroll: the activity feed follows its newest row when it is full" {
