@@ -351,3 +351,19 @@ setup() {
   run --separate-stderr "$LOH" spawn sucre api
   [[ "$stderr" == *"--brief <text>"* && "$stderr" == *"--brief-file <path>"* ]]
 }
+
+@test "the coder prompt template holds exactly one {{brief}} marker" {
+  [ "$(grep -o '{{brief}}' "$REPO_ROOT/lib/loh/prompts/coder.md" | wc -l)" -eq 1 ]
+}
+
+@test "spawn dies before making a worktree when the template has no {{brief}} marker" {
+  tdir="$BATS_TEST_TMPDIR/loh-copy"
+  cp -r "$REPO_ROOT" "$tdir"
+  sed -i 's/{{brief}}//' "$tdir/lib/loh/prompts/coder.md"
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run --separate-stderr "$tdir/bin/loh" spawn sucre api 12
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"{{brief}}"* ]]
+  [ ! -e "$WT" ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}

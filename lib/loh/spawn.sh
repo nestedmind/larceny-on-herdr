@@ -70,6 +70,15 @@ repo_path="$(repo_dir "$i")"
 config="$repo_path/.larceny/config.md"
 [[ -f "$config" ]] || die "no .larceny/config.md in $repo_path (run /larceny:onboard there first)"
 
+# The prompt template must hold exactly one {{brief}} marker, or the split
+# below would send a doubled or brief-less prompt.
+template_file="$LOH_ROOT/lib/loh/prompts/coder.md"
+template="$(<"$template_file")"
+marker='{{brief}}'
+without="${template//"$marker"/}"
+[[ $(((${#template} - ${#without}) / ${#marker})) -eq 1 ]] ||
+  die "$template_file must contain exactly one $marker marker"
+
 # The name must be free: refuse a live terminal, clear a finished one.
 case "$(agent_state "$coder")" in
   live) die "$coder is already live; end it first (hc kill $coder) or pick another coder" ;;
@@ -131,7 +140,6 @@ rules="${rules%$'\n'}"
 
 # The brief goes in at {{brief}}. Split the template there first, so nothing in
 # the brief (or in a rule) is ever read as a placeholder.
-template="$(<"$LOH_ROOT/lib/loh/prompts/coder.md")"
 head_part="${template%%'{{brief}}'*}"
 tail_part="${template#*'{{brief}}'}"
 brief_block=""
