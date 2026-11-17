@@ -485,15 +485,15 @@ export default class CrewOffice extends View {
   // The floor is the same for as long as the plan is, but drawn as paths it was painted again on every animated frame
   // (about a third of a frame's time). Its SVG goes once into a folder of its own in herdr's folder, named by the plan and
   // the picture's size; image() then loads it and the renderer keeps it. herdr rasterises an image at its own size, so the
-  // picture is written at a whole number of pixels a world unit, at least twice the scale, and a new size means a new file;
+  // picture is written at a whole number of pixels a world unit, 2 to 6 and about one and a half times the scale (a bigger one costs memory by the square), and a new size means a new file;
   // until that one is there the last one for the plan stays. Returns the path image() takes when there is a file, else
-  // null (the floor view draws). At most FLOOR_FILES pictures stay in the folder.
+  // null (the floor view draws). Each copy of the mod (MOD) has a folder of its own, so a copy under test never deletes the picture another is using; at most FLOOR_FILES pictures stay in it.
   floorPicture(key, layer, L, k) {
-    const per = Math.max(2, Math.ceil(2 * k));
+    const per = Math.min(6, Math.max(2, Math.ceil(1.5 * k)));
     const id = `${key}|${per}`;
     let p = this.pics.get(id);
     if (!p) {
-      const dir = `${appHome()}/${FLOOR_DIR}`;
+      const dir = `${appHome()}/${FLOOR_DIR}/${MOD}`;
       const name = floorSvgName(key, per);
       p = { key, rel: imagePath(appHome(), `${dir}/${name}`), name, ready: false };
       this.pics.set(id, p);

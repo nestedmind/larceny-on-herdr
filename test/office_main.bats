@@ -1210,31 +1210,34 @@ const before = globalThis.IMAGES.length;
 tick();
 await new Promise((r) => setTimeout(r, 80));
 render();
-const names = (await fs.readdir(home + "/crew-office-floors")).filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f));
-const text = names.length ? await fs.readFile(home + "/crew-office-floors/" + names[0], "utf8") : "";
-// The picture is drawn at its own size, a whole number of pixels a world unit that is at least twice the scale.
+const names = (await fs.readdir(home + "/crew-office-floors/crew-office")).filter((f) => /^crew-office-floor-[0-9a-f]{8}\.svg$/.test(f));
+const text = names.length ? await fs.readFile(home + "/crew-office-floors/crew-office/" + names[0], "utf8") : "";
+// The picture is drawn at its own size, a whole number of pixels a world unit, 2 to 6.
 const size = /width="([0-9.]+)" height="([0-9.]+)"/.exec(text);
 const per = size ? Number(size[1]) / Number(/viewBox="0 0 ([0-9.]+) /.exec(text)[1]) : 0;
-console.log(noFile, before, globalThis.IMAGES.length, names.length, globalThis.IMAGES[0] === "crew-office-floors/" + names[0], text.startsWith("<svg") && text.endsWith("</svg>"), Math.abs(per - Math.round(per)) < 0.01 && per >= 2 && per <= 8);'
+console.log(noFile, before, globalThis.IMAGES.length, names.length, globalThis.IMAGES[0] === "crew-office-floors/crew-office/" + names[0], text.startsWith("<svg") && text.endsWith("</svg>"), Math.abs(per - Math.round(per)) < 0.01 && per >= 2 && per <= 6);'
   [ "$status" -eq 0 ]
   [ "$output" = "0 0 1 1 true true true" ]
 }
 
-@test "no more than a dozen floor pictures stay in herdr's folder, the one just written among them, and nothing else there is touched" {
+@test "no more than a dozen floor pictures stay in this copy's folder, the one just written among them, and nothing else, another copy's folder included, is touched" {
   run office_js '
 const fs = await import("node:fs/promises");
 const os = await import("node:os");
 const home = await fs.mkdtemp(os.tmpdir() + "/loh-home-");
-await fs.mkdir(home + "/crew-office-floors");
-for (let i = 0; i < 20; i++) await fs.writeFile(home + "/crew-office-floors/crew-office-floor-" + String(i).padStart(8, "0") + ".svg", "old");
-await fs.writeFile(home + "/crew-office-floors/notes.txt", "mine");
+await fs.mkdir(home + "/crew-office-floors/crew-office", { recursive: true });
+await fs.mkdir(home + "/crew-office-floors/other-copy", { recursive: true });
+await fs.writeFile(home + "/crew-office-floors/other-copy/crew-office-floor-00000000.svg", "theirs");
+for (let i = 0; i < 20; i++) await fs.writeFile(home + "/crew-office-floors/crew-office/crew-office-floor-" + String(i).padStart(8, "0") + ".svg", "old");
+await fs.writeFile(home + "/crew-office-floors/crew-office/notes.txt", "mine");
 office.pics.clear(); globalThis.APP_HOME = home; globalThis.IMAGES = [];
 render();
 for (const t of timers.splice(0)) if (!t.cancelled && t.ms === 1) t.fn(cx);
 await new Promise((r) => setTimeout(r, 120));
-const names = await fs.readdir(home + "/crew-office-floors");
+const names = await fs.readdir(home + "/crew-office-floors/crew-office");
+const theirs = await fs.readdir(home + "/crew-office-floors/other-copy");
 const svgs = names.filter((f) => f.endsWith(".svg"));
-console.log(svgs.length <= 12, svgs.filter((f) => !/^crew-office-floor-0000/.test(f)).length === 1, names.includes("notes.txt"));'
+console.log(svgs.length <= 12, svgs.filter((f) => !/^crew-office-floor-0000/.test(f)).length === 1, names.includes("notes.txt"), theirs.length === 1);'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true true" ]
+  [ "$output" = "true true true true" ]
 }
