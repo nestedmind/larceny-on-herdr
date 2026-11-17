@@ -80,12 +80,29 @@ office_open_cmd() {
 # in <workspace root>/.loh/office-tab, which `loh office` reads to close the
 # tab on the next reload. Sets OFFICE_NEW_TAB to the id, empty when herdr-app
 # gave none (the saved file is then removed, so it never names a stale tab).
-# Fails, printing herdr-app's error, when the tab could not be opened; the saved
+# When herdr-app has no space open (closing its last tab closes the space, and
+# a scripted tab.new will not make one), it makes one with space.new first.
+# Fails when a space or the tab could not be made, setting OFFICE_ERR to
+# herdr-app's own error text (it writes its error JSON to stdout); the saved
 # file is left as it was. `loh init` and `loh office` both open the tab here.
 office_new_tab() {
-  local ws="$1" props="$2" out
+  local ws="$1" props="$2" out status
   OFFICE_NEW_TAB=""
-  out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props")" || return 1
+  # shellcheck disable=SC2034 # read by office.sh and init.sh
+  OFFICE_ERR=""
+  status="$(herdr-app status 2>/dev/null || true)"
+  if jq -e 'type == "object" and has("space") and .space == null' <<<"$status" >/dev/null 2>&1; then
+    if ! out="$(herdr-app "do" space.new 2>&1)"; then
+      # shellcheck disable=SC2034
+      OFFICE_ERR="$out"
+      return 1
+    fi
+  fi
+  if ! out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props" 2>&1)"; then
+    # shellcheck disable=SC2034
+    OFFICE_ERR="$out"
+    return 1
+  fi
   OFFICE_NEW_TAB="$(jq -r '.tab // empty' <<<"$out" 2>/dev/null || true)"
   if [[ -n "$OFFICE_NEW_TAB" ]]; then
     mkdir -p "$ws/.loh"

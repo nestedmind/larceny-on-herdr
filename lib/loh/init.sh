@@ -382,7 +382,7 @@ elif command -v herdr-app >/dev/null 2>&1 && herdr-app status >/dev/null 2>&1; t
   if office_new_tab "$ws" "$props" >/dev/null; then
     echo "opened the office tab for $WS_NAME"
   else
-    echo "could not open the office tab; open it with: $open_cmd"
+    echo "could not open the office tab${OFFICE_ERR:+ ($OFFICE_ERR)}; open it with: $open_cmd"
   fi
 else
   echo "herdr-app is not available; open the office later with: $open_cmd"

@@ -129,6 +129,37 @@ fresh_heartbeat() { date +%s >"$WS/.loh/office-open"; }
   [ "$(cat "$WS/.loh/office-tab")" = tbOLD ]
 }
 
+@test "a failed tab.new shows herdr-app's own error as well as the command" {
+  export FAKE_APP_NEW_EXIT=1
+  run --separate-stderr "$LOH" office
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"tab.new failed: boom"* ]]
+  [[ "$stderr" == *"herdr-app do tab.new --name office"* ]]
+}
+
+@test "with no space open it makes one with space.new, then opens the tab" {
+  export FAKE_APP_SPACE=0
+  run "$LOH" office
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"opened the office tab"* ]]
+  [ "$(grep -n $'^do\tspace.new' "$FAKE_APP_LOG" | cut -d: -f1)" -lt "$(grep -n $'^do\ttab.new' "$FAKE_APP_LOG" | cut -d: -f1)" ]
+  [ "$(cat "$WS/.loh/office-tab")" = tb1 ]
+}
+
+@test "with a space open it does not call space.new" {
+  run "$LOH" office
+  [ "$status" -eq 0 ]
+  ! grep -q $'^do\tspace.new' "$FAKE_APP_LOG"
+}
+
+@test "when space.new fails it shows herdr-app's error and opens no tab" {
+  export FAKE_APP_SPACE=0 FAKE_APP_SPACE_EXIT=1
+  run --separate-stderr "$LOH" office
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"space.new failed: boom"* ]]
+  ! grep -q $'^do\ttab.new' "$FAKE_APP_LOG"
+}
+
 @test "an argument other than --close is a usage error" {
   run --separate-stderr "$LOH" office now
   [ "$status" -eq 2 ]
