@@ -79,3 +79,23 @@ SH
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"HC_TERMINAL_ID"* ]]
 }
+
+@test "react --set-owner writes the owner's store of an agent, replacing the file, in a folder not made yet" {
+  rmdir "$WS/.loh/reactions" 2>/dev/null || true
+  run "$LOH" react --set-owner yoda '[{"id":"a","emoji":"👍","excerpt":"x","told":false,"gone":false}]'
+  [ "$status" -eq 0 ]
+  run "$LOH" react --set-owner yoda '[]'
+  [ "$status" -eq 0 ]
+  [ "$(cat "$WS/.loh/reactions/yoda.owner.json")" = '[]' ]
+  [ "$(ls "$WS/.loh/reactions")" = "yoda.owner.json" ]
+}
+
+@test "react --set-owner refuses a store that is not a list and a name that is not an agent's" {
+  run "$LOH" react --set-owner yoda '{"a":1}'
+  [ "$status" -ne 0 ]
+  run "$LOH" react --set-owner ../yoda '[]'
+  [ "$status" -ne 0 ]
+  run "$LOH" react --set-owner yoda
+  [ "$status" -eq 2 ]
+  [ ! -e "$WS/.loh/reactions/yoda.owner.json" ]
+}

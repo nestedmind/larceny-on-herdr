@@ -130,12 +130,20 @@ export async function readStore(fs, dir, agent, who) {
   try { return parseStore(String(await fs.readFile(storePath(dir, agent, who), "utf8")), who); } catch (_) { return []; }
 }
 
-/** Write the owner's store whole, through a temporary file, so a read never sees half of it. */
-export async function writeOwner(fs, dir, agent, entries) {
-  const path = storePath(dir, agent, "owner");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(`${path}.tmp`, JSON.stringify(entries) + "\n");
-  await fs.rename(`${path}.tmp`, path);
+/**
+ * The command that saves the owner's store of `agent` (loh react --set-owner). The office cannot write the file itself:
+ * herdr lets a mod write only under its own folder, and its fs has no rename. loh runs in the workspace folder, found
+ * from the reactions folder `dir` (<workspace>/.loh/reactions); a folder of another shape is its own cwd.
+ */
+export function ownerWriteCall(loh, dir, agent, entries) {
+  const root = dir.replace(/\/\.loh\/reactions\/?$/, "");
+  return { cmd: loh || "loh", args: ["react", "--set-owner", agent, JSON.stringify(entries)], options: { cwd: root || "/", timeout: 10000 } };
+}
+
+/** Two owner lists as one: every entry of `mine` and, after them, each of `disk` that `mine` has no entry for (same message and emoji). */
+export function mergeStores(disk, mine) {
+  const same = (x, y) => x.id === y.id && x.emoji === y.emoji;
+  return [...disk.filter((d) => !mine.some((m) => same(d, m))), ...mine];
 }
 
 // The six as images (ticket #77): herdr draws emoji text in one colour, so the office draws these PNGs (emoji/NOTICE.md).

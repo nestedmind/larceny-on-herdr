@@ -9,7 +9,7 @@ import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from 
 import { terminals, exec, home, appHome } from "herdr";
 import { bustEl, iconEl } from "./draw.js";
 import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
-import { chipsFor, emojiFile, normalise, ownerHas, pngIsSize, pxFor, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, withReactionLines, writeOwner } from "./reactions.js";
+import { chipsFor, emojiFile, normalise, ownerHas, pngIsSize, pxFor, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, mergeStores, ownerWriteCall, withReactionLines } from "./reactions.js";
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, ownerName, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 // How many of the newest rows' reactions the log follows (see chatLog).
 const FOLLOW_ROWS = 3;
@@ -71,6 +71,8 @@ export class Panel {
     this.agentR = []; // the agent's reactions on the owner's messages
     this.ownerFor = null; // the agent whose owner store this.owner was read from
     this.saved = Promise.resolve(); // the owner's store writes, one after another
+    this.unsaved = new Map(); // rawName -> { entries, address, blind }: the owner's store not written yet, the last one for each agent
+                              // (blind: made without reading the file first, so it is merged into what the file holds)
     this.emojiAsked = false; // the six images have been looked at (once; see loadEmoji)
     this.emojiSrcs = new Map(); // emoji -> the path of its image, for each that is there and the right size; the rest are drawn as glyphs
   }
@@ -257,9 +259,12 @@ export class Panel {
 
   // Read both reaction stores of the agent. The owner's is read once per agent (this panel is its only writer); the
   // agent's every time, since `loh react` writes it from outside. A folder not known yet, or a failed read, leaves them.
+  // An owner store not saved yet is saved first (it was made before the folder was known) and merged with the file.
   async loadReactions(a) {
     const dir = this.reactDir;
     if (!dir || this.address !== a.address) return;
+    if (this.unsaved.has(a.rawName)) await this.flushOwner();
+    if (this.address !== a.address) return;
     if (this.ownerFor !== a.address) {
       this.owner = await readStore(fs, dir, a.rawName, "owner");
       this.ownerFor = a.address;
@@ -277,13 +282,41 @@ export class Panel {
     cx.notify();
   }
 
-  // Write the owner's store, after any write still going. A failure (no folder yet, a full disk) leaves the chips
-  // on screen for this session only.
+  // Keep the owner's store of an agent for writing and write it, after any write still going. With no folder known yet
+  // it waits for one (the next log load writes it). `loh` does the writing, so a store made before the file was read
+  // is merged into the file's entries instead of replacing them.
   saveOwner(a, entries, cx) {
+    const old = this.unsaved.get(a.rawName);
+    this.unsaved.set(a.rawName, { entries, address: a.address, blind: (old && old.blind) || this.ownerFor !== a.address });
+    this.flushOwner();
+    if (cx) cx.spawn(async (c) => { await this.saved; c.notify(); });
+  }
+
+  // Write every owner store waiting, one after another. A failure is logged (the office's log is the console) and the
+  // chips stay on screen for this session; there is no toast for it.
+  flushOwner() {
     const dir = this.reactDir;
-    if (!dir) return;
-    this.saved = this.saved.then(() => writeOwner(fs, dir, a.rawName, entries)).catch(() => {});
-    cx.spawn(async () => { await this.saved; });
+    if (!dir || !this.unsaved.size) return this.saved;
+    const jobs = [...this.unsaved];
+    this.unsaved.clear();
+    const loh = this.host.loh ? this.host.loh() : "";
+    this.saved = this.saved.then(async () => {
+      for (const [name, u] of jobs) {
+        try {
+          let entries = u.entries;
+          if (u.blind) {
+            entries = mergeStores(await readStore(fs, dir, name, "owner"), entries);
+            if (this.address === u.address) { this.owner = entries; this.ownerFor = u.address; }
+          }
+          const c = ownerWriteCall(loh, dir, name, entries);
+          const r = await exec(c.cmd, c.args, c.options);
+          if (r.code !== 0) throw new Error(String(r.stderr || `loh exited ${r.code}`).trim().slice(0, 200));
+        } catch (e) {
+          try { console.error(`office reactions: saving ${name}'s owner reactions failed: ${String((e && e.message) || e).slice(0, 200)}`); } catch (_) { /* logging only */ }
+        }
+      }
+    });
+    return this.saved;
   }
 
   // After a message with the reaction lines went out: those reactions are told. Done on the stored list, so an agent
@@ -293,10 +326,8 @@ export class Panel {
     const list = dir && this.ownerFor !== a.address ? await readStore(fs, dir, a.rawName, "owner") : this.owner;
     const next = markTold(list, included);
     if (this.address === a.address) this.owner = next;
-    if (dir) {
-      this.saved = this.saved.then(() => writeOwner(fs, dir, a.rawName, next)).catch(() => {});
-      await this.saved;
-    }
+    this.unsaved.set(a.rawName, { entries: next, address: a.address, blind: !dir && this.ownerFor !== a.address });
+    await this.flushOwner();
     cx.notify();
   }
 

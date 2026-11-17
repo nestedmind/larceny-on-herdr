@@ -128,15 +128,14 @@ console.log(JSON.stringify([r.parseStore(t, "agent"), r.parseStore(t, "owner"), 
   [ "$output" = '[[{"id":"a","emoji":"👍"},{"id":"c","emoji":"✅"}],[{"id":"a","emoji":"👍","excerpt":"","told":false,"gone":false},{"id":"c","emoji":"✅","excerpt":"x","told":true,"gone":false}],[],[]]' ]
 }
 
-@test "the owner's store is written to a file and read back, and a missing folder is made" {
-  run react_js '
-import("node:fs/promises").then(async (fs) => {
-  const dir = process.env.BATS_TEST_TMPDIR + "/store/deep";
-  const e = [{ id: "a", emoji: "👍", excerpt: "x", told: false, gone: false }];
-  await r.writeOwner(fs, dir, "scofield", e);
-  console.log(JSON.stringify([await r.readStore(fs, dir, "scofield", "owner"), await r.readStore(fs, dir, "nobody", "owner"), (await fs.readdir(dir))]));
-});'
-  [ "$output" = '[[{"id":"a","emoji":"👍","excerpt":"x","told":false,"gone":false}],[],["scofield.owner.json"]]' ]
+@test "the owner's store is saved by loh from the workspace folder, whole, as one argument" {
+  run react_js 'console.log(JSON.stringify([r.ownerWriteCall("/bin/loh", "/ws/.loh/reactions", "scofield", [{ id: "a", emoji: "👍" }]), r.ownerWriteCall("", "/elsewhere/reactions", "yoda", [])]))'
+  [ "$output" = '[{"cmd":"/bin/loh","args":["react","--set-owner","scofield","[{\"id\":\"a\",\"emoji\":\"👍\"}]"],"options":{"cwd":"/ws","timeout":10000}},{"cmd":"loh","args":["react","--set-owner","yoda","[]"],"options":{"cwd":"/elsewhere/reactions","timeout":10000}}]' ]
+}
+
+@test "two owner lists merge: all of the newer, then the older entries it has no entry for" {
+  run react_js 'console.log(JSON.stringify(r.mergeStores([{ id: "a", emoji: "👍", gone: false }, { id: "b", emoji: "✅" }], [{ id: "a", emoji: "👍", gone: true }, { id: "c", emoji: "❌" }])))'
+  [ "$output" = '[{"id":"b","emoji":"✅"},{"id":"a","emoji":"👍","gone":true},{"id":"c","emoji":"❌"}]' ]
 }
 
 @test "the office asks loh for the reactions folder in the workspace's folder, and takes a line that is a path" {
