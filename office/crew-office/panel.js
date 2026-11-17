@@ -13,6 +13,8 @@ import { chipsFor, emojiFile, normalise, ownerHas, pngIsSize, pxFor, readStore, 
 import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, ownerName, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 // How many of the newest rows' reactions the log follows (see chatLog).
 const FOLLOW_ROWS = 3;
+// How long after a new newest row the log asks to reveal it again (see chatLog).
+const FOLLOW_AGAIN_MS = 50;
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
@@ -509,7 +511,7 @@ export class Panel {
     return v_flex().id("panel").size_full().overflow_hidden().gap(0).font_family(FONT).bg(t.canvas).border_l(1).border_color(t.border)
       .child(top)
       .child(tabs)
-      .child(this.tab === "chat" ? this.chatLog(t, a) : this.activity(t))
+      .child(this.tab === "chat" ? this.chatLog(t, a, cx) : this.activity(t))
       .child(composer);
   }
 
@@ -539,7 +541,7 @@ export class Panel {
 
   // The log, Discord-style: a photo column (the placeholder is a round swatch until #35), the name and time,
   // and every line of text aligned with the name. Matt's turns sit in a shaded band across the panel.
-  chatLog(t, a) {
+  chatLog(t, a, cx) {
     const { shown } = withPending(this.turns, this.pending);
     const log = groupLog(shown, a.name, this.person());
     const eyes = seenId(shown);
@@ -589,7 +591,17 @@ export class Panel {
     const end = log.length ? `${log[log.length - 1].key}|${lastChips}` : null;
     if (end !== this.logEnd && end !== null) {
       this.logEnd = end;
-      this.scroll.scroll_to_item(log.length - 1);
+      const last = log.length - 1;
+      this.scroll.scroll_to_item(last);
+      // A row added in this render is not laid out yet when the request is read, so the reveal can stop short
+      // of it (or miss it) until something redraws the log. Ask once more a moment later, with a render.
+      if (cx && cx.timer) {
+        cx.timer.after(FOLLOW_AGAIN_MS, (c) => {
+          if (this.logEnd !== end) return;
+          this.scroll.scroll_to_item(last);
+          try { c.notify(); } catch (_) { /* the view was reloaded or closed */ }
+        });
+      }
     }
     // The rows are direct children of the scroll area: scroll_to_item reveals a direct child
     // (gpui-kit.d.ts, ScrollHandle), so a wrapper would leave the newest one out of reach.
