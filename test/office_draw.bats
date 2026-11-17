@@ -483,3 +483,22 @@ import("./crew.mjs").then((crew) => {
   [ "$status" -eq 0 ]
   [ "$output" = "true true false false" ]
 }
+
+@test "on a wide floor the kitchen's left counter keeps 3 units from the left wall and its right counter 2 from the right wall" {
+  run draw_js '
+import("./crew.mjs").then((crew) => {
+  const out = [];
+  for (const repos of [["api", "web"], ["api", "web", "docs"]]) {
+    const L = crew.layoutCrew([], repos, 0, {});
+    const g = draw.floorLayer(L, 3);
+    const kit = L.rooms.find((r) => r.kind === "kitchen");
+    // A counter is a 11 unit tall rounded box in the counter grey: the div is in world units.
+    const cs = g.ops.filter((o) => o.div && o.div.r >= 0 && o.fill === draw.PAL.counter && o.div.h === 11)
+      .map((o) => ({ x: o.div.x, w: o.div.w })).sort((a, b) => a.x - b.x);
+    out.push(cs.length, +(cs[0].x - kit.x).toFixed(2), +(kit.x + kit.w - (cs[1].x + cs[1].w)).toFixed(2));
+  }
+  console.log(out.join(" "));
+});'
+  [ "$status" -eq 0 ]
+  [ "$output" = "2 3 2 2 3 2" ]
+}
