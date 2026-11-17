@@ -240,7 +240,7 @@ herdr-app runs on Apple Silicon Macs and on Linux with Vulkan (x86-64 and ARM64)
 
 `install.sh` at the repo root does the setup in one safe-to-repeat run (ticket #111): it checks the prerequisites and asks before installing any, runs `gh auth login` when needed, installs the plugin with `claude plugin`, adds the `PATH` line and links the office mod. herdr-core and `hc` install pinned to the tested version with `curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh` (the installer reads `HC_VERSION`). herdr-app's installer has no version pin, so the script says it installs the latest and that 0.1.15 is the tested one, then asks. It installs with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` (macOS Apple silicon, Linux x86-64 and ARM64). The README checklist stays below it.
 
-1. **Prerequisites:** herdr-core and `hc` 0.1.20, herdr 0.9.5, larceny 0.1.4, `gh` logged in, and optionally persona token files under `~/.config/larceny/`. herdr-app 0.1.15 is needed for the office.
+1. **Prerequisites:** herdr-core and `hc` 0.1.20, herdr 0.9.5, larceny 0.1.5, `gh` logged in, and optionally persona token files under `~/.config/larceny/`. herdr-app 0.1.15 is needed for the office.
 2. **Install the plugin** from this repo as a local marketplace.
 3. **Write `.loh/workspace.md`** in the workspace root.
 4. **Run `loh up`**, then open herdr-app, where `herdr-app do terminal.keep --terminal <tN>` shows a terminal. Talk to Scofield.
@@ -315,7 +315,7 @@ The four unknowns that phase 0 set out to answer are resolved. The risks that re
 | A finished terminal still holds its name | The next coder cannot start under that name | `loh spawn` removes a finished terminal before reusing the name, and refuses a live one |
 | Standing agents' context grows | Amy gets slower and vaguer | Restart standing agents after a set number of reviews, as larceny already advises; coders stay fresh per ticket |
 | Six to eight sessions on one machine | Plan limits, memory, CPU, and about 228k startup tokens per session on the first machine | A cap of 4 live coders, written in the skill; long-lived standing agents amortise the startup cost |
-| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.15, larceny 0.1.4 at dd27cf1); decline core updates; phase 4 adds a check on the overridden sections |
+| herdr, herdr-app and larceny change fast | Breakage, stale overrides, a mod broken by an API change | Pin the tested herdr and larceny versions (herdr 0.9.5, `hc` 0.1.20, herdr-app 0.1.15, larceny 0.1.5 at TAG-COMMIT-PENDING); decline core updates; phase 4 adds a check on the overridden sections |
 | Whether a label change alone redraws a mod is untested | Status cards might lag | Test it in phase 2 before phase 3 relies on it |
 | Amy's approval comment has its attribution line first | A check that reads only the first line misses `APPROVED at <sha>` | Read the whole comment, and prefer the formal review |
 

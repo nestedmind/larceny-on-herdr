@@ -9,7 +9,7 @@ The larceny crew runs here as separate Claude Code sessions in `hc` terminals, n
 
 ## What this overrides
 
-Paths are in larceny 0.1.4, commit dd27cf1. Where one of these says to use `Agent`, `SendMessage`, `ListAgents`, `isolation: worktree` or a subagent, follow this skill instead.
+Paths are in larceny 0.1.5, commit TAG-COMMIT-PENDING. Where one of these says to use `Agent`, `SendMessage`, `ListAgents`, `isolation: worktree` or a subagent, follow this skill instead.
 
 | larceny section | Replaced by |
 |---|---|
