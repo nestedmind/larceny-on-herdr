@@ -89,6 +89,17 @@ export function reposCall(agent, loh) {
   return { cmd: loh || "loh", args: ["status", "--repos"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
+/** The command that asks where the reactions are kept (loh react --dir). Same folder rules as reposCall. */
+export function reactDirCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["react", "--dir"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
+/** The folder `loh react --dir` printed: its one line when that is an absolute path, else "". */
+export function reactDirOf(out) {
+  const line = String(out || "").trim();
+  return line.startsWith("/") && !line.includes("\n") ? line : "";
+}
+
 /** The command that reads the crew's names (loh crew --json). Same folder rules as reposCall. */
 export function crewCall(agent, loh) {
   return { cmd: loh || "loh", args: ["crew", "--json"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };

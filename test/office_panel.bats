@@ -40,7 +40,7 @@ export const exec = (c, a, o) => new Promise((resolve, reject) => {
 });
 JS
   echo '{"type":"module"}' > "$d/package.json"
-  for f in panel chat crew draw photos; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in panel chat crew draw photos reactions; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 import { Panel } from "./panel.mjs";
 const deadUses = [];
@@ -395,4 +395,118 @@ const p = panel.photos.get("yoda");
 console.log(JSON.stringify([first, globalThis.THUMB_CALLS.length, globalThis.THUMB_CALLS[0] === "photos thumbs " + dir, p.path.slice(dir.length), p.w, p.h, p.crop, taskErrors]));'
   [ "$status" -eq 0 ]
   [ "$output" = '["/yoda.png",2,true,"/.thumbs/yoda.default.png",128,128,null,[]]' ]
+}
+
+# Reactions (#77): the owner's clicks, the lines the next message carries, and the stores read back.
+react_dir() { mkdir -p "$BATS_TEST_TMPDIR/reactions"; printf '%s' "$BATS_TEST_TMPDIR/reactions"; }
+
+@test "reactions: a transcript turn's id is kept and its leading reaction lines are not shown" {
+  run panel_js '
+panel.host.person = () => "Matt";
+panel.wantKey = "k";
+click((cx) => panel.load(cx));
+calls()[0].resolve({ code: 0, stdout: JSON.stringify([{ role: "assistant", id: "a1", text: "Done", ts: "" }, { role: "user", id: "u1", text: "(Matt reacted 👍 to your message \"Done\")\nThanks", ts: "" }]), stderr: "" });
+await settle();
+console.log(JSON.stringify(panel.turns.map((m) => [m.id, m.text])));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["a1","Done"],["u1","Thanks"]]' ]
+}
+
+@test "reactions: a click shows at once, starts no turn and is saved; a second click takes it back" {
+  local d; d="$(react_dir)"
+  RDIR="$d" run panel_js '
+const fs = await import("node:fs/promises");
+panel.host.reactDir = () => process.env.RDIR;
+const m = { role: "assistant", id: "a1", text: "#61 is merged", ts: "", pending: false };
+click((cx) => panel.react(m, "👍", cx)); await settle();
+const on = JSON.parse(await fs.readFile(process.env.RDIR + "/scofield.owner.json", "utf8"));
+click((cx) => panel.react(m, "👍", cx)); await settle();
+const off = JSON.parse(await fs.readFile(process.env.RDIR + "/scofield.owner.json", "utf8"));
+console.log(JSON.stringify([on, off, globalThis.CALLS || [], taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[{"id":"a1","emoji":"👍","excerpt":"#61 is merged","told":false,"gone":false}],[],[],[],[]]' ]
+}
+
+@test "reactions: the next message carries a line for each reaction, shows only what was typed, and marks them told once sent" {
+  local d; d="$(react_dir)"
+  RDIR="$d" run panel_js '
+const fs = await import("node:fs/promises");
+panel.host.reactDir = () => process.env.RDIR;
+panel.host.person = () => "Matt";
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "#61 is merged\nmore", ts: "" }, "👍", cx)); await settle();
+input.text = "Thanks";
+click((cx) => panel.send(cx));
+const tell = calls()[0].a;
+calls()[0].resolve({ code: 0, stdout: "", stderr: "" });
+await settle();
+const saved = JSON.parse(await fs.readFile(process.env.RDIR + "/scofield.owner.json", "utf8"));
+console.log(JSON.stringify([tell, panel.pending.map((p) => p.text), saved.map((e) => e.told), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["tell","scofield","(Matt reacted 👍 to your message \"#61 is merged\")\nThanks"],["Thanks"],[true],[],[]]' ]
+}
+
+@test "reactions: a message that was refused leaves its reactions untold" {
+  local d; d="$(react_dir)"
+  RDIR="$d" run panel_js '
+panel.host.reactDir = () => process.env.RDIR;
+panel.host.person = () => "Matt";
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "hi", ts: "" }, "✅", cx)); await settle();
+input.text = "Thanks";
+click((cx) => panel.send(cx));
+calls()[0].resolve({ code: 9, stdout: "", stderr: "loh: scofield is blocked on a dialog\n" });
+await settle();
+console.log(JSON.stringify([panel.owner.map((e) => e.told), taskErrors, deadUses]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[[false],[],[]]' ]
+}
+
+@test "reactions: the sent message, back in the transcript with its lines, is the pending one and is not shown twice" {
+  local d; d="$(react_dir)"
+  RDIR="$d" run panel_js '
+panel.host.reactDir = () => process.env.RDIR;
+panel.host.person = () => "Matt";
+click((cx) => panel.react({ role: "assistant", id: "a1", text: "hi", ts: "" }, "👍", cx)); await settle();
+input.text = "Thanks";
+click((cx) => panel.send(cx));
+const sent = calls()[0].a[2];
+calls()[0].resolve({ code: 0, stdout: "", stderr: "" });
+await settle();
+panel.wantKey = "k2";
+click((cx) => panel.load(cx));
+calls()[1].resolve({ code: 0, stdout: JSON.stringify([{ role: "user", id: "u1", text: sent, ts: "2026-11-15T10:00:00Z" }]), stderr: "" });
+await settle();
+console.log(JSON.stringify([panel.pending.length, panel.turns.map((m) => m.text)]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[0,["Thanks"]]' ]
+}
+
+@test "reactions: both stores are read with the log, so a reload keeps them" {
+  local d; d="$(react_dir)"
+  printf '[{"id":"a1","emoji":"❤️","excerpt":"hi","told":true,"gone":false}]\n' >"$d/scofield.owner.json"
+  printf '[{"id":"u1","emoji":"👍"}]\n' >"$d/scofield.agent.json"
+  RDIR="$d" run panel_js '
+panel.host.reactDir = () => process.env.RDIR;
+panel.wantKey = "k";
+click((cx) => panel.load(cx));
+calls()[0].resolve({ code: 0, stdout: "[]", stderr: "" });
+await settle();
+console.log(JSON.stringify([panel.owner, panel.agentR, taskErrors, deadUses]));'
+  [ "$output" = '[[{"id":"a1","emoji":"❤️","excerpt":"hi","told":true,"gone":false}],[{"id":"u1","emoji":"👍"}],[],[]]' ]
+}
+
+@test "reactions: a log with chips on both sides, the bar and the owner's pending message draws without error" {
+  local d; d="$(react_dir)"
+  RDIR="$d" run panel_js '
+panel.host.reactDir = () => process.env.RDIR;
+panel.turns = [{ role: "user", text: "L", launch: true, ts: "" }, { role: "assistant", id: "a1", text: "**Hello**", ts: "2026-11-15T10:01:00Z" }, { role: "user", id: "u1", text: "Hi", ts: "2026-11-15T10:02:00Z" }, { role: "agent", from: "amy", id: "g1", text: "ok", ts: "2026-11-15T10:03:00Z" }];
+panel.owner = [{ id: "a1", emoji: "👍", excerpt: "x", told: false, gone: false }];
+panel.agentR = [{ id: "u1", emoji: "✅" }];
+panel.pending = [{ text: "Sending" }];
+const { groupLog } = await import("./chat.mjs");
+panel.hover = "m-" + groupLog(panel.turns, "Scofield", "")[1].key;
+let bars = 0; globalThis.BARS = () => bars++;
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888", popover: "#101010" };
+click((cx) => panel.render(th, {}, cx));
+console.log("drawn");'
+  [ "$output" = "drawn" ]
 }

@@ -9,7 +9,8 @@ import { v_flex, h_flex, TextareaState, Textarea, TextView, ScrollHandle } from 
 import { terminals, exec, home, appHome } from "herdr";
 import { bustEl, iconEl } from "./draw.js";
 import { imagePath, photoDirs, placement, scanPhotos, squareOf, thumbsCall } from "./photos.js";
-import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
+import { chipsFor, normalise, ownerHas, readStore, REACTIONS, seenId, stripReactionLines, toggleOwner, markTold, withReactionLines, writeOwner } from "./reactions.js";
+import { activityDiff, avatarName, blockedCount, cardRows, clock, copyAll, displayName, copyText, ownerName, enterAction, feedRows, fetchKey, groupLog, markdownOf, parseTranscript, rowSpace, pushFeed, SEND_HINT, sendBlock, speaker, tellCall, tellError, rejectOutcome, tellOutcome, transcriptCall, viaMark, withPending } from "./chat.js";
 
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
@@ -62,7 +63,14 @@ export class Panel {
     this.photosAt = 0; // when the photo folder was last asked for
     this.photosBusy = false;
     this.thumbsBusy = false; // `loh photos thumbs` is running
+    this.owner = []; // the owner's reactions on the selected agent's messages (reactions.js)
+    this.agentR = []; // the agent's reactions on the owner's messages
+    this.ownerFor = null; // the agent whose owner store this.owner was read from
+    this.saved = Promise.resolve(); // the owner's store writes, one after another
   }
+
+  // The folder the reactions are kept in (`loh react --dir`, found by the office), "" when not known yet.
+  get reactDir() { return (this.host.reactDir && this.host.reactDir()) || ""; }
 
   // The panel's width in px, for the 24 px avatar below 320.
   get width() { return this.host.width ? this.host.width() : 360; }
@@ -79,6 +87,9 @@ export class Panel {
       this.logEnd = null;
       this.hover = null;
       this.copied = null;
+      this.owner = [];
+      this.agentR = [];
+      this.ownerFor = null;
     }
     this.agent = a;
     if (!this.inputs.has(a.address)) {
@@ -129,7 +140,7 @@ export class Panel {
     this.agent = a;
     this.blocked = blockedCount(crew);
     const raw = terminals().find((t) => t.address === a.address);
-    this.wantKey = fetchKey(a, raw);
+    this.wantKey = `${fetchKey(a, raw)}|${this.reactDir}`;
     if (this.wantKey !== this.fetchedKey) this.load(cx);
   }
 
@@ -181,11 +192,62 @@ export class Panel {
       if (this.address !== a.address) return;
       this.fetchedKey = key;
       if (r.code === 0) {
-        this.turns = parseTranscript(r.stdout);
+        // The lines that carried the owner's reactions are not shown: the chips under the messages say it.
+        const who = ownerName(this.person());
+        this.turns = parseTranscript(r.stdout).map((m) => {
+          const text = m.role === "user" ? stripReactionLines(m.text, who) : m.text;
+          return text === m.text || text === "" ? m : { ...m, text };
+        });
         this.pending = withPending(this.turns, this.pending).pending;
+        await this.loadReactions(a);
       }
       cx.notify();
     });
+  }
+
+  // Read both reaction stores of the agent. The owner's is read once per agent (this panel is its only writer); the
+  // agent's every time, since `loh react` writes it from outside. A folder not known yet, or a failed read, leaves them.
+  async loadReactions(a) {
+    const dir = this.reactDir;
+    if (!dir || this.address !== a.address) return;
+    if (this.ownerFor !== a.address) {
+      this.owner = await readStore(fs, dir, a.rawName, "owner");
+      this.ownerFor = a.address;
+    }
+    this.agentR = await readStore(fs, dir, a.rawName, "agent");
+  }
+
+  // The owner clicks an emoji on one of the agent's messages: it shows at once and is saved. It starts no turn and runs
+  // no `loh tell`: the agent hears of it with the owner's next message (send).
+  react(m, emoji, cx) {
+    const a = this.agent;
+    if (!a || !m || !m.id || !normalise(emoji)) return;
+    this.owner = toggleOwner(this.owner, m.id, emoji, m.text);
+    this.saveOwner(a, this.owner, cx);
+    cx.notify();
+  }
+
+  // Write the owner's store, after any write still going. A failure (no folder yet, a full disk) leaves the chips
+  // on screen for this session only.
+  saveOwner(a, entries, cx) {
+    const dir = this.reactDir;
+    if (!dir) return;
+    this.saved = this.saved.then(() => writeOwner(fs, dir, a.rawName, entries)).catch(() => {});
+    cx.spawn(async () => { await this.saved; });
+  }
+
+  // After a message with the reaction lines went out: those reactions are told. Done on the stored list, so an agent
+  // the owner has since left for is marked too.
+  async told(a, included, cx) {
+    const dir = this.reactDir;
+    const list = dir && this.ownerFor !== a.address ? await readStore(fs, dir, a.rawName, "owner") : this.owner;
+    const next = markTold(list, included);
+    if (this.address === a.address) this.owner = next;
+    if (dir) {
+      this.saved = this.saved.then(() => writeOwner(fs, dir, a.rawName, next)).catch(() => {});
+      await this.saved;
+    }
+    cx.notify();
   }
 
   send(cx) {
@@ -203,7 +265,9 @@ export class Panel {
     const entry = { text };
     this.pending.push(entry);
     st.set_value("");
-    const c = tellCall(a, this.host.loh(), text);
+    // The reactions the agent has not heard of go in front of the text, one line each.
+    const included = this.owner.filter((e) => e.gone || !e.told);
+    const c = tellCall(a, this.host.loh(), withReactionLines(this.owner, ownerName(this.person()), text));
     // Only a "failed" call (loh refused, nothing was sent) puts the text back. A call that was cut
     // off may still deliver: keep the message in the log as unconfirmed and say so, so a second Send
     // does not send it twice.
@@ -239,6 +303,8 @@ export class Panel {
           st.set_value(text);
         } else if (outcome === "unknown") {
           unknown();
+        } else if (included.length) {
+          await this.told(a, included, cx);
         }
       }
       this.fetchedKey = null;
@@ -302,6 +368,44 @@ export class Panel {
     return h_flex().id(id).w(24).h(24).items_center().justify_center().rounded(5).border_1().border_color(t.border).bg(t.popover)
       .cursor_pointer().tooltip(done ? "Copied" : "Copy").hover((e) => e.bg(t.hover)).on_click(onClick)
       .child(iconEl(done ? "copied" : "copy", 14, t.muted));
+  }
+
+  // The hover bar on an agent's own message (Maya's reactions.md): the six, a divider, then Copy, where the Copy chip was.
+  // 28 px tall: a 1 px edge, 1 px inside it, seven 24 px cells and 4 px either side of the divider. A cell the owner
+  // has is lit with `accent` at 15 % and a 1 px accent edge. A click on a cell reacts and goes no further.
+  reactBar(id, m, copied, onCopy, t) {
+    const cell = (emoji) => {
+      const on = ownerHas(this.owner, m.id, emoji);
+      return h_flex().id(`react-${id}-${emoji}`).w(24).h(24).flex_none().items_center().justify_center().rounded(5)
+        .text_size(16).line_height("20px").cursor_pointer().tooltip(on ? `Remove ${emoji}` : `React ${emoji}`)
+        .when(on, (el) => el.bg(t.accent + "26").border_1().border_color(t.accent))
+        .hover((e) => e.bg(t.hover))
+        .on_click((_e, c) => { c.stop_propagation(); this.react(m, emoji, c); })
+        .child(emoji);
+    };
+    return h_flex().items_center().p(1).rounded(6).border_1().border_color(t.border).bg(t.popover)
+      .children(REACTIONS.map(cell))
+      .child(div().w(1).h(16).mx(4).bg(t.border))
+      .child(h_flex().id(`copy-${id}`).w(24).h(24).items_center().justify_center().rounded(5)
+        .cursor_pointer().tooltip(copied ? "Copied" : "Copy").hover((e) => e.bg(t.hover)).on_click(onCopy)
+        .child(iconEl(copied ? "copied" : "copy", 14, t.muted)));
+  }
+
+  // The reactions under a message: the last child of its text column, so its 4 px gap sets them 4 px under the body.
+  // The owner's own are clickable (they take the reaction back); the agent's are not.
+  chips(list, m, agentName, t) {
+    return h_flex().flex_wrap().gap(4)
+      .children(list.map((c) => {
+        const mine = c.by === "owner";
+        const el = h_flex().id(`chip-${m.id}-${c.emoji}`).h(24).px(6).items_center().rounded_full().border_1()
+          .text_size(16).line_height("20px")
+          .tooltip(mine ? `You reacted ${c.emoji}. Click to remove` : c.seen ? `Seen by ${agentName}` : `${agentName} reacted ${c.emoji}`)
+          .child(c.emoji);
+        return mine
+          ? el.bg(t.accent + "26").border_color(t.accent).cursor_pointer().hover((e) => e.bg(t.hover))
+            .on_click((_e, cx) => { cx.stop_propagation(); this.react(m, c.emoji, cx); })
+          : el.bg(t.canvas).border_color(t.border);
+      }));
   }
 
   render(t, F, cx) {
@@ -389,6 +493,7 @@ export class Panel {
   chatLog(t, a) {
     const { shown } = withPending(this.turns, this.pending);
     const log = groupLog(shown, a.name, this.person());
+    const eyes = seenId(shown);
     const rows = log.map(({ m, head, key: id }, i) => {
       const who = speaker(m, a.name, this.person());
       const mine = m.role === "user" && !m.launch;
@@ -402,20 +507,27 @@ export class Panel {
       // 4 px between the name row and the body; 10 px between photo and text (8 at 24 px). Matt's band is 8 px
       // taller above and below his group, so its edge sits 8 px from the neighbour and 8 px from his own content.
       const pic = this.width < 320 ? 24 : 32;
+      const chips = chipsFor(m, { owner: this.owner, agent: this.agentR, eyes });
       const sp = rowSpace(log, i);
       const text = v_flex().flex_1().min_w(0).gap(4)
         .when(head, (el) => el.child(h_flex().gap(6).items_baseline()
           .child(div().text_size(12).line_height("16px").font_semibold().text_color(t.foreground).child(who))
           .child(div().text_size(12).line_height("16px").text_color(m.unsure ? t.blocked : t.muted).child(`${stamp}${viaMark(m)}`))))
-        .child(body);
+        .child(body)
+        .when(chips.length > 0, (el) => el.child(this.chips(chips, m, a.name, t)));
       const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
         .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
         .child(head ? this.avatar(m.launch ? "" : avatarName(m, a, this.person()), pic, t, mine ? t.raised : t.canvas, m.role === "user" && !m.launch) : div().flex_none().w(pic))
         .child(text)
-        .when(hovered && !m.launch, (el) => el.child(div().absolute().top(2).right(12)
-          .child(this.copyChip(`copy-${id}`, this.copied === key, (_e, c) => this.copy(key, copyText(m), c), t))));
+        .when(hovered && !m.launch, (el) => {
+          const onCopy = (_e, c) => this.copy(key, copyText(m), c);
+          // The agent's own messages get the reaction bar; every other row keeps the Copy chip alone.
+          const bar = m.role === "assistant" && !m.pending && !!m.id;
+          return el.child(div().absolute().top(2).right(12)
+            .child(bar ? this.reactBar(id, m, this.copied === key, onCopy, t) : this.copyChip(`copy-${id}`, this.copied === key, onCopy, t)));
+        });
       return row;
     });
     // Follow the newest turn. The window holds at most 40 turns, so once it is full a new turn leaves the count

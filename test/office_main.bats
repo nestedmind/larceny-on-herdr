@@ -65,7 +65,7 @@ export const window = () => ({ fullscreen: false });
 export const focused = () => globalThis.FOCUS || null;
 EOF
   echo '{"type":"module"}' > "$d/package.json"
-  for f in crew draw panel chat photos main; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
+  for f in crew draw panel chat photos reactions main; do sed -E 's#from "\./([a-z]+)\.js"#from "./\1.mjs"#' "$(mod_dir)/$f.js" > "$d/$f.mjs"; done
   cat > "$d/run.mjs" <<EOF
 const { default: Office } = await import("./main.mjs");
 const timers = [];
@@ -867,10 +867,12 @@ await new Promise((r) => setTimeout(r, 0));
 resolvers[1]({ code: 0, stdout: JSON.stringify({ idle_minutes: 2 }) });
 await new Promise((r) => setTimeout(r, 0));
 resolvers[2]({ code: 0, stdout: JSON.stringify({ coordinator: "Mia", reviewer: "Rex", advisor: "Ada", teacher: "Tom", coders: ["Ana"], person: "Dana" }) });
+await new Promise((r) => setTimeout(r, 0));
+resolvers[3]({ code: 0, stdout: "/ws/.loh/reactions\n" });
 await Promise.all(tasks);
-console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified), office.idleMinutes, office.names.coordinator, office.names.person]));'
+console.log(JSON.stringify([office.repos, errors, strict.dead, kids.map((k) => k.notified), office.idleMinutes, office.names.coordinator, office.names.person, office.reactDir]));'
   [ "$status" -eq 0 ]
-  [ "$output" = '[["api","web"],[],[],[3],2,"Mia","Dana"]' ]
+  [ "$output" = '[["api","web"],[],[],[4],2,"Mia","Dana","/ws/.loh/reactions"]' ]
 }
 
 # Scofield's turn ends; nothing in herdr changes after that, so a timer has to bring the office back for the idle time to end.

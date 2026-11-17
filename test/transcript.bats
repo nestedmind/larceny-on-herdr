@@ -262,3 +262,17 @@ meta_session() {
   run "$LOH" transcript scofield
   [ "$(jq -r '.[1].role + "|" + .[1].text' <<<"$output")" = "user|my notes" ]
 }
+
+@test "transcript gives each turn the id of its session line" {
+  fixture reacting c1
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '[.[] | .id] | join("|")' <<<"$output")" = "u-launch|u-a1|u-m1|u-a2|u-m2" ]
+}
+
+@test "transcript gives a turn with no session uuid an empty id" {
+  fixture coordinator c1
+  run "$LOH" transcript scofield
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '[.[] | .id == ""] | all' <<<"$output")" = true ]
+}

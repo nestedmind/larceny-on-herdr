@@ -23,7 +23,7 @@ export function tellCall(agent, loh, text) {
   return { cmd: loh || "loh", args: ["tell", agent.rawName, text], options: { cwd: agent.cwd || undefined, timeout: TELL_TIMEOUT } };
 }
 
-/** The turns in `loh transcript` output: [{ role, text, ts }]. Anything else gives []. */
+/** The turns in `loh transcript` output: [{ role, text, ts, id }] (id: the session line's uuid, "" when it has none). Anything else gives []. */
 export function parseTranscript(text) {
   let list;
   try { list = JSON.parse(text); } catch { return []; }
@@ -35,7 +35,7 @@ export function parseTranscript(text) {
     // `loh transcript` reads the whole session and flags its first user turn when that is the launch prompt
     // (wrapped in <pasted_content>). The window shown here may start later, so only that flag counts: a paste of Matt's is his.
     const launch = m.role === "user" && m.launch === true;
-    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch, via: m.via === "discord" ? "discord" : "" });
+    out.push({ role: m.role, text: m.text, ts: typeof m.ts === "string" ? m.ts : "", id: typeof m.id === "string" ? m.id : "", from: typeof m.from === "string" ? clip(m.from, 24) : "", pending: false, unsure: false, launch, via: m.via === "discord" ? "discord" : "" });
   }
   return out;
 }
