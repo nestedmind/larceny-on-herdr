@@ -1,9 +1,13 @@
 # shellcheck shell=bash
-# loh office [--close]: open the crew's office tab, or reload it.
+# loh office [--close]: open the crew's office tab, with its props filled in, and
+# close the one it opened before.
 #
-# herdr-app does not reload a mod's code while its tab is open, so a reload is
-# a new tab and then closing the old one. The new tab opens first: closing the
-# only tab closes the whole space. The id of the tab it opened is kept in
+# You do not need it to pick up office code: herdr-app 0.1.16 reloads an open mod
+# tab in place when a file in the mod's folder is saved, and the tab id stays the
+# same. It is still how you open the office the first time, how you give it new
+# props (a reload keeps the props the tab was opened with), and how you recover
+# when no tab is open or the saved id is stale. Each run is a new tab and then
+# closing the old one. The new tab opens first: closing the only tab closes the whole space. The id of the tab it opened is kept in
 # <workspace>/.loh/office-tab, because herdr-app has no command that lists
 # tabs. A saved id is closed whatever the heartbeat says, because a hidden
 # office tab sends none; if that close fails the tab is already gone, which is

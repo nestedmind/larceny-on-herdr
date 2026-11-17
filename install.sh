@@ -14,7 +14,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="larceny-on-herdr@larceny-on-herdr"
 MARKET="larceny-on-herdr"
 TESTED_HC="0.1.20"
-TESTED_APP="0.1.15"
+TESTED_APP="0.1.16"
 CORE_INSTALL="curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=$TESTED_HC sh"
 APP_INSTALL='curl -fsSL https://releases.herdr.dev/app/install.sh | sh'
 CLAUDE_INSTALL='curl -fsSL https://claude.ai/install.sh | bash'
