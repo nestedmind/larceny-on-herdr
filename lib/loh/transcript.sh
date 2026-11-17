@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # loh transcript <name> [--last N]: the chat of an agent, from its Claude Code
 # session file, as one JSON array on stdout:
-#   [{"role":"user"|"assistant","text":"...","ts":"<ISO time>"}, ...]
+#   [{"role":"user"|"assistant","text":"...","ts":"<ISO time>","id":"<session line uuid>"}, ...]
 # oldest first, newest last; N turns (default 40). The session's first user turn carries
 # "launch":true when it is the launch prompt loh sent (a pasted block), even when it
 # is older than the N turns shown.
@@ -101,7 +101,7 @@ filter='
           and ((.attachment.origin.kind // .origin.kind) as $k
                | $k == "human" or ($k == "channel" and (.attachment.prompt | type == "string" and test("^\\s*<channel "))))))
   | (if .type == "attachment" then (.attachment.prompt // "") else .message.content end) as $c
-  | { role: (if .type == "attachment" then "user" else .type end), ts: (.timestamp // ""),
+  | { role: (if .type == "attachment" then "user" else .type end), ts: (.timestamp // ""), id: (.uuid // ""),
       text: (if ($c | type) == "string" then $c
              elif ($c | type) == "array" then ([$c[] | select(.type == "text") | .text] | join("\n"))
              else "" end) }
