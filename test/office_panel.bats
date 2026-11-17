@@ -49,6 +49,7 @@ const tasks = [], taskErrors = [];
 const mkcx = () => {
   const cx = { alive: true,
     notify() { if (!cx.alive) dead("notify"); globalThis.NOTIFIES = (globalThis.NOTIFIES || 0) + 1; },
+    timer: { after(ms, fn) { (globalThis.TIMERS ||= []).push({ ms, fn }); return { cancel() {} }; } },
     stop_propagation() { (globalThis.STOPS ||= []).push(1); },
     write_to_clipboard(t) { (globalThis.CLIP ||= []).push(t); },
     spawn(fn) {
@@ -294,6 +295,32 @@ draw();
 console.log(n0, n1, n2, n3, globalThis.SCROLLS.length);'
   [ "$status" -eq 0 ]
   [ "$output" = "1 2 2 3 5" ]
+}
+
+@test "scroll: a new newest row is revealed again a moment later, once it has been laid out; a stale request does nothing" {
+  run panel_js '
+const th = { foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" };
+const draw = () => click((cx) => panel.render(th, {}, cx));
+const run = () => { const ts = globalThis.TIMERS || []; globalThis.TIMERS = []; ts.forEach((t) => { const c = { notify() {} }; t.fn(c); }); };
+panel.turns = [{ role: "user", id: "u1", text: "Hi", ts: "2026-11-15T10:01:00Z" }, { role: "assistant", id: "a1", text: "yo", ts: "2026-11-15T10:02:00Z" }];
+draw(); run();
+globalThis.SCROLLS = [];
+panel.pending = [{ text: "mine" }];
+draw();
+const now = globalThis.SCROLLS.slice();
+run();
+const after = globalThis.SCROLLS.slice();
+// A request that is overtaken by a newer row does nothing.
+panel.pending = [{ text: "mine" }, { text: "two" }];
+draw();
+panel.pending = [{ text: "mine" }, { text: "two" }, { text: "three" }];
+const stale = (globalThis.TIMERS || []).slice(); globalThis.TIMERS = [];
+draw();
+globalThis.SCROLLS = [];
+stale.forEach((t) => t.fn({ notify() {} }));
+console.log(JSON.stringify([now, after, globalThis.SCROLLS]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "[[2],[2,2],[]]" ]
 }
 
 @test "scroll: the activity feed follows its newest row when it is full" {
