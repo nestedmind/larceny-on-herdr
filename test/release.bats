@@ -85,14 +85,14 @@ make_session() {
   [ -z "$(ls -A "$WS/.loh/transcripts/sucre-api-12")" ]
 }
 
-@test "release leaves the source and the terminal alone when the copy fails" {
+@test "release leaves the source alone when the copy fails" {
   make_session
   : >"$WS/.loh/transcripts" # a file where the folder should be
   run --separate-stderr "$LOH" release sucre
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"source is left"* ]]
   [ -f "$SUCRE_SRC/s1.jsonl" ]
-  ! grep -q $'^kill\t' "$FAKE_HC_LOG"
+  grep -qxF $'kill\tsucre' "$FAKE_HC_LOG"
 }
 
 @test "release leaves the source when the copy does not verify" {
@@ -106,7 +106,7 @@ make_session() {
   [[ "$stderr" == *"source is left"* ]]
   [ -f "$SUCRE_SRC/s1.jsonl" ]
   [ ! -e "$WS/.loh/transcripts/sucre-api-12" ]
-  ! grep -q $'^kill\t' "$FAKE_HC_LOG"
+  grep -qxF $'rm\tsucre' "$FAKE_HC_LOG"
 }
 
 @test "release refuses a name that is not a coder of this crew" {
@@ -186,4 +186,57 @@ make_session() {
   [ "$status" -ne 0 ]
   run --separate-stderr "$LOH" transcript --archived "../x"
   [ "$status" -eq 2 ]
+}
+
+# A stub for `hc kill` that appends a line to the session file, as Claude Code's
+# shutdown does.
+make_shutdown_write() {
+  printf '#!/usr/bin/env bash\necho %s >>"%s/s1.jsonl"\n' "'{\"type\":\"shutdown\"}'" "$SUCRE_SRC" >"$BATS_TEST_TMPDIR/on-kill"
+  chmod +x "$BATS_TEST_TMPDIR/on-kill"
+  export FAKE_HC_ON_KILL="$BATS_TEST_TMPDIR/on-kill"
+}
+
+@test "release ends the coder first, so the archive holds the shutdown write and no folder is left" {
+  make_session
+  make_shutdown_write
+  run "$LOH" release sucre
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$WS/.loh/transcripts/sucre-api-12/s1.jsonl")" = '{"type":"shutdown"}' ]
+  [ ! -e "$SUCRE_SRC" ]
+}
+
+@test "release waits until the coder has finished before it archives" {
+  make_session
+  make_shutdown_write
+  # still live at the first look after the kill, finished at the second
+  hc_seq get.sucre \
+    '{"state":"live","cwd":"'"$SUCRE_CWD"'","labels":{"crew":"demo","role":"coder","task":"api#12"},"status":{"state":"idle"}}' \
+    '{"state":"live","cwd":"'"$SUCRE_CWD"'","labels":{"crew":"demo","role":"coder","task":"api#12"},"status":{"state":"idle"}}' \
+    '{"state":"finished","cwd":"'"$SUCRE_CWD"'","labels":{"crew":"demo","role":"coder","task":"api#12"},"status":{"state":"idle"}}'
+  run "$LOH" release sucre
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_SCRIPT/.count.get.sucre")" -ge 3 ]
+  [ -f "$WS/.loh/transcripts/sucre-api-12/s1.jsonl" ]
+}
+
+@test "release archives after the timeout, and says so, when the coder never finishes" {
+  make_session
+  hc_seq get.sucre '{"state":"live","cwd":"'"$SUCRE_CWD"'","labels":{"crew":"demo","role":"coder","task":"api#12"},"status":{"state":"idle"}}'
+
+  export LOH_KILL_WAIT=1 LOH_KILL_POLL=0.1
+  run --separate-stderr "$LOH" release sucre
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"did not finish"* ]]
+  [ -f "$WS/.loh/transcripts/sucre-api-12/s1.jsonl" ]
+}
+
+@test "release still removes the terminal and exits non-zero when the archive fails after the kill" {
+  make_session
+  : >"$WS/.loh/transcripts"
+  run --separate-stderr "$LOH" release sucre
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"source is left at $SUCRE_SRC"* ]]
+  [ -f "$SUCRE_SRC/s1.jsonl" ]
+  grep -qxF $'kill\tsucre' "$FAKE_HC_LOG"
+  grep -qxF $'rm\tsucre' "$FAKE_HC_LOG"
 }

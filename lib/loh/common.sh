@@ -393,6 +393,28 @@ claude_session_dir() {
     "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"
 }
 
+# end_terminal <name>: `hc kill` the terminal, then wait until `hc get` shows
+# it is no longer live, so Claude Code's last write to the session file has
+# landed before anything copies it. Waits LOH_KILL_WAIT seconds (default 20),
+# looking every LOH_KILL_POLL seconds (default 0.2). A terminal that cannot be
+# looked up any more counts as finished. On a timeout it says so on stderr and
+# returns 0: the caller archives what is there.
+end_terminal() {
+  local name="$1" wait="${LOH_KILL_WAIT:-20}" poll="${LOH_KILL_POLL:-0.2}"
+  local deadline state
+  hc kill "$name" >/dev/null
+  deadline=$((SECONDS + wait))
+  while :; do
+    state="$(hc_json get "$name" 2>/dev/null | jq -r '.state // ""' 2>/dev/null)" || state=""
+    [[ "$state" != "live" ]] && return 0
+    if ((SECONDS >= deadline)); then
+      echo "loh: $name did not finish within ${wait}s of the kill; archiving what is written so far" >&2
+      return 0
+    fi
+    sleep "$poll"
+  done
+}
+
 # _tree_listing <dir>: one "path size" line per file under <dir>, sorted.
 _tree_listing() {
   (

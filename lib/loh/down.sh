@@ -73,7 +73,7 @@ while IFS=$'\t' read -r addr name; do
     self_info="$json"
     continue
   fi
-  hc kill "$name" >/dev/null
+  end_terminal "$name"
   [[ "$role" != "coder" ]] || archive_coder "$name" "$json"
   echo "ended $name"
   ended=$((ended + 1))
