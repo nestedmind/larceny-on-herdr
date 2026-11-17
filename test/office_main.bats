@@ -53,7 +53,7 @@ export const terminals = () => globalThis.TERMS;
 export const panes = () => (globalThis.PANES ||= [{ pane: "p1", tab: "t", mod: "crew-office", focused: true }]);
 export const run = (c, a) => { (globalThis.RUNS ||= []).push([c, a]); if (c === "pane.split") globalThis.PANES.push({ pane: "s" + globalThis.PANES.length + a.pane, tab: (globalThis.PANES.find((p) => p.pane === a.pane) || {}).tab }); };
 export const appHome = () => globalThis.APP_HOME || "/h/herdr-app";
-export const exec = (c, a) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
+export const exec = (c, a, o) => globalThis.EXEC_HOOK ? globalThis.EXEC_HOOK(c, a, o) : (a[0] === "-c" ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : a[0] === "lock" || a[0] === "unlock" ? ((globalThis.EXECS ||= []).push(a[0]), Promise.resolve({ code: 0 })) : new Promise(() => {}));
 export const notify = (n) => { (globalThis.NOTES ||= []).push(n); };
 export const props = () => globalThis.PROPS || { crew: "sandbox" };
 export const theme = () => new Proxy({}, { get: () => "#808080" });
@@ -1264,4 +1264,103 @@ const svgs = names.filter((f) => f.endsWith(".svg"));
 console.log(svgs.length <= 12, svgs.filter((f) => !/^crew-office-floor-0000/.test(f)).length === 1, names.includes("notes.txt"), theirs.length === 1);'
   [ "$status" -eq 0 ]
   [ "$output" = "true true true true" ]
+}
+
+# ---- toasts (ticket #93) ----
+
+TOAST_HELPERS='
+const text = (n) => n.kids.filter((k) => typeof k === "string");
+const toasts = (root) => all(root.node).filter((n) => /^toast-/.test(id(n) || ""));
+const lines = (n) => all(n).flatMap(text);
+const block = (i, kind, msg) => { terms()[i].status = { state: "blocked", kind, msg }; };
+'
+
+@test "a coder that blocks on a permission gets a toast with its name, the whole text and the permission colour" {
+  run office_js "$TOAST_HELPERS"'
+render();
+const msg = "Bash: " + "x".repeat(150);
+block(1, "permission", msg);
+const t = toasts(render());
+console.log(t.length, lines(t[0]).join("|") === "Sheba needs you|permission: " + msg + "|click to open", t[0].props.border_color[0]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true #e7a43a" ]
+}
+
+@test "a question is blue, an escalation pink, and the toasts are the newest first" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(2, "question", "Which?");
+render();
+terms()[1].labels.note = "escalation:stuck on review";
+const t = toasts(render());
+console.log(t.map((n) => lines(n)[0] + "@" + n.props.border_color[0]).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "Sheba escalates@#d0509f,Sucre needs you@#4f8ff0" ]
+}
+
+@test "no toast shows for what was already pending when the office opened" {
+  run office_js "$TOAST_HELPERS"'
+fresh();
+block(1, "permission", "Bash: ls");
+console.log(toasts(render()).length, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0" ]
+}
+
+@test "a toast goes 7 s after it came, and the office asks to be drawn again then" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "A?");
+timers.length = 0;
+const a = toasts(render()).length;
+// (One timer is kept, the earliest wanted: a render for any reason asks for the next again.)
+const wake = office.wake ? [office.wake.at - Date.now()].filter((ms) => ms <= 7005) : [];
+later(6999); const b = toasts(render()).length;
+later(1); const c = toasts(render()).length;
+console.log(a, wake.length > 0, b, c);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 true 1 0" ]
+}
+
+@test "at most 3 toasts show at once" {
+  run office_js "$TOAST_HELPERS"'
+terms().push(...["amy", "bo", "cy"].map((n) => ({ address: "t" + n, name: n, state: "live", agent: "claude", status: "working", labels: { crew: "sandbox", role: "reviewer" } })));
+render();
+for (const t of terms()) t.status = { state: "blocked", kind: "question", msg: "?" };
+console.log(toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3" ]
+}
+
+@test "clicking a toast opens that agent's chat, as clicking the person does, and the toast goes" {
+  run office_js "$TOAST_HELPERS"'
+const opened = [];
+office.panel.select = (a) => opened.push("select:" + a.name);
+office.open = (a) => opened.push("open:" + a.name);
+office.chat = { pane: "p1", office: "p1", address: "tscofield", name: "scofield", agent: {} };
+render();
+block(1, "permission", "Bash: ls");
+const root = render();
+const t = toasts(root)[0];
+t.props.on_click[0]({}, cx);
+console.log(opened.join(","), toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "select:sheba,open:sheba 0" ]
+}
+
+@test "the office tells loh it is open at once, then every 10 s, from the agents' folder" {
+  run office_js '
+const calls = [];
+globalThis.EXEC_HOOK = (c, a, o) => { calls.push([a[0], o && o.cwd]); return Promise.resolve({ code: 0, stdout: "", stderr: "" }); };
+for (const t of terms()) t.cwd = "/ws/" + t.name;
+office.pingAt = 0;
+render(); render();
+const first = calls.filter((c) => c[0] === "office-ping").length;
+later(9999); render();
+const mid = calls.filter((c) => c[0] === "office-ping").length;
+later(1); render();
+const last = calls.filter((c) => c[0] === "office-ping");
+console.log(first, mid, last.length, last[0][1]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 1 2 /ws/scofield" ]
 }

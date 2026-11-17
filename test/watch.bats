@@ -453,3 +453,78 @@ snapshot_line() {
   [ "$(notified)" -eq 1 ]
   grep -q $'Mahone\'s message was not delivered\tamy: finished' "$D/notify.log"
 }
+
+# open_office <seconds-ago>: the file `loh office-ping` writes, as of that many seconds ago.
+open_office() {
+  echo $(($(date +%s) - $1)) >"$LOH_WORKSPACE/.loh/office-open"
+}
+
+escalation_events() {
+  jq -nc '{name:"scofield",state:"live",labels:{note:"escalation:#18 needs a design call"},status:{state:"working"}}' >"$D/get-t15.json"
+  printf '%s\n' '{"jsonrpc":"2.0","method":"event","params":{"data":{"labels":{"crew":"w","note":"escalation:#18 needs a design call"}},"seq":9,"terminal":"t15","type":"labels"}}' >"$D/events.jsonl"
+}
+
+@test "while an office is open a block sends no desktop notification" {
+  open_office 5
+  status_get t11 amy blocked permission "Bash: rm -rf build"
+  status_ev t11 blocked >"$D/events.jsonl"
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 0 ]
+}
+
+@test "while an office is open an escalation sends no desktop notification" {
+  open_office 5
+  escalation_events
+  run_watch
+  [ "$(notified)" -eq 0 ]
+}
+
+@test "while an office is open an undelivered message sends no desktop notification" {
+  open_office 5
+  jq -nc '{name:"sucre",state:"live",labels:{note:"undelivered:amy: finished"},status:{state:"working"}}' >"$D/get-t16.json"
+  printf '%s\n' '{"jsonrpc":"2.0","method":"event","params":{"data":{"labels":{"crew":"w","note":"undelivered:amy: finished"}},"seq":9,"terminal":"t16","type":"labels"}}' >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 0 ]
+}
+
+@test "with no office file the desktop notification still comes" {
+  status_get t11 amy blocked permission "Bash: rm -rf build"
+  status_ev t11 blocked >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 1 ]
+}
+
+@test "an office that last pinged a minute ago counts as closed, and the desktop notification comes" {
+  open_office 60
+  escalation_events
+  run_watch
+  [ "$(notified)" -eq 1 ]
+}
+
+@test "an office file with no time in it counts as closed" {
+  echo "yes" >"$LOH_WORKSPACE/.loh/office-open"
+  escalation_events
+  run_watch
+  [ "$(notified)" -eq 1 ]
+}
+
+@test "the office is checked at each event: one that closed between two events stops the silence" {
+  open_office 5
+  status_get t11 amy blocked permission "first"
+  status_get t12 sucre blocked question "second"
+  { status_ev t11 blocked; status_ev t12 blocked; } >"$D/events.jsonl"
+  # The fake hc answers t12 only after the office file has gone stale.
+  cat >"$BIN/hc" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  events) cat "$D/events.jsonl" ;;
+  get)
+    [[ "$2" != t12 ]] || echo $(($(date +%s) - 120)) >"$LOH_WORKSPACE/.loh/office-open"
+    cat "$D/get-$2.json" ;;
+esac
+SH
+  run_watch
+  [ "$(notified)" -eq 1 ]
+  grep -q $'Sucre needs you' "$D/notify.log"
+}

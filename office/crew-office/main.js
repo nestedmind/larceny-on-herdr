@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -128,6 +128,9 @@ export default class CrewOffice extends View {
     this.idleMinutes = undefined;
     // Where each person was last placed, for keeping seats (crew.js layoutCrew), and until when Matt's last key in the message box counts.
     this.mem = newMemory();
+    // The toasts showing, and what each agent was last seen with (crew.js toastStep). `pingAt` is when loh was last told the office is open.
+    this.toasts = newToasts();
+    this.pingAt = 0;
     this.mattLast = 0;
     this.lastFocus = null;
     // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
@@ -667,6 +670,38 @@ export default class CrewOffice extends View {
     return workspaceDir(crew, props(), panes(), officePane(panes(), props(), MOD));
   }
 
+  // Tell loh an office is open, now and every OFFICE_PING_MS (a render is asked for then, as for the repo list): while it
+  // hears, `loh watch` sends no desktop notice, because the toast says it. It runs in an agent's folder, which is how loh finds the workspace.
+  pingLoh(crew, now) {
+    if (this.pingAt && now - this.pingAt < OFFICE_PING_MS) { this.wakeIn(this.pingAt + OFFICE_PING_MS - now); return; }
+    const dir = this.workspaceDir(crew);
+    // With no folder to find the workspace from there is nothing to run in; the next render for any reason looks again.
+    if (!dir) return;
+    this.pingAt = now;
+    this.wakeIn(OFFICE_PING_MS);
+    const c = pingCall({ cwd: dir }, (props() || {}).loh);
+    try { exec(c.cmd, c.args, c.options).catch(() => {}); } catch (_) { /* loh is missing: the desktop notices stay on */ }
+  }
+
+  // A toast was clicked: it goes, and that agent's chat opens as a click on the person opens it.
+  clickToast(x, cx) {
+    toastDismiss(this.toasts, x.id);
+    const a = (this.crewNow || []).find((q) => q.address === x.who);
+    if (a) this.pick({ agent: a, id: a.rawName }, cx);
+    else cx.notify();
+  }
+
+  // The toasts, top right of the office under the bar, newest first: a card with a bold head, the body and a hint, a coloured left edge by kind.
+  toastEls(t) {
+    const colour = { q: PAL.q, perm: PAL.perm, esc: PAL.esc, done: PAL.work, info: PAL.idle };
+    return v_flex().id("toasts").absolute().top(44).right(12).w(280).gap(6)
+      .children(this.toasts.list.map((x) => v_flex().id(x.id).w_full().px(10).py(7).gap(1).rounded(8).bg(t.chrome).border_l(4).border_color(colour[x.kind] || PAL.idle)
+        .cursor_pointer().hover((e) => e.opacity(0.9)).on_click((_e, cx) => this.clickToast(x, cx))
+        .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(x.head))
+        .child(div().text_size(12.5).text_color(t.foreground).child(x.body))
+        .child(div().text_size(11.5).text_color(t.muted).child(x.hint))));
+  }
+
   confirmStart(cx) {
     const o = this.offer;
     if (!o) return;
@@ -849,6 +884,13 @@ export default class CrewOffice extends View {
     const size = stageSize(this.size, this.sizeWithPanel, showPanel, this.panelW);
     this.drawnWithPanel = showPanel;
     const now = Date.now();
+    // The toasts: what the crew's change calls for, and when the oldest goes. (Not while the crew is still unlisted, so the
+    // first listing is only recorded, never announced.)
+    if (crew.length) {
+      const ts = toastStep(this.toasts, crew, now);
+      if (ts.nextMs !== null) this.wakeIn(ts.nextMs);
+    }
+    this.pingLoh(crew, now);
     let focus = null;
     try { focus = focused(); } catch (_) { /* no focus information: only the message box counts */ }
     // Focus arriving on a terminal he opened from the office counts as Matt at work for TYPING_HOLD, like a key in the message
@@ -1048,7 +1090,7 @@ export default class CrewOffice extends View {
       })
       .child(child);
 
-    return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)
+    return v_flex().id("root").size_full().relative().bg(stageColour).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (this.termOpen) return;
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
@@ -1060,7 +1102,8 @@ export default class CrewOffice extends View {
       })
       .child(this.bar(t, L.totals, view))
       .when(!!this.offer, (el) => el.child(this.offerRow(t)))
-      .child(showPanel ? this.split(stage, t, F, cx, view.mine) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)));
+      .child(showPanel ? this.split(stage, t, F, cx, view.mine) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)))
+      .when(this.toasts.list.length > 0, (el) => el.child(this.toastEls(t)));
   }
 
   // The stage and the panel, with a draggable divider between them. herdr's own resizable group keeps the

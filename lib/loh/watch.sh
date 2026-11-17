@@ -8,6 +8,8 @@
 #   - an agent's `note` label becomes "undelivered:<text>" (what a queued
 #     `loh say --queue` sets when it finally cannot deliver): "<Name>'s message
 #     was not delivered", body <text>.
+# While an office tab is open (`loh office-ping`, read by office_open) it shows
+# these as toasts and no desktop notification is sent; with none open, they are.
 # Bodies are cut to 120 characters. An agent is notified once per block, and an
 # escalation once per distinct note. An event only tells us *which* terminal
 # changed, so the status, kind, msg and note are read with `hc get`, which is
@@ -47,9 +49,24 @@ max_backoff="${LOH_WATCH_BACKOFF_MAX:-30}"
 [[ "$restarts" =~ ^-?[0-9]+$ ]] || die "LOH_WATCH_RESTARTS must be an integer, got: $restarts"
 [[ "$max_backoff" =~ ^[1-9][0-9]*$ ]] || die "LOH_WATCH_BACKOFF_MAX must be a positive integer, got: $max_backoff"
 
-# notify <title> <body>
+# The workspace root, for office_open. With no crew argument manifest_load has
+# set it; with one the manifest is not needed, so the root is looked for and
+# an office is taken as closed when there is none.
+open_root=""
+if [[ -n "${WS_ROOT:-}" ]]; then
+  open_root="$WS_ROOT"
+else
+  open_root="$(workspace_root 2>/dev/null)" || open_root=""
+fi
+
+# notify <title> <body>: nothing while an office tab is open, because its toast
+# says the same thing; the office is checked at each notice, so closing the tab
+# brings the desktop notices back within office_open's window.
 notify() {
   local title="$1" body="$2"
+  if [[ -n "$open_root" ]] && office_open "$open_root"; then
+    return 0
+  fi
   if command -v notify-send >/dev/null 2>&1; then
     notify-send -- "$title" "$body" || true
   elif command -v osascript >/dev/null 2>&1; then

@@ -99,7 +99,8 @@ repos:
 | `loh lock <name>`, `loh unlock <name>` | Set or remove the "with Matt" label. `loh say` refuses an agent that has it. |
 | `loh open <name>`, `loh close <name>` | `open` locks the agent and shows it in herdr-app. `close` unlocks it. |
 | `loh status [--json]` | One line per crew agent: role, task, state, step, PR, round, and whether it is with Matt. `loh status --repos` prints the manifest's repos as JSON, and `loh status --settings` its office settings (`{"idle_minutes":3}`). |
-| `loh watch [crew]` | Sends a desktop notification when an agent blocks (`<Name> needs you`) or escalates through `loh card note=escalation:<text>`. `crew` defaults to the manifest `name`. It uses `notify-send` or `osascript`, and prints to stdout when neither is there. If `hc events` ends, it restarts after a growing delay. |
+| `loh watch [crew]` | Sends a desktop notification, unless an office tab is open (then the office shows a toast instead), when an agent blocks (`<Name> needs you`) or escalates through `loh card note=escalation:<text>`. `crew` defaults to the manifest `name`. It uses `notify-send` or `osascript`, and prints to stdout when neither is there. If `hc events` ends, it restarts after a growing delay. |
+| `loh office-ping` | Takes no argument. Writes the time to `<workspace>/.loh/office-open`. The office runs it every 10 seconds while it is open; `loh watch` sends no desktop notification while that time is under 30 seconds old (`LOH_OFFICE_FRESH` changes the 30), and sends them as before when it is older, missing or not a time. |
 
 Environment variables: `LOH_WORKSPACE` (the workspace folder), `LOH_START_TIMEOUT` (seconds to wait for a new agent to be idle, default 60), `LOH_SAY_TRIES` and `LOH_SAY_DELAY` (the retry count, 0 for no cap, and the seconds between tries for `loh say`), and `LARCENY_CONFIG_DIR` (where the persona token files are, default `~/.config/larceny`).
 

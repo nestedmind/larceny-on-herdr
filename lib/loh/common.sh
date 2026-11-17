@@ -46,6 +46,21 @@ workspace_root() {
   die "no .loh/workspace.md found in $PWD or any parent (set LOH_WORKSPACE to override)"
 }
 
+# office_open <workspace root>: succeed while an office tab is open. The office
+# pings `loh office-ping` every 10 s; the file it writes holds the time in
+# seconds, and counts for LOH_OFFICE_FRESH seconds (default 30). A missing
+# file, one with anything but digits in it, and a time in the future are all
+# "closed", so a notification is never lost to a bad file.
+office_open() {
+  local f="$1/.loh/office-open" t now fresh="${LOH_OFFICE_FRESH:-30}"
+  [[ "$fresh" =~ ^[0-9]+$ ]] || fresh=30
+  [[ -f "$f" ]] || return 1
+  t="$(head -n 1 "$f" 2>/dev/null)" || return 1
+  [[ "$t" =~ ^[0-9]{1,12}$ ]] || return 1
+  now="$(date +%s)"
+  ((t <= now + 5 && now - t <= fresh))
+}
+
 # manifest_path: print the path of the workspace manifest,
 # <root>/.loh/workspace.md. Every reader of the manifest goes through here.
 # When the file is missing it still prints that path, so callers report it.
