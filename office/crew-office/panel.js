@@ -520,7 +520,7 @@ export class Panel {
     const notice = why
       ? h_flex().flex_none().gap(8).items_center().p(8).rounded(6).bg(t.raised).border_l(3).border_color(t.blocked)
         .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(why))
-        .child(this.button("panel-notice-terminal", "Open terminal", (_e, c) => this.host.terminal(raw, c), t))
+        .child(this.button("panel-notice-terminal", "Open terminal", (_e, c) => this.host.fullTerminal(raw, c), t))
       : null;
 
     const tabs = h_flex().flex_none().items_center().gap(4).px(12).border_b(1).border_color(t.border)

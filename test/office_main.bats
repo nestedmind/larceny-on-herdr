@@ -613,6 +613,26 @@ console.log(!!btn, o.kind, o.layout.children[1].content.terminal === a.address);
   [ "$output" = "true window true" ]
 }
 
+@test "the notice's Open terminal button opens the Full terminal overlay and docks no split, while the header Terminal button still docks one" {
+  run office_js '
+terms().find((t) => t.name === "sheba").status = { state: "blocked", kind: "question", msg: "?" };
+render();
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+const notice = find(render(), "panel-notice-terminal");
+notice.props.on_click[0]({}, cx);
+const ov = globalThis.OVERLAYS || [];
+const o = ov[0];
+const splits = () => (globalThis.RUNS || []).filter(([c]) => c === "pane.split").length;
+console.log(!!notice, ov.length, o && o.kind, !!o && o.layout.children[1].content.terminal === a.address, office.panel.host.busy(), splits(), !office.chat);
+const head = find(render(), "panel-terminal");
+head.props.on_click[0]({}, cx);
+console.log(splits(), !!office.chat);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true 1 window true true 0 true" ]
+  [ "${lines[1]}" = "1 true" ]
+}
+
 @test "Full terminal gives the terminal the keyboard, holds the lock once, and a second click opens no second window" {
   run office_js '
 const a = office.crewNow.find((c) => c.name === "sheba");
