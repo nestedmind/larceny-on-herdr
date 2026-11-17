@@ -256,3 +256,98 @@ setup() {
   [[ "$log" == *'Do not run `loh say mia`'* ]]
   [[ "$log" != *"loh say amy"* && "$log" != *"loh say scofield"* && "$log" != *"Amy"* ]]
 }
+
+# --- --brief / --brief-file: dispatch context in the first prompt -----------
+
+@test "spawn --brief puts the text in the first prompt under its own heading, between context and closing instructions" {
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12 --brief "Hold for Matt's go before merging."
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" == *$'\n## From the coordinator, for this dispatch:\n\nHold for Matt\'s go before merging.\n\n## Identity'* ]]
+  [[ "${log%%From the coordinator*}" == *"never touch prod"* ]]
+  [[ "${log#*From the coordinator}" == *"## Identity: use loh"* ]]
+  [ "$(grep -c $'^send\tsucre\t' "$FAKE_HC_LOG")" -eq 1 ]
+}
+
+@test "spawn --brief-file reads a multi-line brief from the file" {
+  printf 'First line.\n\nSecond paragraph.\n' >"$BATS_TEST_TMPDIR/brief.md"
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12 --brief-file "$BATS_TEST_TMPDIR/brief.md"
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" == *$'## From the coordinator, for this dispatch:\n\nFirst line.\n\nSecond paragraph.\n\n## Identity'* ]]
+}
+
+@test "spawn without a brief sends the prompt with no brief heading and the sections joined as before" {
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" != *"From the coordinator"* ]]
+  [[ "$log" != *"{{"* ]]
+  [[ "$log" == *$'- ask before adding dependencies\n\n## Identity: use loh'* ]]
+}
+
+@test "spawn --brief keeps &, backslashes, {{placeholders}} and newlines verbatim" {
+  brief=$'a & b \\1 \\\\ {{coder}} {{rules}} {{brief}}\nline two $HOME `x` "q"'
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12 --brief "$brief"
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" == *$'\n\n'"$brief"$'\n\n## Identity'* ]]
+}
+
+@test "spawn --brief-file keeps special characters verbatim" {
+  printf '%s\n' 'x & y \0 {{ticket}} {{base}}' 'second $(echo no)' >"$BATS_TEST_TMPDIR/b.md"
+  hc_seq get.sucre "$ABSENT" "$IDLE"
+  run "$LOH" spawn sucre api 12 --brief-file "$BATS_TEST_TMPDIR/b.md"
+  [ "$status" -eq 0 ]
+  log=$(<"$FAKE_HC_LOG")
+  [[ "$log" == *$'\n\nx & y \\0 {{ticket}} {{base}}\nsecond $(echo no)\n\n## Identity'* ]]
+}
+
+@test "spawn with both --brief and --brief-file is a usage error and spawns nothing" {
+  echo hi >"$BATS_TEST_TMPDIR/b.md"
+  run --separate-stderr "$LOH" spawn sucre api 12 --brief x --brief-file "$BATS_TEST_TMPDIR/b.md"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Usage: loh spawn"* ]]
+  [ ! -e "$WT" ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "spawn with an empty --brief is a usage error and spawns nothing" {
+  run --separate-stderr "$LOH" spawn sucre api 12 --brief ""
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"empty"* ]]
+  [ ! -e "$WT" ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "spawn with a whitespace-only --brief-file is a usage error and spawns nothing" {
+  printf '  \n\n' >"$BATS_TEST_TMPDIR/b.md"
+  run --separate-stderr "$LOH" spawn sucre api 12 --brief-file "$BATS_TEST_TMPDIR/b.md"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"empty"* ]]
+  [ ! -e "$WT" ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "spawn with a missing --brief-file is a usage error and spawns nothing" {
+  run --separate-stderr "$LOH" spawn sucre api 12 --brief-file "$BATS_TEST_TMPDIR/nope.md"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"nope.md"* ]]
+  [ ! -e "$WT" ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "spawn --brief without a value is a usage error" {
+  run --separate-stderr "$LOH" spawn sucre api 12 --brief
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Usage: loh spawn"* ]]
+}
+
+@test "spawn usage line shows --brief and --brief-file" {
+  run --separate-stderr "$LOH" spawn sucre api
+  [[ "$stderr" == *"--brief <text>"* && "$stderr" == *"--brief-file <path>"* ]]
+}
