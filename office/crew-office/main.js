@@ -74,11 +74,10 @@ function unhold(a, loh, id) {
 }
 
 // The prototype's toast, in its units (crew-office.html, `.toasts` and `.toast`): the stack's width, the gap, how far under the top of
-// the stage it starts, and the colours of both themes (--toast-bg, --toast-ink, --toast-muted). The bar over the stage is BAR_H high.
+// the stage it starts (the stack is a child of the floor's own box, in px and not scaled with it, so it is 12 from the floor's right edge, whole, and never under the chat panel), and the colours of both themes (--toast-bg, --toast-ink, --toast-muted).
 const TOAST_W = 280;
 const TOAST_GAP = 6;
 const TOAST_TOP = 58;
-const BAR_H = 32;
 // How far up a toast is drawn while it is entering or leaving, and the height taken for one until it has been measured (three lines).
 const TOAST_RISE = 8;
 const TOAST_H = 65;
@@ -719,18 +718,20 @@ export default class CrewOffice extends View {
   // pushes the others down with a slide and not a jump), and slides and fades in and out (TOAST_SLIDE_MS): a mounted toast is first
   // drawn faded and 8px up, and the render one tick on draws it in place. The shadow is the nearest the renderer has (shadow_lg: it
   // takes no offset or blur of its own).
-  toastEls(t, dark, right, now) {
+  toastEls(t, dark, now, floorW) {
     const tok = dark ? TOAST_DARK : TOAST_LIGHT;
     const colour = { q: PAL.q, perm: PAL.perm, esc: PAL.esc, done: PAL.work, info: PAL.idle };
     const slide = { duration: TOAST_SLIDE_MS, easing: "ease-out" };
     const shown = [...this.toasts.list, ...this.toasts.leaving];
     for (const id of [...this.toastH.keys()]) if (!shown.some((x) => x.id === id)) this.toastH.delete(id);
+    // min(280px, 100% - 24px) of the floor, as the prototype's `.toasts` (its stage is the floor).
+    const w = Math.max(0, Math.min(TOAST_W, floorW - 24));
     let y = 0;
     const cards = shown.map((x) => {
       const here = y;
       y += (this.toastH.get(x.id) || TOAST_H) + TOAST_GAP;
       const live = toastPhase(x, now) === "show";
-      return v_flex().id(x.id).absolute().left(0).top(here + (live ? 0 : -TOAST_RISE)).w(TOAST_W).opacity(live ? 1 : 0)
+      return v_flex().id(x.id).absolute().left(0).top(here + (live ? 0 : -TOAST_RISE)).w(w).opacity(live ? 1 : 0)
         .transition("top", slide).transition("opacity", slide)
         .px(10).py(7).gap(1).rounded(8).bg(tok.bg).border_l(4).border_color(colour[x.kind] || PAL.idle).shadow_lg().font_family(TOAST_FONT)
         .cursor_pointer().on_click((_e, cx) => this.clickToast(x, cx))
@@ -743,7 +744,7 @@ export default class CrewOffice extends View {
         .child(div().text_size(12.5).line_height("16.875px").text_color(tok.ink).child(x.body))
         .child(div().text_size(11.5).line_height("15.525px").text_color(tok.muted).child(x.hint));
     });
-    return div().id("toasts").absolute().top(BAR_H + TOAST_TOP).right(right + 12).w(TOAST_W).children(cards);
+    return div().id("toasts").absolute().top(TOAST_TOP).right(12).w(w).children(cards);
   }
 
   confirmStart(cx) {
@@ -1109,11 +1110,13 @@ export default class CrewOffice extends View {
     const pic = this.floorPicture(this.shown.key, this.shown.layer, L, k);
     const floorBox = div().id("floor-box").absolute().left(0).top(0).w(u(L.W)).h(u(L.H))
       .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
-    const floor = div().relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
+    const floor = div().id("floor").relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
       .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
-      .children(labels(L, k, crew.length)).children(tags);
+      .children(labels(L, k, crew.length)).children(tags)
+      // The toasts are in the floor's box, as the prototype's are in its stage: after everything, so they are on top.
+      .when(this.toasts.list.length + this.toasts.leaving.length > 0, (el) => el.child(this.toastEls(t, dark, Date.now(), u(L.W))));
 
     const out = this.frame(t, L, view, stageColour, fits, floor, showPanel, F, cx);
     for (const w of this.restSeen) w.restDrawn = true;
@@ -1135,7 +1138,7 @@ export default class CrewOffice extends View {
       })
       .child(child);
 
-    return v_flex().id("root").size_full().relative().bg(stageColour).track_focus(this.handle)
+    return v_flex().id("root").size_full().bg(stageColour).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (this.termOpen) return;
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
@@ -1147,8 +1150,7 @@ export default class CrewOffice extends View {
       })
       .child(this.bar(t, L.totals, view))
       .when(!!this.offer, (el) => el.child(this.offerRow(t)))
-      .child(showPanel ? this.split(stage, t, F, cx, view.mine) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)))
-      .when(this.toasts.list.length + this.toasts.leaving.length > 0, (el) => el.child(this.toastEls(t, !!settings().dark, showPanel ? this.panelW : 0, Date.now())));
+      .child(showPanel ? this.split(stage, t, F, cx, view.mine) : h_flex().flex_1().min_h(0).child(div().flex_1().min_w(0).h_full().child(stage)));
   }
 
   // The stage and the panel, with a draggable divider between them. herdr's own resizable group keeps the

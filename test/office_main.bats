@@ -1434,7 +1434,7 @@ console.log(JSON.stringify(t.props.transitions));'
   [ "$output" = '[["top",{"duration":220,"easing":"ease-out"}],["opacity",{"duration":220,"easing":"ease-out"}]]' ]
 }
 
-@test "a new toast pushes the older ones down by its measured height and the gap, with the slide, and the stack sits 58px under the bar at the right edge" {
+@test "a new toast pushes the older ones down by its measured height and the gap, with the slide" {
   run office_js "$TOAST_HELPERS"'
 terms().push({ address: "tamy", name: "amy", state: "live", agent: "claude", status: "working", labels: { crew: "sandbox", role: "reviewer" } });
 render();
@@ -1445,8 +1445,44 @@ const root = render();
 const before = toasts(root).map((n) => n.props.top[0]);
 for (const n of toasts(root)) n.props.on_size_change[0]({ width: 280, height: 50 }, cx);
 const after = toasts(render()).map((n) => n.props.top[0]);
-const stack = find(root, "toasts").props;
-console.log(before.join(","), after.join(","), stack.top[0], stack.right[0], stack.w[0]);'
+console.log(before.join(","), after.join(","));'
   [ "$status" -eq 0 ]
-  [ "$output" = "0,71 0,56 90 12 280" ]
+  [ "$output" = "0,71 0,56" ]
+}
+
+@test "the toast stack sits inside the floor, as the prototype's .toasts sit in its stage: 58px under its top, 12px from its right edge, 280 wide, and not scaled with it" {
+  run office_js "$TOAST_HELPERS"'
+render();
+block(1, "question", "Which?");
+const root = render();
+const floor = find(root, "floor");
+const stack = find(root, "toasts");
+console.log(all(floor).includes(stack), floor.props.relative !== undefined, stack.props.top[0], stack.props.right[0], stack.props.w[0], stack.props.left === undefined, floor.props.w[0] > 304);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true 58 12 280 true true" ]
+}
+
+@test "on a floor narrower than 304 px the toasts shrink to the floor less 24 px, so they never run off its edge (min(280px, 100% - 24px))" {
+  run office_js "$TOAST_HELPERS"'
+office.size = { width: 200, height: 600 };
+render();
+block(1, "question", "Which?");
+const root = render();
+const floorW = find(root, "floor").props.w[0];
+const stack = find(root, "toasts");
+console.log(floorW < 304, stack.props.w[0] === floorW - 24, toasts(root)[0].props.w[0] === floorW - 24);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true true" ]
+}
+
+@test "with the chat panel open the toasts are in the floor, beside the panel and not under it" {
+  run office_js "$TOAST_HELPERS"'
+office.panel.select(office.crewNow.find((a) => a.name === "sheba"), cx);
+render();
+block(1, "question", "Which?");
+const root = render();
+const stack = find(root, "toasts");
+console.log(office.panel.open, all(find(root, "floor")).includes(stack), all(find(root, "panel")).includes(stack));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true false" ]
 }
