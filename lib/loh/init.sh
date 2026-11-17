@@ -379,7 +379,7 @@ open_cmd="$(office_open_cmd "$ws" "$props")"
 if office_open "$ws"; then
   echo "the office is already open for $WS_NAME"
 elif command -v herdr-app >/dev/null 2>&1 && herdr-app status >/dev/null 2>&1; then
-  if herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props" >/dev/null; then
+  if office_new_tab "$ws" "$props" >/dev/null; then
     echo "opened the office tab for $WS_NAME"
   else
     echo "could not open the office tab; open it with: $open_cmd"

@@ -503,3 +503,23 @@ MD
   [[ "$stderr" == *"not done: "* ]]
   [ -f brand-new/README.md ]
 }
+
+@test "init saves the id of the office tab it opens in .loh/office-tab" {
+  fresh_start
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  [ "$(cat "$HOME_DIR/code/shop-crew/.loh/office-tab")" = tb1 ]
+}
+
+@test "a loh office after init closes the tab init opened, with no by-hand message" {
+  fresh_start
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  cd "$HOME_DIR/code/shop-crew"
+  date +%s >.loh/office-open
+  run "$LOH" office
+  [ "$status" -eq 0 ]
+  grep -qxF $'do\ttab.close\t--id\ttb1' "$FAKE_APP_LOG"
+  [[ "$output" != *"by hand"* ]]
+  [ "$(cat .loh/office-tab)" = tb2 ]
+}

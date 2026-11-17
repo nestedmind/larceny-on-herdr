@@ -71,16 +71,14 @@ if [[ -z "$old" ]] && office_open "$ws"; then
   by_hand=1
 fi
 
-if ! out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props")"; then
+if ! office_new_tab "$ws" "$props"; then
   die "could not open the office tab; open it with: $(office_open_cmd "$ws" "$props")"
 fi
-new="$(jq -r '.tab // empty' <<<"$out" 2>/dev/null || true)"
+new="$OFFICE_NEW_TAB"
 
 if [[ -n "$new" ]]; then
-  printf '%s\n' "$new" >"$tab_file"
   echo "opened the office tab for $WS_NAME"
 else
-  rm -f "$tab_file"
   echo "opened the office tab for $WS_NAME, but herdr-app gave no tab id, so loh office cannot close it later"
 fi
 

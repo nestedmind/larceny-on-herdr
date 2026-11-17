@@ -76,6 +76,26 @@ office_open_cmd() {
   printf 'herdr-app do tab.new --name office --mod crew-office --folder %q --props %q\n' "$1" "$2"
 }
 
+# office_new_tab <workspace root> <props>: open the office tab and keep its id
+# in <workspace root>/.loh/office-tab, which `loh office` reads to close the
+# tab on the next reload. Sets OFFICE_NEW_TAB to the id, empty when herdr-app
+# gave none (the saved file is then removed, so it never names a stale tab).
+# Fails, printing herdr-app's error, when the tab could not be opened; the saved
+# file is left as it was. `loh init` and `loh office` both open the tab here.
+office_new_tab() {
+  local ws="$1" props="$2" out
+  OFFICE_NEW_TAB=""
+  out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props")" || return 1
+  OFFICE_NEW_TAB="$(jq -r '.tab // empty' <<<"$out" 2>/dev/null || true)"
+  if [[ -n "$OFFICE_NEW_TAB" ]]; then
+    mkdir -p "$ws/.loh"
+    printf '%s\n' "$OFFICE_NEW_TAB" >"$ws/.loh/office-tab"
+  else
+    rm -f "$ws/.loh/office-tab"
+  fi
+  return 0
+}
+
 # manifest_path: print the path of the workspace manifest,
 # <root>/.loh/workspace.md. Every reader of the manifest goes through here.
 # When the file is missing it still prints that path, so callers report it.
