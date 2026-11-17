@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # loh office-ping: record that an office tab is open.
 #
-# The office runs this every 10 seconds while it is on screen. It writes the
+# The office runs this every 5 seconds while it is on screen. It writes the
 # time, in seconds, to <workspace>/.loh/office-open. `loh watch` reads it
 # (office_open in common.sh) and, while it is fresh, leaves the notice to the
 # office's own toasts instead of sending a desktop notification. The folder it

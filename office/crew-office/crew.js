@@ -94,8 +94,8 @@ export function reposCall(agent, loh) {
   return { cmd: loh || "loh", args: ["status", "--repos"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
-/** How often the office tells loh it is open, and so how stale `loh watch` may find the word (it allows 30 s). */
-export const OFFICE_PING_MS = 10000;
+/** How often the office tells loh it is open, and so how stale `loh watch` may find the word (it allows 15 s). */
+export const OFFICE_PING_MS = 5000;
 
 /** The command that tells loh an office is open (`loh office-ping`): `loh watch` then leaves the notices to the toasts. */
 export function pingCall(agent, loh) {

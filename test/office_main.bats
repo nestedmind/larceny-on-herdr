@@ -1355,7 +1355,7 @@ console.log(opened.join(","), toasts(render()).length);'
   [ "$output" = "select:sheba,open:sheba 0" ]
 }
 
-@test "the office tells loh it is open at once, then every 10 s, from the agents' folder" {
+@test "the office tells loh it is open at once, then every 5 s, from the agents' folder" {
   run office_js '
 const calls = [];
 globalThis.EXEC_HOOK = (c, a, o) => { calls.push([a[0], o && o.cwd]); return Promise.resolve({ code: 0, stdout: "", stderr: "" }); };
@@ -1363,7 +1363,7 @@ for (const t of terms()) t.cwd = "/ws/" + t.name;
 office.pingAt = 0;
 render(); render();
 const first = calls.filter((c) => c[0] === "office-ping").length;
-later(9999); render();
+later(4999); render();
 const mid = calls.filter((c) => c[0] === "office-ping").length;
 later(1); render();
 const last = calls.filter((c) => c[0] === "office-ping");

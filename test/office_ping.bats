@@ -46,11 +46,11 @@ office_open_in() {
   LOH_WORKSPACE="$WS" bash -c 'source "$1/lib/loh/common.sh"; office_open "$2"' _ "$PLUGIN_TREE" "$WS"
 }
 
-@test "office_open: a ping from 29 s ago is open, one from 31 s ago is closed" {
-  echo $(($(date +%s) - 29)) >"$WS/.loh/office-open"
+@test "office_open: a ping from 14 s ago is open, one from 16 s ago is closed" {
+  echo $(($(date +%s) - 14)) >"$WS/.loh/office-open"
   run office_open_in
   [ "$status" -eq 0 ]
-  echo $(($(date +%s) - 31)) >"$WS/.loh/office-open"
+  echo $(($(date +%s) - 16)) >"$WS/.loh/office-open"
   run office_open_in
   [ "$status" -eq 1 ]
 }
