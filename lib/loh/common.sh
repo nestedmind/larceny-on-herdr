@@ -114,15 +114,22 @@ _manifest_value() {
 }
 
 # manifest_load: parse the manifest into globals. Dies on a missing or
-# malformed manifest.
+# malformed manifest. manifest_load_file <file> parses that file instead of the
+# workspace's own (loh init checks a new manifest this way before it moves it
+# into place).
 #   WS_ROOT WS_NAME WS_PANE_MODE WS_IDLE_MINUTES WS_SCOFIELD_ARGS WS_AMY_ARGS
 #   (the two args values are raw strings; empty when the key is absent)
 #   REPO_NAMES[] REPO_PATHS[] REPO_BRANCHES[] REPO_GITHUBS[]
 # shellcheck disable=SC2034 # WS_*_ARGS are read by up.sh, which sources this file
 manifest_load() {
-  WS_ROOT="$(workspace_root)" || exit 1
   local file
   file="$(manifest_path)" || exit 1
+  manifest_load_file "$file"
+}
+
+manifest_load_file() {
+  WS_ROOT="$(workspace_root)" || exit 1
+  local file="$1"
   [[ -f "$file" ]] || die "manifest not found: $file"
   WS_NAME=""
   WS_PANE_MODE="auto"
