@@ -1330,11 +1330,21 @@ export function workspaceDir(crew, props, panes, minePane) {
 // These are what `loh watch` would otherwise send to the desktop, and they carry the whole text: nothing is cut.
 export const TOAST_MAX = 3;
 export const TOAST_MS = 7000;
-const TOAST_HINT = "click to open";
+// A toast is drawn faded and a little up for TOAST_ENTER_MS (so the renderer has a first frame to slide from), then slides and
+// fades in; at its end it fades and slides out for TOAST_EXIT_MS before it is taken away. Both slides take TOAST_SLIDE_MS.
+export const TOAST_ENTER_MS = 40;
+export const TOAST_EXIT_MS = 250;
+export const TOAST_SLIDE_MS = 220;
+// The prototype's hint line. It says what the toast does about sound: a question chimes only when the chime is on, and
+// the office has none, so a question says the chime is off.
+function toastHint(kind) {
+  const what = kind === "q" ? "Toast, chime is off" : kind === "perm" ? "Toast, no sound" : "Toast";
+  return `${what} · click to open`;
+}
 
 /** The state the toasts keep between renders: what each agent was last seen with, and what is showing. */
 export function newToasts() {
-  return { seen: null, list: [], n: 0 };
+  return { seen: null, list: [], leaving: [], n: 0 };
 }
 
 function titleCase(word) {
@@ -1371,25 +1381,38 @@ function raised(mem, crew) {
   return out;
 }
 
-/** Put a toast on the list as of `at` (ms): newest first, the oldest dropped past TOAST_MAX. */
+/** Put a toast on the list as of `at` (ms): newest first. The oldest past TOAST_MAX leaves (fades out) at once. */
 export function toastPush(mem, ev, at) {
   mem.n += 1;
-  // A new array each time: a list a caller was handed never changes under it.
-  mem.list = [{ id: `toast-${mem.n}`, kind: ev.kind, head: ev.head, body: ev.body, hint: ev.hint || TOAST_HINT, who: ev.who || "", at }, ...mem.list].slice(0, TOAST_MAX);
+  // New arrays each time: a list a caller was handed never changes under it.
+  const all = [{ id: `toast-${mem.n}`, kind: ev.kind, head: ev.head, body: ev.body, hint: ev.hint || toastHint(ev.kind), who: ev.who || "", at, out: null }, ...mem.list];
+  mem.list = all.slice(0, TOAST_MAX);
+  mem.leaving = [...mem.leaving, ...all.slice(TOAST_MAX).map((t) => ({ ...t, out: at }))];
 }
 
-/** Take a toast away (it was clicked). */
+/** Take a toast away (it was clicked): at once, with no leaving. */
 export function toastDismiss(mem, id) {
   mem.list = mem.list.filter((t) => t.id !== id);
+  mem.leaving = mem.leaving.filter((t) => t.id !== id);
+}
+
+/** Where a toast is in its life at `now`: "in" (just mounted, drawn faded and up), "show", or "out" (leaving). */
+export function toastPhase(t, now) {
+  if (t.out !== null && t.out !== undefined) return "out";
+  return now - t.at < TOAST_ENTER_MS ? "in" : "show";
 }
 
 /**
- * One step: raise what the crew's change calls for, drop the toasts whose time is up, and say how long until the next
- * one goes (null when none is showing), so the office asks for a render then and no timer repeats.
+ * One step: raise what the crew's change calls for, move the toasts whose time is up to `leaving`, drop those that have
+ * finished leaving, and say how long until the next one goes (`nextMs`, null when none is showing) and until the next
+ * change of phase (`animMs`, null when none), so the office asks for a render then and no timer repeats.
  */
 export function toastStep(mem, crew, now) {
   for (const ev of raised(mem, crew)) toastPush(mem, ev, now);
+  const expired = mem.list.filter((t) => now - t.at >= TOAST_MS);
   mem.list = mem.list.filter((t) => now - t.at < TOAST_MS);
+  mem.leaving = [...mem.leaving, ...expired.map((t) => ({ ...t, out: t.at + TOAST_MS }))].filter((t) => now - t.out < TOAST_EXIT_MS);
   const next = mem.list.length ? Math.min(...mem.list.map((t) => t.at + TOAST_MS - now)) : null;
-  return { list: mem.list, nextMs: next };
+  const marks = [...mem.list.map((t) => t.at + TOAST_ENTER_MS), ...mem.leaving.map((t) => t.out + TOAST_EXIT_MS)].map((x) => x - now).filter((ms) => ms > 0);
+  return { list: mem.list, leaving: mem.leaving, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
 }

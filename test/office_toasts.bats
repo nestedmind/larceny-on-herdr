@@ -155,3 +155,34 @@ console.log(r.list.length);'
   [ "$status" -eq 0 ]
   [ "$output" = "2" ]
 }
+
+@test "a new toast enters for 40 ms, shows until it is 7 s old, and then leaves for 250 ms before it is gone" {
+  run crew_js '
+const m = crew.newToasts();
+crew.toastStep(m, agents(working("amy")), 0);
+const a = crew.toastStep(m, agents(blocked("amy", "question", "A?")), 1000);
+const ph = (r, now) => r.list.concat(r.leaving).map((t) => crew.toastPhase(t, now)).join(",");
+const b = crew.toastStep(m, agents(blocked("amy", "question", "A?")), 1040);
+const c = crew.toastStep(m, agents(blocked("amy", "question", "A?")), 8000);
+const d = crew.toastStep(m, agents(blocked("amy", "question", "A?")), 8249);
+const e = crew.toastStep(m, agents(blocked("amy", "question", "A?")), 8250);
+console.log(ph(a, 1000), a.animMs, ph(b, 1040), b.animMs, ph(c, 8000), c.animMs, ph(d, 8249), d.animMs, e.leaving.length, e.animMs);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "in 40 show null out 250 out 1 0 null" ]
+}
+
+@test "a toast pushed out by a fourth leaves at once, and a dismissed one is gone with no leaving" {
+  run crew_js '
+const m = crew.newToasts();
+const names = ["amy", "bo", "cy", "di"];
+crew.toastStep(m, agents(...names.map((n) => working(n))), 0);
+crew.toastStep(m, agents(blocked("amy", "question", "1"), working("bo"), working("cy"), working("di")), 100);
+crew.toastStep(m, agents(blocked("amy", "question", "1"), blocked("bo", "question", "2"), working("cy"), working("di")), 200);
+crew.toastStep(m, agents(blocked("amy", "question", "1"), blocked("bo", "question", "2"), blocked("cy", "question", "3"), working("di")), 300);
+const r = crew.toastStep(m, agents(blocked("amy", "question", "1"), blocked("bo", "question", "2"), blocked("cy", "question", "3"), blocked("di", "question", "4")), 400);
+const out = r.leaving.map((t) => t.who + ":" + t.out).join(",");
+crew.toastDismiss(m, r.list[0].id);
+console.log(r.list.length, out, m.leaving.length, m.list.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3 t-amy:400 1 2" ]
+}
