@@ -143,3 +143,19 @@ setup() {
   grep -qxF $'kill\tsucre' "$FAKE_HC_LOG"
   grep -qxF $'kill\tmahone' "$FAKE_HC_LOG"
 }
+
+@test "down archives after the coder has ended, so the shutdown write is kept" {
+  export LOH_CLAUDE_PROJECTS="$BATS_TEST_TMPDIR/projects"
+  cwd="$WS/.worktrees/sucre-api-12"
+  src="$LOH_CLAUDE_PROJECTS/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')"
+  mkdir -p "$src"
+  echo '{"a":1}' >"$src/s1.jsonl"
+  printf '#!/usr/bin/env bash\n[ "$1" != sucre ] || echo shutdown >>"%s/s1.jsonl"\n' "$src" >"$BATS_TEST_TMPDIR/on-kill"
+  chmod +x "$BATS_TEST_TMPDIR/on-kill"
+  export FAKE_HC_ON_KILL="$BATS_TEST_TMPDIR/on-kill"
+  hc_reply get.sucre "$(jq -nc --arg c "$cwd" '{state:"live",cwd:$c,labels:{crew:"demo",role:"coder",task:"api#12"}}')"
+  run "$LOH" down
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$WS/.loh/transcripts/sucre-api-12/s1.jsonl")" = shutdown ]
+  [ ! -e "$src" ]
+}

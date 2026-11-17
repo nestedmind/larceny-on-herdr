@@ -12,12 +12,20 @@
 #                     K              one file, printed on every call
 #                     K.exit         exit status for K (default: FAKE_HC_EXIT)
 #                   A call that matches no key falls back to FAKE_HC_JSON.
+#   FAKE_HC_ON_KILL optional command, run as `CMD <name>` on `hc kill <name>`,
+#                   the way a real shutdown writes to the session file. After a
+#                   kill, `hc get <name>` shows its state as "finished".
 set -euo pipefail
 : "${FAKE_HC_LOG:?FAKE_HC_LOG must be set}"
 (
   IFS=$'\t'
   printf '%s\n' "$*" >>"$FAKE_HC_LOG"
 )
+
+if [[ "${1:-}" == "kill" && -n "${2:-}" && -n "${FAKE_HC_SCRIPT:-}" ]]; then
+  : >"$FAKE_HC_SCRIPT/.killed.$2"
+  [[ -z "${FAKE_HC_ON_KILL:-}" ]] || "$FAKE_HC_ON_KILL" "$2"
+fi
 
 if [[ -n "${FAKE_HC_SCRIPT:-}" ]]; then
   keys=()
@@ -33,7 +41,11 @@ if [[ -n "${FAKE_HC_SCRIPT:-}" ]]; then
       while [[ ! -f "$base.$n" ]]; do n=$((n - 1)); done
       cat "$base.$n"
     elif [[ -f "$base" ]]; then
-      cat "$base"
+      if [[ "$1" == "get" && -f "$FAKE_HC_SCRIPT/.killed.${2:-}" ]]; then
+        jq -c '.state = "finished"' "$base"
+      else
+        cat "$base"
+      fi
     elif [[ ! -f "$base.exit" ]]; then
       continue
     fi

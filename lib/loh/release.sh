@@ -3,13 +3,15 @@
 # folder, then end the coder. The coordinator runs it instead of `hc kill` and
 # `hc rm` once a coder's merge is checked.
 #   - only a coder of this crew (role=coder, crew=<workspace>) is accepted
-#   - a coder that is working or blocked is refused unless --force is given;
-#     a forced coder is ended first, so its session file is complete when it
-#     is copied
+#   - a coder that is working or blocked is refused unless --force is given
+#   - the coder is ended first (hc kill) and awaited until hc get shows it
+#     finished, because Claude Code writes a last ~2 KB to the session file as
+#     it shuts down; only then is the transcript archived, and hc rm follows
 #   - the session folder is copied whole to
 #     <workspace>/.loh/transcripts/<coder>-<repo>-<ticket>/, checked, and only
 #     then removed (see archive_transcript in common.sh). If the copy fails,
-#     the source is left alone and the coder is not ended (unless it already was).
+#     the source is left alone, the terminal is still removed, and the exit
+#     status is 1; the message says where the transcript is.
 set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -57,22 +59,15 @@ cwd="$(jq -r '.cwd // ""' <<<"$info")"
 life="$(jq -r '.state // ""' <<<"$info")"
 state="$(jq -r '.status.state // ""' <<<"$info")"
 
-busy=""
-if [[ "$life" == "live" && ( "$state" == "working" || "$state" == "blocked" ) ]]; then
-  [[ -n "$force" ]] || die "$name is still $state; wait for its turn to end or pass --force"
-  busy=1
+if [[ "$life" == "live" && ( "$state" == "working" || "$state" == "blocked" ) && -z "$force" ]]; then
+  die "$name is still $state; wait for its turn to end or pass --force"
 fi
 
-# A coder that is still writing is ended first, so the copy is complete.
-if [[ -n "$busy" ]]; then
-  hc kill "$name" >/dev/null
-fi
+# The coder is ended first and awaited, so the last write Claude Code makes at
+# shutdown is in the session file before it is copied.
+end_terminal "$name"
 rc=0
 archive_transcript "$name" "$cwd" "$task" || rc=$?
-if [[ $rc -ne 0 && -z "$busy" ]]; then
-  exit "$rc"
-fi
-[[ -n "$busy" ]] || hc kill "$name" >/dev/null
 hc rm "$name" >/dev/null
 echo "released $name"
 exit "$rc"
