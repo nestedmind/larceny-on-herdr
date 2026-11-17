@@ -121,7 +121,19 @@ setup() {
   run inst <<<"y"
   [ "$status" -eq 0 ]
   grep -Fq "curl -fsSL https://releases.herdr.dev/core/install.sh" "$STUB_LOG"
+  [[ "$output" == *"HC_VERSION=0.1.20 sh"* ]]
   [ -e "$STATE/core-installer-ran" ]
+}
+
+@test "herdr-app's install is shown with a note that it installs the latest, not the tested 0.1.15" {
+  stub_all
+  rm "$STUBS/herdr-app"
+  stub curl 'echo true'
+  run inst <<<"n"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"https://releases.herdr.dev/app/install.sh | sh"* ]]
+  [[ "$output" == *"installs the latest herdr-app"*"0.1.15"*"tested"* ]]
+  ! grep -Fq "curl" "$STUB_LOG"
 }
 
 @test "a declined install runs nothing, says what was skipped and carries on" {
@@ -132,7 +144,7 @@ setup() {
   [ "$status" -eq 0 ]
   ! grep -Fq "curl" "$STUB_LOG"
   [ ! -e "$STATE/core-installer-ran" ]
-  [[ "$output" == *"curl -fsSL https://releases.herdr.dev/core/install.sh | sh"* ]]
+  [[ "$output" == *"curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=0.1.20 sh"* ]]
   [[ "$output" == *"skipped"* ]]
   grep -Fq "claude plugin install" "$STUB_LOG"
 }

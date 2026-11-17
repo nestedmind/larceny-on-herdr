@@ -15,7 +15,7 @@ PLUGIN="larceny-on-herdr@larceny-on-herdr"
 MARKET="larceny-on-herdr"
 TESTED_HC="0.1.20"
 TESTED_APP="0.1.15"
-CORE_INSTALL='curl -fsSL https://releases.herdr.dev/core/install.sh | sh'
+CORE_INSTALL="curl -fsSL https://releases.herdr.dev/core/install.sh | HC_VERSION=$TESTED_HC sh"
 APP_INSTALL='curl -fsSL https://releases.herdr.dev/app/install.sh | sh'
 CLAUDE_INSTALL='curl -fsSL https://claude.ai/install.sh | bash'
 
@@ -84,6 +84,8 @@ check_tool() {
       return 0
     fi
     say "  $tool is missing. Install command:"
+    [[ "$tool" != herdr-app ]] ||
+      say "  Note: this installs the latest herdr-app; $TESTED_APP is the tested version."
     say "    $cmd"
     if ask "Run it now?"; then
       if bash -c "$cmd"; then
