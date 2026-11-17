@@ -264,6 +264,7 @@ coordinator_section() {
   line=$(coordinator_section | grep 'Waiting on the owner')
   [[ "$line" == *"--timeout 300"* ]]
   [[ "$line" == *"the second wake"* ]]
+  [[ "$line" == *"longer wake interval"* ]]
   [[ "$line" == *"when you reported"* ]]
   [[ "$line" == *"chat id of a Discord message the owner sent"* ]]
   [[ "$line" == *".loh/status.md"* ]]
