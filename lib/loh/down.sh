@@ -4,6 +4,9 @@
 #   (default)  coders labelled crew=<this workspace>
 #   --all      every terminal with this crew label: also scofield, amy and
 #              loh-watch
+# Each coder's transcript is archived into <workspace>/.loh/transcripts/ as
+# `loh release` does, after the coder ends; if that fails, the coder is still
+# ended, the source is left, and loh down exits 1.
 # Terminals without the label are never touched. If loh runs inside one of the
 # terminals it would end (hc sets HC_TERMINAL_ID there), that terminal is
 # ended last, after the summary, because killing it ends loh too.
@@ -38,13 +41,26 @@ label_filter='(.labels // {})
     else . end
   | "\(.crew // "")|\(.role // "")"'
 
+# archive_coder <name> <info json>: archive that coder's transcript. A failure
+# is reported (archive_transcript says why) and remembered in $failed.
+failed=0
+archive_coder() {
+  local cwd task
+  cwd="$(jq -r '.cwd // ""' <<<"$2")"
+  task="$(jq -r '(.labels // {}) | if type == "array" then (map(select(type == "string" and startswith("task=")) | sub("^task="; "")) | first // "") else (.task // "") end' <<<"$2")"
+  archive_transcript "$1" "$cwd" "$task" || failed=1
+}
+
 self="${HC_TERMINAL_ID:-}"
 self_name=""
+self_role=""
+self_info=""
 ended=0
 rows="$(hc_json ls | jq -r '.terminals[]? | select(.name != null) | "\(.address // "")\t\(.name)"')"
 while IFS=$'\t' read -r addr name; do
   [[ -n "$name" ]] || continue
-  info="$(hc_json get "$name" 2>/dev/null | jq -r "$label_filter" 2>/dev/null)" || continue
+  json="$(hc_json get "$name" 2>/dev/null)" || continue
+  info="$(jq -r "$label_filter" <<<"$json" 2>/dev/null)" || continue
   crew="${info%%|*}"
   role="${info#*|}"
   [[ "$crew" == "$WS_NAME" ]] || continue
@@ -53,16 +69,24 @@ while IFS=$'\t' read -r addr name; do
   fi
   if [[ -n "$self" && "$addr" == "$self" ]]; then
     self_name="$name"
+    self_role="$role"
+    self_info="$json"
     continue
   fi
   hc kill "$name" >/dev/null
+  [[ "$role" != "coder" ]] || archive_coder "$name" "$json"
   echo "ended $name"
   ended=$((ended + 1))
 done <<<"$rows"
 
 if [[ -n "$self_name" ]]; then
+  # Killing this terminal ends loh too, so a coder running loh down archives
+  # its own transcript first (its session file is still being written, so the
+  # last lines of this turn may be missing from the copy).
+  [[ "$self_role" != "coder" ]] || archive_coder "$self_name" "$self_info"
   echo "ended $self_name (this terminal, last)"
   hc kill "$self_name" >/dev/null
-  exit 0
+  exit "$failed"
 fi
 [[ $ended -gt 0 ]] || echo "nothing to end for crew $WS_NAME"
+exit "$failed"

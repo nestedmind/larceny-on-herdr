@@ -113,9 +113,9 @@ named_commands() {
   grep -qF '`loh spawn <coder> <repo> <ticket> [--model M]`' "$(skill_file)"
 }
 
-@test "the coordinator ends a merged coder with hc kill then hc rm" {
-  grep -qF 'hc kill <coder>' "$(skill_file)"
-  grep -qF 'hc rm <coder>' "$(skill_file)"
+@test "the coordinator releases a merged coder with loh release, not hc kill and hc rm" {
+  grep -qF 'run `loh release <coder>`' "$(skill_file)"
+  ! grep -qF 'end its terminal with `hc kill <coder>`' "$(skill_file)"
 }
 
 @test "the loh down row says the default kills every coder" {

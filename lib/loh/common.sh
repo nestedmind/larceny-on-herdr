@@ -384,3 +384,75 @@ agent_name() {
   [[ "$n" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "crew name '$1' cannot be a terminal name (letters, digits, '.', '_' and '-' only)"
   printf '%s' "$n"
 }
+
+# claude_session_dir <cwd>: print the folder where Claude Code keeps the
+# sessions of an agent that runs in <cwd>: every non-alphanumeric character of
+# the cwd becomes "-", under ${LOH_CLAUDE_PROJECTS:-~/.claude/projects}.
+claude_session_dir() {
+  printf '%s/%s\n' "${LOH_CLAUDE_PROJECTS:-$HOME/.claude/projects}" \
+    "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"
+}
+
+# _tree_listing <dir>: one "path size" line per file under <dir>, sorted.
+_tree_listing() {
+  (
+    cd "$1" || exit 1
+    find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+      printf '%s %s\n' "$f" "$(wc -c <"$f" | tr -d ' ')"
+    done
+  )
+}
+
+# archive_transcript <name> <cwd> <task>: copy a coder's whole session folder
+# to <workspace>/.loh/transcripts/<name>-<repo>-<ticket>/ (-2, -3 ... when the
+# name is taken), check the copy has the same files and sizes, and only then
+# remove the source. The source is removed only when the coder's cwd is inside
+# <workspace>/.worktrees/ (no ".." in it), so the folders of the coordinator,
+# the reviewer or the main repo are never touched. Needs manifest_load.
+# Returns 0 when there was nothing to copy or the archive is made, 1 when the
+# copy failed (the source is then left alone).
+archive_transcript() {
+  local name="$1" cwd="$2" task="$3"
+  local wt="$WS_ROOT/.worktrees/" src label dest base n=2 safe=""
+  if [[ -z "$cwd" ]]; then
+    echo "no folder recorded for $name; no transcript to archive"
+    return 0
+  fi
+  src="$(claude_session_dir "$cwd")"
+  if [[ ! -d "$src" ]]; then
+    echo "no transcript folder for $name; nothing to archive"
+    return 0
+  fi
+  [[ "$cwd" == "$wt"?* && "$cwd" != *..* ]] && safe=1
+  label="$name"
+  if [[ "$task" == *"#"* ]]; then
+    label="$name-${task%%#*}-${task#*#}"
+  fi
+  label="$(printf '%s' "$label" | sed 's/[^A-Za-z0-9._-]/-/g')"
+  base="$WS_ROOT/.loh/transcripts/$label"
+  dest="$base"
+  if ! mkdir -p "$WS_ROOT/.loh/transcripts" 2>/dev/null; then
+    echo "loh: cannot make $WS_ROOT/.loh/transcripts; the source is left at $src" >&2
+    return 1
+  fi
+  until mkdir "$dest" 2>/dev/null; do
+    dest="$base-$n"
+    n=$((n + 1))
+    if ((n > 1000)); then
+      echo "loh: cannot find a free archive name under $base; the source is left at $src" >&2
+      return 1
+    fi
+  done
+  if ! cp -a "$src/." "$dest/" 2>/dev/null ||
+    [[ "$(_tree_listing "$src")" != "$(_tree_listing "$dest")" ]]; then
+    rm -rf "$dest"
+    echo "loh: copying $src failed or did not verify; the source is left at $src" >&2
+    return 1
+  fi
+  if [[ -n "$safe" ]]; then
+    rm -rf "$src"
+  else
+    echo "loh: $name ran outside $wt; the source is left at $src"
+  fi
+  echo "archived $name's transcript to $dest"
+}
