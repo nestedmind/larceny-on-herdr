@@ -47,13 +47,13 @@ workspace_root() {
 }
 
 # office_open <workspace root>: succeed while an office tab is open. The office
-# pings `loh office-ping` every 10 s; the file it writes holds the time in
-# seconds, and counts for LOH_OFFICE_FRESH seconds (default 30). A missing
+# pings `loh office-ping` every 5 s; the file it writes holds the time in
+# seconds, and counts for LOH_OFFICE_FRESH seconds (default 15). A missing
 # file, one with anything but digits in it, and a time in the future are all
 # "closed", so a notification is never lost to a bad file.
 office_open() {
-  local f="$1/.loh/office-open" t now fresh="${LOH_OFFICE_FRESH:-30}"
-  [[ "$fresh" =~ ^[0-9]+$ ]] || fresh=30
+  local f="$1/.loh/office-open" t now fresh="${LOH_OFFICE_FRESH:-15}"
+  [[ "$fresh" =~ ^[0-9]+$ ]] || fresh=15
   [[ -f "$f" ]] || return 1
   t="$(head -n 1 "$f" 2>/dev/null)" || return 1
   [[ "$t" =~ ^[0-9]{1,12}$ ]] || return 1
