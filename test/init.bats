@@ -32,7 +32,15 @@ setup() {
   cat >"$BATS_TEST_TMPDIR/stubs/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_GH_LOG"
-if [[ "$1 $2" == "repo view" ]]; then printf '%s\n' "${FAKE_GH_BRANCH:-main}"; exit 0; fi
+if [[ "$1 $2" == "repo view" ]]; then
+  if [[ "$*" == *defaultBranchRef* ]]; then printf '%s\n' "${FAKE_GH_BRANCH:-main}"; exit 0; fi
+  exit "${FAKE_GH_EXISTS:-1}" # existence check: 0 = the repo is on GitHub
+fi
+if [[ "$1 $2" == "repo create" ]]; then
+  [[ -z "${FAKE_GH_CREATE_FAILS:-}" ]] || { echo "gh: boom" >&2; exit 1; }
+  git remote add origin "https://github.com/$3.git"
+  exit 0
+fi
 exit 1
 SH
   chmod +x "$BATS_TEST_TMPDIR/stubs/gh"
@@ -303,4 +311,99 @@ MD
   run --separate-stderr "$LOH" init --bogus
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Usage: loh init"* ]]
+}
+
+# --- --new ---
+
+new_env() {
+  export GIT_AUTHOR_NAME=Pat GIT_AUTHOR_EMAIL=pat@example.invalid
+  export GIT_COMMITTER_NAME=Pat GIT_COMMITTER_EMAIL=pat@example.invalid
+  mkdir -p "$HOME_DIR/fresh"
+  cd "$HOME_DIR/fresh"
+}
+
+@test "init --new makes the repo, the private GitHub repo and the workspace" {
+  new_env
+  fresh_start
+  run "$LOH" init --new acme/brand-new
+  [ "$status" -eq 0 ]
+  repo="$HOME_DIR/fresh/brand-new"
+  [ "$(git -C "$repo" symbolic-ref --short HEAD)" = main ]
+  [ "$(cat "$repo/README.md")" = "# brand-new" ]
+  [ "$(git -C "$repo" rev-list --count HEAD)" -eq 1 ]
+  [ "$(git -C "$repo" log -1 --format=%an)" = Pat ]
+  grep -q 'repo create acme/brand-new --private --source . --push' "$FAKE_GH_LOG"
+  run cat "$HOME_DIR/fresh/brand-new-crew/.loh/workspace.md"
+  [[ "$output" == *"  - name: brand-new"* ]]
+  [[ "$output" == *"    path: $repo"* ]]
+  [[ "$output" == *"    github: acme/brand-new"* ]]
+  grep -q $'^run\t.*--name\tscofield' "$FAKE_HC_LOG"
+}
+
+@test "init --new refuses an existing folder and does nothing" {
+  new_env
+  mkdir brand-new
+  run --separate-stderr "$LOH" init --new acme/brand-new
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"already exists"* ]]
+  ! grep -q 'repo create' "$FAKE_GH_LOG"
+  [ -z "$(ls -A brand-new)" ]
+}
+
+@test "init --new refuses a repo that is already on GitHub and makes no folder" {
+  new_env
+  export FAKE_GH_EXISTS=0
+  run --separate-stderr "$LOH" init --new acme/brand-new
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"acme/brand-new already exists on GitHub"* ]]
+  [ ! -e brand-new ]
+  ! grep -q 'repo create' "$FAKE_GH_LOG"
+}
+
+@test "init --new keeps the folder and says what was done when gh repo create fails" {
+  new_env
+  export FAKE_GH_CREATE_FAILS=1
+  run --separate-stderr "$LOH" init --new acme/brand-new
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"gh repo create acme/brand-new failed"* ]]
+  [[ "$stderr" == *"done so far: made "*"git init on main, committed README.md"* ]]
+  [[ "$stderr" == *"left as it is"* ]]
+  [ -f brand-new/README.md ]
+  [ ! -e brand-new-crew ]
+  ! grep -q $'^run\t' "$FAKE_HC_LOG"
+}
+
+@test "init --new cannot be combined with repo paths" {
+  new_env
+  run --separate-stderr "$LOH" init --new acme/x "$HOME_DIR/code/shop"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"cannot be combined"* ]]
+  [ ! -e x ]
+}
+
+@test "init --new refuses a malformed name" {
+  new_env
+  run --separate-stderr "$LOH" init --new justaname
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"<owner>/<name>"* ]]
+}
+
+@test "init --new with --workspace adds the new repo to that workspace" {
+  new_env
+  WS="$BATS_TEST_TMPDIR/shared"
+  mkdir -p "$WS/.loh"
+  cat >"$WS/.loh/workspace.md" <<MD
+name: shop
+repos:
+  - name: shop
+    path: $HOME_DIR/code/shop
+    branch: main
+    github: acme/shop
+MD
+  hc_reply get.scofield "$LIVE"
+  hc_reply get.amy "$LIVE"
+  run "$LOH" init --new acme/brand-new --workspace "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "  - name: brand-new" "$WS/.loh/workspace.md"
+  [ ! -e "$HOME_DIR/fresh/brand-new-crew" ]
 }

@@ -1,5 +1,15 @@
 # shellcheck shell=bash
 # loh init [<repo-path>...] [--workspace <dir>]: set up or extend a workspace.
+# loh init --new <owner>/<name> [--workspace <dir>]: start from nothing.
+#
+# --new makes the folder <name> in the current folder, runs `git init` on
+# main, commits a one-line README.md, creates the private GitHub repo with
+# `gh repo create --private --source . --push`, and then carries on as
+# `loh init <that folder>`. The commit and push use the person's own git
+# identity and gh login. It refuses before doing anything if the folder exists
+# or the repo is already on GitHub, and cannot be combined with repo paths. If
+# a step fails after the folder exists it says what was done and what was not,
+# and leaves the folder alone: it never deletes it.
 #
 # Makes a workspace (a sibling folder <repo>-crew next to the first repo, or
 # the one --workspace names) or adds repos to an existing one, then runs
@@ -21,10 +31,14 @@ set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-usage() { echo "Usage: loh init [<repo-path>...] [--workspace <dir>]" >&2; }
+usage() {
+  echo "Usage: loh init [<repo-path>...] [--workspace <dir>]" >&2
+  echo "       loh init --new <owner>/<name> [--workspace <dir>]" >&2
+}
 
 repo_args=()
 ws_arg=""
+new_slug=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workspace)
@@ -34,6 +48,22 @@ while [[ $# -gt 0 ]]; do
       }
       ws_arg="$2"
       shift 2
+      ;;
+    --new)
+      [[ $# -ge 2 && -n "$2" && -z "$new_slug" ]] || {
+        usage
+        exit 2
+      }
+      new_slug="$2"
+      shift 2
+      ;;
+    --new=*)
+      [[ -n "${1#--new=}" && -z "$new_slug" ]] || {
+        usage
+        exit 2
+      }
+      new_slug="${1#--new=}"
+      shift
       ;;
     --workspace=*)
       ws_arg="${1#--workspace=}"
@@ -53,7 +83,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-[[ ${#repo_args[@]} -gt 0 ]] || repo_args=(.)
+if [[ -n "$new_slug" ]]; then
+  [[ ${#repo_args[@]} -eq 0 ]] || {
+    echo "loh: --new cannot be combined with repo paths" >&2
+    usage
+    exit 2
+  }
+  [[ "$new_slug" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ && "${new_slug#*/}" != . && "${new_slug#*/}" != .. ]] ||
+    die "--new takes <owner>/<name> (letters, digits, '.', '_' and '-'), got: $new_slug"
+fi
+[[ ${#repo_args[@]} -gt 0 || -n "$new_slug" ]] || repo_args=(.)
 
 need git
 need jq
@@ -101,6 +140,46 @@ default_branch() {
 canon() {
   if [[ -d "$1" ]]; then (cd -P "$1" && pwd); else printf '%s' "$1"; fi
 }
+
+# --- --new: make the repo first --------------------------------------------
+
+if [[ -n "$new_slug" ]]; then
+  need gh
+  new_name="${new_slug#*/}"
+  new_dir="$PWD/$new_name"
+  [[ ! -e "$new_dir" ]] || die "$new_dir already exists, so nothing was made"
+  if gh repo view "$new_slug" --json name >/dev/null 2>&1; then
+    die "$new_slug already exists on GitHub, so nothing was made (to use it, clone it and run loh init in the clone)"
+  fi
+  done_steps=()
+  # new_fail <what failed>: say what was done and what was not, keep the folder.
+  new_fail() {
+    local done_list="nothing" k
+    for k in "${!done_steps[@]}"; do
+      if ((k == 0)); then done_list="${done_steps[k]}"; else done_list+=", ${done_steps[k]}"; fi
+    done
+    {
+      echo "loh: $1"
+      echo "loh: done so far: $done_list"
+      echo "loh: not done: the rest of loh init --new, and no workspace was made or changed"
+      echo "loh: $new_dir was left as it is; look at it, fix the problem, and finish by hand (or remove it yourself and run again)"
+    } >&2
+    exit 1
+  }
+  mkdir "$new_dir" || die "cannot make $new_dir"
+  done_steps+=("made $new_dir")
+  git -C "$new_dir" init -q -b main || new_fail "git init failed"
+  done_steps+=("git init on main")
+  printf '# %s\n' "$new_name" >"$new_dir/README.md" || new_fail "cannot write README.md"
+  git -C "$new_dir" add README.md || new_fail "git add failed"
+  git -C "$new_dir" commit -q -m "Add README" || new_fail "git commit failed (is your git user.name and user.email set?)"
+  done_steps+=("committed README.md")
+  (cd "$new_dir" && gh repo create "$new_slug" --private --source . --push >/dev/null) ||
+    new_fail "gh repo create $new_slug failed"
+  done_steps+=("created private repo $new_slug and pushed")
+  echo "made $new_dir and the private GitHub repo $new_slug"
+  repo_args=("$new_dir")
+fi
 
 # --- the workspace ---------------------------------------------------------
 
