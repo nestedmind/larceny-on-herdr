@@ -264,6 +264,24 @@ MD
   grep -q "shop-crew" "$FAKE_APP_LOG"
 }
 
+@test "init makes a space first when herdr-app has none open" {
+  fresh_start
+  export FAKE_APP_SPACE=0
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"opened the office tab"* ]]
+  [ "$(grep -n $'^do\tspace.new' "$FAKE_APP_LOG" | cut -d: -f1)" -lt "$(grep -n $'^do\ttab.new' "$FAKE_APP_LOG" | cut -d: -f1)" ]
+}
+
+@test "init shows herdr-app's own error when the tab cannot be opened" {
+  fresh_start
+  export FAKE_APP_NEW_EXIT=1
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tab.new failed: boom"* ]]
+  [[ "$output" == *"herdr-app do tab.new --name office"* ]]
+}
+
 @test "the office props carry the crew, the workspace and the path of this loh" {
   fresh_start
   run "$LOH" init

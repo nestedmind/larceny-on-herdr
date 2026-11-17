@@ -72,7 +72,7 @@ if [[ -z "$old" ]] && office_open "$ws"; then
 fi
 
 if ! office_new_tab "$ws" "$props"; then
-  die "could not open the office tab; open it with: $(office_open_cmd "$ws" "$props")"
+  die "could not open the office tab${OFFICE_ERR:+ ($OFFICE_ERR)}; open it with: $(office_open_cmd "$ws" "$props")"
 fi
 new="$OFFICE_NEW_TAB"
 
