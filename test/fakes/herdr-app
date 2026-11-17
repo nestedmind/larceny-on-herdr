@@ -8,7 +8,8 @@
 # stdout like the real one. FAKE_APP_SPACE=0 starts with no space open:
 # `status` reports "space": null, `do tab.new` fails with "no space yet" on
 # stdout, and `do space.new` (fails with FAKE_APP_SPACE_EXIT when set) opens
-# one. `do tab.close` exits with FAKE_APP_CLOSE_EXIT.
+# one. FAKE_APP_WARN=1 makes a successful `do tab.new` also write a warning
+# line to stderr. `do tab.close` exits with FAKE_APP_CLOSE_EXIT.
 set -euo pipefail
 : "${FAKE_APP_LOG:?FAKE_APP_LOG must be set}"
 (
@@ -39,6 +40,7 @@ if [[ "${1:-}" == "do" && "${2:-}" == "tab.new" ]]; then
     exit 1
   fi
   [[ -z "${FAKE_APP_NEW_EXIT:-}" ]] || { echo '{"error":"tab.new failed: boom"}'; exit "$FAKE_APP_NEW_EXIT"; }
+  [[ -z "${FAKE_APP_WARN:-}" ]] || echo "warning: herdr-app is out of date" >&2
   n=$(($(cat "$FAKE_APP_LOG.tabs" 2>/dev/null || echo 0) + 1))
   echo "$n" >"$FAKE_APP_LOG.tabs"
   printf '{"space":"spc1","tab":"tb%s","terminal":"t1"}\n' "$n"

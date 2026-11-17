@@ -76,6 +76,22 @@ office_open_cmd() {
   printf 'herdr-app do tab.new --name office --mod crew-office --folder %q --props %q\n' "$1" "$2"
 }
 
+# office_app_do <herdr-app do args...>: run one `herdr-app do` command. Sets
+# OFFICE_APP_OUT to its stdout alone, so a warning on stderr never reaches the
+# JSON the caller parses. On failure sets OFFICE_ERR to the stdout (herdr-app's
+# error JSON) or, when that is empty, to the stderr, and returns 1.
+office_app_do() {
+  local errf rc=0
+  errf="$(mktemp)"
+  OFFICE_APP_OUT="$(herdr-app "do" "$@" 2>"$errf")" || rc=$?
+  if ((rc != 0)); then
+    # shellcheck disable=SC2034
+    OFFICE_ERR="${OFFICE_APP_OUT:-$(cat "$errf")}"
+  fi
+  rm -f "$errf"
+  ((rc == 0))
+}
+
 # office_new_tab <workspace root> <props>: open the office tab and keep its id
 # in <workspace root>/.loh/office-tab, which `loh office` reads to close the
 # tab on the next reload. Sets OFFICE_NEW_TAB to the id, empty when herdr-app
@@ -92,17 +108,10 @@ office_new_tab() {
   OFFICE_ERR=""
   status="$(herdr-app status 2>/dev/null || true)"
   if jq -e 'type == "object" and has("space") and .space == null' <<<"$status" >/dev/null 2>&1; then
-    if ! out="$(herdr-app "do" space.new 2>&1)"; then
-      # shellcheck disable=SC2034
-      OFFICE_ERR="$out"
-      return 1
-    fi
+    office_app_do space.new || return 1
   fi
-  if ! out="$(herdr-app "do" tab.new --name office --mod crew-office --folder "$ws" --props "$props" 2>&1)"; then
-    # shellcheck disable=SC2034
-    OFFICE_ERR="$out"
-    return 1
-  fi
+  office_app_do tab.new --name office --mod crew-office --folder "$ws" --props "$props" || return 1
+  out="$OFFICE_APP_OUT"
   OFFICE_NEW_TAB="$(jq -r '.tab // empty' <<<"$out" 2>/dev/null || true)"
   if [[ -n "$OFFICE_NEW_TAB" ]]; then
     mkdir -p "$ws/.loh"

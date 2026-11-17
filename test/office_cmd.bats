@@ -137,6 +137,13 @@ fresh_heartbeat() { date +%s >"$WS/.loh/office-open"; }
   [[ "$stderr" == *"herdr-app do tab.new --name office"* ]]
 }
 
+@test "a stderr line on a successful tab.new still saves the tab id" {
+  export FAKE_APP_WARN=1
+  run "$LOH" office
+  [ "$status" -eq 0 ]
+  [ "$(cat "$WS/.loh/office-tab")" = tb1 ]
+}
+
 @test "with no space open it makes one with space.new, then opens the tab" {
   export FAKE_APP_SPACE=0
   run "$LOH" office
