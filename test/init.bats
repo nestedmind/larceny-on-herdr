@@ -264,6 +264,24 @@ MD
   grep -q "shop-crew" "$FAKE_APP_LOG"
 }
 
+@test "the office props carry the crew, the workspace and the path of this loh" {
+  fresh_start
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  props="$(grep $'^do\ttab.new' "$FAKE_APP_LOG" | sed 's/.*--props\t//')"
+  [ "$(jq -r .crew <<<"$props")" = shop ]
+  [ "$(jq -r .dir <<<"$props")" = "$HOME_DIR/code/shop-crew" ]
+  [ "$(jq -r .loh <<<"$props")" = "$TREE/bin/loh" ]
+}
+
+@test "the printed open command carries the loh path too" {
+  export FAKE_APP_RUNNING=0
+  fresh_start
+  run "$LOH" init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"loh":"'"$TREE"'/bin/loh"'* ]]
+}
+
 @test "init only prints the open command when an office is already open" {
   ws="$HOME_DIR/code/shop-crew"
   mkdir -p "$ws/.loh"

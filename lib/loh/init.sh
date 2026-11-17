@@ -349,7 +349,7 @@ fi
 
 # --- the office ------------------------------------------------------------
 
-props="$(jq -cn --arg crew "$WS_NAME" --arg dir "$ws" '{crew: $crew, dir: $dir}')"
+props="$(jq -cn --arg crew "$WS_NAME" --arg dir "$ws" --arg loh "$LOH_ROOT/bin/loh" '{crew: $crew, dir: $dir, loh: $loh}')"
 open_cmd="herdr-app do tab.new --name office --mod crew-office --folder $ws --props '$props'"
 if office_open "$ws"; then
   echo "the office is already open for $WS_NAME"
