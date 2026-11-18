@@ -728,3 +728,42 @@ SH
   run_watch
   [ "$output" = 'Sheba needs you: permission: Run rm?' ]
 }
+
+@test "pw-play is preferred over paplay when both are installed" {
+  : >"$BATS_TEST_TMPDIR/pop.oga"
+  stub_player pw-play
+  cat >"$BIN/paplay" <<'SH'
+#!/usr/bin/env bash
+echo paplay >>"$D/paplay.log"
+SH
+  chmod +x "$BIN/paplay"
+  blocked_one
+  LOH_CHIME_FILE="$BATS_TEST_TMPDIR/pop.oga" run_watch
+  [ "$(played 1)" -eq 1 ]
+  [ ! -e "$D/paplay.log" ]
+}
+
+@test "with the office open on macOS the chime is afplay with Glass, and no notification" {
+  rm "$BIN/notify-send"
+  cat >"$BIN/osascript" <<'SH'
+#!/usr/bin/env bash
+echo osa >>"$D/osa.log"
+SH
+  stub_player afplay
+  chmod +x "$BIN/osascript"
+  date +%s >"$LOH_WORKSPACE/.loh/office-open"
+  blocked_one
+  run_watch
+  [ "$(played 1)" -eq 1 ]
+  [ "$(cat "$D/play.log")" = "/System/Library/Sounds/Glass.aiff" ]
+  [ ! -e "$D/osa.log" ]
+}
+
+@test "with the office open and no notifier the chime is a bell on stdout, and nothing else" {
+  rm "$BIN/notify-send"
+  date +%s >"$LOH_WORKSPACE/.loh/office-open"
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$output" = $'\a' ]
+}
