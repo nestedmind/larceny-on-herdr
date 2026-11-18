@@ -847,6 +847,12 @@ export const PONG_LONE = 2000;
 // After a clear, someone rests this long (zz) and then goes to the lounge.
 export const REST_MS = 4000;
 
+// Naps (ticket #152): someone idle this long since their last turn lies down in the rest room, for at most NAP_MAX_MS.
+export const NAP_AFTER_MS = 60 * 60 * 1000;
+export const NAP_MAX_MS = 90 * 60 * 1000;
+/** The rest room has this many beds; at most NAP_BEDS - 1 are taken by naps, so compaction always finds one. */
+export const NAP_BEDS = 4;
+
 /** The idle time in ms from a setting in minutes (a number or a numeric string). Anything else gives IDLE_MS. */
 export function idleMsOf(minutes) {
   const n = typeof minutes === "string" && minutes.trim() !== "" ? Number(minutes) : minutes;
@@ -952,7 +958,7 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
 }
 
 /** How long Yoda and Sara stay in a room with no session, and how long Waffles sleeps between walks: 5 to 15 minutes, random each time. */
@@ -1029,6 +1035,8 @@ const KITCHEN = ["kitchen", "lounge"];
  *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
  *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
  *    clear ends in the lounge after REST_MS;
+ *  - idle for NAP_AFTER_MS (an hour) since the last turn: the rest room, zz, for at most NAP_MAX_MS; never a coder with a
+ *    ticket, never in a meeting, at most NAP_BEDS - 1 at once (the longest idle first), none again before the next turn;
  *  - no session: the lounge;
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
@@ -1120,6 +1128,36 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     } else if (["scofield", "amy", "yoda", "sara", "maya", "opemipo"].includes(p.id)) p.mode = sitting ? "home" : "away";
     else p.mode = "away";
     if (p.mode === "wait") stillWait.add(p.id);
+  }
+  // Naps (ticket #152). Someone idle for NAP_AFTER_MS lies down in the rest room, the longest idle first, while fewer than
+  // NAP_BEDS - 1 beds are taken by naps and sent agents together. Not a coder with a ticket, not Scofield, Matt or Waffles, and
+  // a meeting, a compaction or a room Matt chose wins (their mode is not one of the kinds below). A nap ends at NAP_MAX_MS
+  // (the lounge) or with the next turn, and there is no second nap before a turn: `napped` keeps the turn's start (mem.act since).
+  {
+    const kinds = ["home", "away", "deskfree"];
+    const sleeper = (p) => p.agent && p.id !== "scofield" && (p.role === "coder" || PERSONAS.includes(p.id) || p.id === "amy") && kinds.includes(p.mode) && !p.busy;
+    const turn = (p) => mem.act.get(p.id).since;
+    for (const [id, n] of [...mem.nap]) {
+      const p = by(id);
+      if (!p || !sleeper(p) || turn(p) !== n.turn) mem.nap.delete(id);
+      else if (now - n.since >= NAP_MAX_MS) { mem.nap.delete(id); mem.napped.set(id, n.turn); }
+    }
+    for (const [id, t] of [...mem.napped]) { const p = by(id); if (!p || !p.agent || turn(p) !== t) mem.napped.delete(id); }
+    const sent = people.filter((p) => p.agent && p.mode === "go:rest").length;
+    const fixed = sent + people.filter((p) => p.agent && p.mode === "rest").length;
+    // Compaction, a clear and a sent agent always get a bed: the napper who lay down last gets up and goes to the lounge.
+    const byLatest = [...mem.nap].sort((a, b) => b[1].since - a[1].since || (a[0] < b[0] ? 1 : -1));
+    for (const [id] of byLatest) if (mem.nap.size + fixed > NAP_BEDS) mem.nap.delete(id);
+    const room = Math.min(NAP_BEDS - 1 - sent - mem.nap.size, NAP_BEDS - fixed - mem.nap.size);
+    const ready = people.filter((p) => sleeper(p) && !mem.nap.has(p.id) && mem.napped.get(p.id) !== turn(p) && p.idleFor >= NAP_AFTER_MS)
+      .sort((a, b) => b.idleFor - a.idleFor || (a.id < b.id ? -1 : 1));
+    for (const p of ready.slice(0, Math.max(0, room))) mem.nap.set(p.id, { since: now, turn: turn(p) });
+    for (const p of people) {
+      if (!p.agent) continue;
+      const n = mem.nap.get(p.id);
+      if (n) { p.mode = "rest"; p.napping = true; wakes.push(NAP_MAX_MS - (now - n.since)); }
+      else if (sleeper(p) && mem.napped.get(p.id) !== turn(p) && p.idleFor < NAP_AFTER_MS) wakes.push(NAP_AFTER_MS - p.idleFor);
+    }
   }
   for (const id of [...mem.wait.keys()]) if (!stillWait.has(id)) mem.wait.delete(id);
   for (const id of [...mem.cleared.keys()]) if (!live.has(id)) mem.cleared.delete(id);
