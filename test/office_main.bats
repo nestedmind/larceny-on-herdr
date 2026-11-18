@@ -845,6 +845,7 @@ console.log(wrap !== undefined, JSON.stringify(wrap.props.w) === JSON.stringify(
   run office_js '
 for (let i = 0; i < 14; i++) render();
 all(find(render(), "stage"));
+globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
 const notified = [];
 timers.length = 0;
 for (let i = 0; i < 6; i++) render();
@@ -861,6 +862,7 @@ all(find(render(), "stage"));
 const first = office.floorView.inst.layer;
 office.size = { width: 1630, height: 1000 };
 for (let i = 0; i < 16; i++) render();
+globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
 const notified = [];
 for (const t of timers.splice(0)) t.fn({ notify: (x) => notified.push(x) });
 office.floorView.inst.render();
@@ -1084,6 +1086,48 @@ answer.out = "lights on 102\n"; await ping();
 console.log(none, off, saved, button, again, office.lights, globalThis.SHARED["crew-office.lights"]);'
   [ "$status" -eq 0 ]
   [ "$output" = "true false off true false true on" ]
+}
+
+@test "the ping says what the office shows, so the button reaches loh office lights" {
+  run office_js "$lights_ping"'
+const args = [];
+const hook = globalThis.EXEC_HOOK;
+globalThis.EXEC_HOOK = (c, a, o) => { if (a[0] === "office-ping") args.push(a.join(" ")); return hook(c, a, o); };
+await ping();
+find(render(), "lights").props.on_click[0]({}, cx);
+await ping();
+console.log(args.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "office-ping --lights on|office-ping --lights off" ]
+}
+
+@test "a lights choice from loh redraws the main view through the spawned cx, not the dead render one" {
+  run office_js "$lights_ping"'
+await ping();
+globalThis.PROPS = { crew: "sandbox", dir: "/ws" };
+const notified = [];
+const spawned = { notify(v) { notified.push("spawned"); }, spawn() {} };
+const renderCx = { notify() { notified.push("render"); }, spawn(fn) { return Promise.resolve(fn(spawned)); } };
+answer.out = "lights off 100\n";
+office.pingAt = 0;
+await office.pingLoh([], Date.now(), renderCx); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+console.log(office.lights, notified.join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false spawned" ]
+}
+
+@test "the applied stamp is kept per workspace folder: another crew's office does not re-apply an old command" {
+  run office_js "$lights_ping"'
+answer.out = "lights off 100\n"; await ping();
+const keys = Object.keys(globalThis.SHARED).filter((k) => k.startsWith("crew-office.lights-seen")).join(",");
+for (const t of terms()) t.cwd = "/other/" + t.name;
+fresh(); for (const t of terms()) t.cwd = "/other/" + t.name;
+globalThis.SHARED["crew-office.lights"] = "on";
+fresh(); for (const t of terms()) t.cwd = "/other/" + t.name;
+await ping();
+console.log(keys, office.lights);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "crew-office.lights-seen./ws/scofield false" ]
 }
 
 @test "the stamp already applied is kept over a reload, so an old record does not undo the button" {

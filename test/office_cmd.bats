@@ -262,3 +262,34 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   read -r _ t2 <"$(lights_file)"
   [ "$t2" = 1700000000000000001 ]
 }
+
+@test "office-ping --lights records what the office shows, and bad arguments are usage" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  run "$LOH" office-ping --lights off
+  [ "$status" -eq 0 ]
+  read -r s t <"$WS/.loh/office-lights-shown"
+  [ "$s" = off ]
+  [[ "$t" =~ ^[0-9]+$ ]]
+  for bad in "--lights" "--lights dim" "off" "--dark on"; do
+    run --separate-stderr "$LOH" office-ping $bad
+    [ "$status" -eq 2 ]
+    [[ "$stderr" == *"Usage: loh office-ping [--lights on|off]"* ]]
+  done
+}
+
+@test "office lights with no argument prints what an open office reports, over the last terminal choice" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  "$LOH" office lights on
+  "$LOH" office-ping --lights off
+  run "$LOH" office lights
+  [ "$output" = off ]
+}
+
+@test "office lights with no argument falls back to the last terminal choice when the office has stopped pinging" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  "$LOH" office lights on
+  "$LOH" office-ping --lights off
+  echo $(($(date +%s) - 60)) >"$WS/.loh/office-open"
+  run "$LOH" office lights
+  [ "$output" = on ]
+}

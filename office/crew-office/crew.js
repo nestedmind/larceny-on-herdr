@@ -98,8 +98,10 @@ export function reposCall(agent, loh) {
 export const OFFICE_PING_MS = 5000;
 
 /** The command that tells loh an office is open (`loh office-ping`): `loh watch` then leaves the notices to the toasts. */
-export function pingCall(agent, loh) {
-  return { cmd: loh || "loh", args: ["office-ping"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+export function pingCall(agent, loh, lights) {
+  // `lights` (true: on) is what the office shows now, so `loh office lights` can say it.
+  const args = lights === undefined ? ["office-ping"] : ["office-ping", "--lights", lights ? "on" : "off"];
+  return { cmd: loh || "loh", args, options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
 /** The command that asks where the reactions are kept (loh react --dir). Same folder rules as reposCall. */
@@ -745,8 +747,10 @@ export function lightsFrom(saved) {
   return saved !== "off";
 }
 
-/** Where the stamp of the last `loh office lights` choice applied is kept, so a reload does not apply the same one again. */
-export const LIGHTS_SEEN_KEY = "crew-office.lights-seen";
+/** Where the stamp of the last `loh office lights` choice applied is kept, per workspace folder, so a reload does not apply the same one again. */
+export function lightsSeenKey(dir) {
+  return `crew-office.lights-seen.${dir || ""}`;
+}
 
 /**
  * The lights choice `loh office lights on|off` made, read from `loh office-ping`'s output, which carries the line

@@ -16,7 +16,8 @@
 # the old tab has to be closed by hand. `loh office --close` closes the saved tab.
 #
 # loh office lights [on|off]: switch the office lights from a terminal, or print
-# the current state (on, unless it was set to off). The choice goes to
+# the current state: what the open office last reported through its ping (so the
+# button and L count), else the last choice made here, else on. The choice goes to
 # <workspace>/.loh/office-lights as "<on|off> <stamp>", the stamp being the time
 # in nanoseconds (seconds where date has no nanoseconds) and always larger than the last, so a repeated choice is still a new one. `loh office-ping`
 # prints that line and the open office, which runs it every 5 seconds, applies a
@@ -46,7 +47,11 @@ if [[ "${1:-}" == "lights" ]]; then
     "")
       if [[ $# -eq 2 ]]; then lights_usage; fi
       state=on
-      if [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
+      shown="$root/.loh/office-lights-shown"
+      if office_open "$root" && [[ -f "$shown" ]]; then
+        # An open office reports what it shows with each ping, so the button and L count.
+        read -r state _ <"$shown" || true
+      elif [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
       [[ "$state" == off ]] || state=on
       printf '%s\n' "$state"
       ;;
