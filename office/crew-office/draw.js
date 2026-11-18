@@ -736,7 +736,9 @@ export function dogEls(p, k, walking, face) {
       .loop("top", { from: (y - 7) * k, to: (y - 13) * k, period: 2100, easing: "linear" }));
     return out;
   }
-  const dir = face === "n" || face === "s" || face === "e" || face === "w" ? face : p.dir < 0 ? "w" : "e";
+  // Walking, she faces the way the leg goes. Standing, she faces the way she last walked, which the layout gives as `dir`:
+  // `face` is always "s" at rest, so it says nothing about her.
+  const dir = walking ? face : p.dir < 0 ? "w" : "e";
   return out.concat(dogTop(k, walking, dir));
 }
 /**
