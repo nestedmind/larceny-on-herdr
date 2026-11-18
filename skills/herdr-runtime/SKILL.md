@@ -22,7 +22,7 @@ Paths are in larceny 0.1.5, commit 03a9bfc. Where one of these says to use `Agen
 | `skills/coder/SKILL.md`, "Reviewer protocol" (message the reviewer "using the id the coordinator gave you"; escalate and report as a subagent) | Coder section below |
 | `agents/sucre.md`, `mahone.md`, `sheba.md`, `whip.md`, frontmatter `isolation: worktree` | `loh spawn` creates the worktree before the session starts |
 | Any wait on a coder or a standing agent, or a Monitor (review subagents are not waited on: Amy's turn resumes when each returns) | `hc wait`, with `--timeout` |
-| `agents/reviewer.md` ("Do not dispatch subagents", Amy's founding prompt from `loh up`), `agents/amy.md` (same line) and `skills/adversarial-review/SKILL.md` ("never dispatch a subagent") | Reviewer section below: Amy dispatches one review subagent per PR and gates its findings |
+| `agents/reviewer.md` ("Do not dispatch subagents", Amy's founding prompt from `loh up`), `agents/amy.md` (same line) and `skills/adversarial-review/SKILL.md` ("never dispatch a subagent") | Reviewer section below: Amy dispatches one reviewer subagent, then one verifier subagent, per PR and decides from their findings |
 | One-project assumptions: `.larceny/config.md` and `.larceny/status.md` read from the current directory, one board (`skills/coordinator/SKILL.md`, "Dispatching a ticket"; `skills/onboarding`) | Workspace rules below |
 
 ## Commands
@@ -82,12 +82,44 @@ You started in a worktree that `loh spawn` made on your branch. Do not create an
 ## Reviewer
 
 - Review on GitHub under your persona account, following `adversarial-review`. Post each verdict with its `post-review.sh`, which reads the token itself and checks the review landed on the current head. Use `loh gh amy ...` for every other `gh` call.
-- You are the review coordinator. When a "PR #N ready" message arrives, dispatch one reviewer subagent for that PR with the `Agent` tool, running in the background. It runs the full `adversarial-review` against the PR and its ticket and returns its findings with evidence. It posts nothing and messages no one: `adversarial-review` tells a reviewer to post, so in its brief forbid it `post-review.sh`, `gh pr review` and `loh say`. Then end your turn. The helper's result starts a new turn, so you are free to take the next PR while it runs. Never wait in-turn on a helper, or on anything it runs in the background (the test suite, mutation runs). A turn held on a helper leaves every coder's "PR ready" waiting.
-- You are the gate. Before any verdict, read the diff yourself, check every finding against the code (keep it, correct it, or throw it out with a reason), and look for what the subagent missed: concurrency, boundaries, the ticket's acceptance criteria. Only then post the verdict with `post-review.sh` under your account and reply to the coder with `loh say`. A subagent's report is never posted as it is, and never counts as an approval on its own.
-- A follow-up round (a new head after changes requested) gets a fresh subagent, given the PR's earlier review on GitHub as context. Check that every earlier finding was addressed.
-- At most 4 review subagents run at once, matching the coder cap. Beyond that, PRs wait in order.
+- You are the review coordinator. Each round of each PR goes reviewer, then verifier, then you. Run one reviewer per PR, not several by topic.
+- When a "PR #N ready" message arrives, dispatch one reviewer subagent for that PR with the `Agent` tool, running in the background. It runs the full `adversarial-review` against the PR and its ticket, running the tests, and returns a numbered list of findings. Trace each behaviour the ticket requires from the real caller, with the values the caller really passes, not only through the changed unit with inputs you chose. Each finding has a `file:line`, a severity (blocker, suggestion or nit), the claim, and its evidence. It posts nothing and messages no one: `adversarial-review` tells a reviewer to post, so in its brief forbid it `post-review.sh`, `gh pr review` and `loh say`. Then end your turn. The helper's result starts a new turn, so you are free to take the next PR while it runs. Never wait in-turn on a helper, or on anything it runs in the background (the test suite, mutation runs). A turn held on a helper leaves every coder's "PR ready" waiting.
+- Make a separate `Agent` dispatch of a verifier when the reviewer returns, in the background, with the brief under "The verifier brief" below, and end your turn again. Its result starts the next turn. If the reviewer found nothing, still dispatch the verifier: it then does the acceptance-criteria check alone. Never hand the verifier the reviewer's reasoning or evidence.
+- You decide without re-reading the whole diff. Work from the findings and the verifier's answers:
+  - CONFIRMED blockers block.
+  - REFUTED findings are dropped, and the review notes the verifier's reason.
+  - For an UNCERTAIN finding, or where the reviewer and the verifier disagree, read that part of the code yourself and decide: keep it, correct it, or throw it out with a reason.
+  - Any acceptance criterion the verifier reports unmet or partly met is a blocker unless the PR explains it.
+  - A subagent's report is never posted as it is, and never counts as an approval on its own.
+  - Then post the verdict with `post-review.sh` under your account and reply to the coder with `loh say`.
+- A follow-up round (a new head after changes requested) gets a fresh subagent pair, the reviewer given the PR's earlier review on GitHub as context. Check that every earlier finding was addressed. The cap of 5 rounds counts every round.
+- At most 4 review subagents run at once, matching the coder cap. Note that a reviewer and its verifier count as one slot, since they run one after the other. Beyond that, PRs wait in order.
 - A message from a coder or the coordinator arrives as `<hc from="tN name">...</hc>`. The name in the tag is the sender. Reply to a coder with `loh say <coder> "<verdict and PR head>"`. Do not `loh say scofield`: the coordinator is usually inside `hc wait`, which counts as working, so the message would end his wait early (reason `message`) for nothing. When the sender is the coordinator, post the verdict on GitHub and end your turn with it as your final message. The coordinator waits on you with `hc wait amy --timeout <s>`.
 - Rounds 1 and 2 are yours with the coder. Stay a standing terminal between reviews.
+
+### The verifier brief
+
+Give the verifier this, in full, and no more:
+
+- The PR number, the repo and the ticket (`gh issue view <n>`, the issue text is the truth).
+- The findings, one per line, as claim, file:line and severity only, not the reviewer's reasoning or evidence. It reads the code fresh and does not anchor on how the reviewer got there.
+- The job: for each finding, try to reproduce it (a failing test, a command, a trace through the code) or disprove it. Return CONFIRMED, REFUTED or UNCERTAIN for each, with your own evidence: the command and its output, or the lines you traced.
+- How to test: reproduce from the real caller, and do not stub an input the caller computes. A unit that is right for the inputs you chose can still be wrong for the inputs it receives.
+- One more question: does the diff meet each of the ticket's acceptance criteria? Answer met, unmet or partly for each, with evidence.
+- The rule: it posts nothing and messages no one. Forbid it `post-review.sh`, `gh pr review` and `loh say`. It changes no file in the worktree it reads.
+
+### The logs
+
+Both files live in the crew workspace under `.loh/`, not in a repo, and are never committed.
+
+- `.loh/review-findings.md`. You append one row per finding when you post a round, with these columns:
+
+  `date | repo#PR | round | head | finding (one line) | severity | verifier: CONFIRMED/REFUTED/UNCERTAIN | Amy: kept/dropped | outcome`
+
+  Leave `outcome` empty. The coordinator fills the outcome at merge: `fixed` (the coder changed code for it), `dismissed` (kept, but the coder or the coordinator argued it away) or `wrong`. When a bug turns up on main after a merge, the coordinator adds an `escape` row naming the PR it came from.
+- `.loh/review-times.md`. Your timing row gains a `verifier start | verifier done` pair after `helper done`.
+
+After 10 PRs the coordinator reads the logs and reports to the owner: wrong findings that reached a coder, real findings the verifier REFUTED (a refuted blocker counts against this flow), escapes, and time and tokens per review.
 
 ## Going to a room
 
