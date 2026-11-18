@@ -241,15 +241,15 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   [ -s "$(lights_file)" ]
 }
 
-@test "office-ping prints the lights record for the office, nothing when none was set" {
+@test "office-ping prints the lights record for the office, none when none was set" {
   cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
   run "$LOH" office-ping
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  [ "$output" = "chime on" ]
   "$LOH" office lights off
   read -r _ t <"$(lights_file)"
   run "$LOH" office-ping
-  [ "$output" = "lights off $t" ]
+  [ "$output" = $'lights off '"$t"$'\nchime on' ]
 }
 
 @test "office lights stamps stay increasing when the clock gives only seconds or goes back" {

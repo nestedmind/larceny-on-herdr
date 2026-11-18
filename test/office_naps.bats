@@ -172,3 +172,18 @@ console.log(spot(a, "maya") === spot(b, "maya"), spot(a, "yoda") === spot(b, "yo
   [ "$status" -eq 0 ]
   [ "$output" = "true true desk rest rest" ]
 }
+
+@test "a coder resting after a merge holds a bed, and the latest napper gives way when beds run out" {
+  run crew_js "$HELPERS"'
+const n = ["amy", "maya", "yoda"];
+const pr = (x) => ({task: "api#" + x, pr: "9", round: "1"});
+const open = [mk("sucre", "idle", pr(1)), mk("mahone", "idle", pr(2))];
+start(n);
+draw(10, idle(n).concat(open));
+draw(10 + HOUR, idle(n).concat(open));
+const merged = ["sucre", "mahone"].map((x, i) => mk(x, "idle", {task: "api#" + (i + 1), prdone: "1", prstate: "merged"}));
+const L = draw(11 + HOUR, idle(n).concat(merged));
+console.log(rooms(L, ["amy", "maya", "yoda", "sucre", "mahone"]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "rest,rest,lounge,rest,rest" ]
+}

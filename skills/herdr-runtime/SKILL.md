@@ -38,6 +38,7 @@ Paths are in larceny 0.1.5, commit 03a9bfc. Where one of these says to use `Agen
 | `loh release <coder> [--force]` | Archives the coder's transcript into `.loh/transcripts/`, then ends it. Refuses a non-coder, and a working coder without `--force` |
 | `loh down [--all]` | Default: archives the transcript of, and kills, every coder of this crew, working or not. `--all`: kills every terminal with this crew label, standing agents included. Use it to stop the round, never to clear finished coders |
 | `loh office lights [on\|off]` | Switches the office lights, as the office's own button does: the open office follows within about 5 s, and the last choice, from here or from the button, wins. With no argument prints `on` or `off`: what an open office last reported, else the last choice made here. Needs no herdr-app |
+| `loh chime [on\|off]` | Switches the sound `loh watch` makes with each notification, or with no argument prints `on` or `off`. Takes effect at once: `loh watch` reads `.loh/chime` at every notice. The office's Chime button does the same |
 
 `loh gh` and `loh git` read the token file and set `GH_TOKEN` and the four `GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables themselves. Never write `$(cat <token-file>)` or those variables yourself. The rules in larceny's `coder` skill, "Git identity" (verify authorship after each commit and before each push, never `git config`) still apply, run through `loh git`.
 

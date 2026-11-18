@@ -1664,3 +1664,119 @@ console.log(office.panel.open, all(find(root, "floor")).includes(stack), all(fin
   [ "$status" -eq 0 ]
   [ "$output" = "true true false" ]
 }
+
+# The chime: the ping's `chime <on|off>` line is what the button shows, and the button runs `loh chime on|off`.
+@test "chimeSignal reads the chime line from the ping's output, and chimeCall runs loh chime in the agent's folder" {
+  command -v node >/dev/null || skip "node not installed"
+  run node --input-type=module -e '
+import { chimeSignal, chimeCall } from "'"$REPO_ROOT"'/office/crew-office/crew.js";
+const j = (v) => JSON.stringify(v);
+console.log([
+  j(chimeSignal("chime off\n")),
+  j(chimeSignal("lights on 5\nchime on\n")),
+  j(chimeSignal("")),
+  j(chimeSignal("chime loud")),
+  j(chimeSignal("chime")),
+  j(chimeSignal(null)),
+  j(chimeCall(false, { cwd: "/ws" }, "/x/loh")),
+  j(chimeCall(true, null, null)),
+].join(" "))'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'false true null null null null {"cmd":"/x/loh","args":["chime","off"],"options":{"cwd":"/ws","timeout":5000}} {"cmd":"loh","args":["chime","on"],"options":{"timeout":5000}}' ]
+}
+
+@test "the Chime button shows the state, and a click runs loh chime on|off, and C does the same" {
+  run office_js "$lights_ping"'
+const calls = [];
+const hook = globalThis.EXEC_HOOK;
+globalThis.EXEC_HOOK = (c, a, o) => { if (a[0] === "chime") calls.push(a.join(" ") + "@" + o.cwd); return hook(c, a, o); };
+await ping();
+const label = () => find(render(), "chime").kids.join("");
+const a = label();
+find(render(), "chime").props.on_click[0]({}, cx);
+await Promise.resolve();
+const b = [office.chime, label()];
+find(render(), "root").props.on_key_down[0]({ key: "c", modifiers: {} }, { stop_propagation() {}, notify() {} });
+await Promise.resolve();
+console.log(a, "/", b.join("/"), "/", office.chime, "/", calls.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "🔊 Chime on / false/🔇 Chime off / true / chime off@/ws/scofield|chime on@/ws/scofield" ]
+}
+
+@test "the ping's chime line sets what the button shows, so a terminal change shows within one ping" {
+  run office_js "$lights_ping"'
+const label = () => find(render(), "chime").kids.join("");
+const seen = [label()];
+answer.out = "chime off\n"; await ping(); seen.push(label());
+answer.out = "lights on 5\nchime on\n"; await ping(); seen.push(label());
+answer.out = "junk"; await ping(); seen.push(label());
+console.log(seen.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "🔊 Chime on|🔇 Chime off|🔊 Chime on|🔊 Chime on" ]
+}
+
+@test "a ping that was already out when the button was pressed does not undo the press" {
+  run office_js "$lights_ping"'
+let release;
+globalThis.EXEC_HOOK = (c, a) => a[0] === "office-ping" ? new Promise((r) => { release = () => r({ code: 0, stdout: "chime on\n", stderr: "" }); }) : Promise.resolve({ code: 0, stdout: "", stderr: "" });
+office.pingAt = 0; render();
+find(render(), "chime").props.on_click[0]({}, cx);
+release(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+console.log(office.chime);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "the chime button sits next to the lights button" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const bar = find(render(), "totals");
+const ids = bar.kids.map((k) => (k && k.node ? id(k.node) : undefined));
+console.log(ids[ids.indexOf("lights") + 1]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "chime" ]
+}
+
+# ---- confetti and a toast on a merge (ticket #70) ----
+
+MERGE_HELPERS='
+const pieces = (root) => all(root.node).filter((n) => /^confetti-[0-9]+-x[0-9]+$/.test(id(n) || ""));
+const merge = (i) => { const l = terms()[i].labels; delete l.pr; l.prdone = "1"; l.prstate = "merged"; };
+const lines = (n) => all(n).flatMap((x) => x.kids.filter((k) => typeof k === "string"));
+const toasts = (root) => all(root.node).filter((n) => /^toast-/.test(id(n) || ""));
+'
+
+@test "a merge seen draws 40 confetti pieces at the coder's desk and one toast, and every piece is gone by 1.8 s" {
+  run office_js "$MERGE_HELPERS"'
+terms()[1].labels.pr = "12";
+render();
+merge(1);
+const a = render();
+const t = toasts(a)[0];
+const asked = office.wake ? office.wake.at - Date.now() : null;
+later(1199); const b = pieces(render()).length;
+later(601); const c = pieces(render()).length;
+console.log(pieces(a).length, toasts(a).length, lines(t).slice(0, 2).join("|"), asked !== null && asked <= 1800, b, c, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "40 1 api PR #12 merged|Sheba merged it true 40 0 1" ]
+}
+
+@test "a pull request already merged when the office opens draws no confetti and no toast" {
+  run office_js "$MERGE_HELPERS"'
+fresh();
+terms()[1].labels.pr = "12"; merge(1);
+const a = render();
+console.log(pieces(a).length, toasts(a).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0" ]
+}
+
+@test "the confetti is drawn once: later renders add no burst" {
+  run office_js "$MERGE_HELPERS"'
+terms()[1].labels.pr = "12";
+render(); merge(1); render();
+later(500);
+console.log(pieces(render()).length, office.bursts.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "40 1" ]
+}

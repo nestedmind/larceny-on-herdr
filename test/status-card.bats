@@ -373,7 +373,8 @@ end_setup() {
   export FAKE_PR_STATE="$1"
 }
 
-set_calls() { grep -c $'^label\tt9\tpr=\tprdone=1$' "$FAKE_HC_LOG" || true; }
+set_calls() { grep -c $'^label\tt9\tpr=\tprdone=1\tprstate=[a-z]*$' "$FAKE_HC_LOG" || true; }
+state_called() { grep -qx $'label\tt9\tpr=\tprdone=1\tprstate='"$1" "$FAKE_HC_LOG"; }
 
 @test "PostToolUse gh pr merge clears pr when GitHub says it merged" {
   end_setup MERGED
@@ -437,4 +438,14 @@ set_calls() { grep -c $'^label\tt9\tpr=\tprdone=1$' "$FAKE_HC_LOG" || true; }
   [ "$status" -eq 0 ]
   run grep -c 'meeting' "$FAKE_HC_LOG"
   [ "$output" = "0" ]
+}
+
+@test "PostToolUse gh pr merge records prstate=merged when it merged, prstate=closed when it was closed" {
+  end_setup MERGED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr merge 88 --squash"')
+  state_called merged
+  : >"$FAKE_HC_LOG"
+  end_setup CLOSED
+  run_hook_pipe < <(fixture post-bash '.tool_input.command = "gh pr close 88"')
+  state_called closed
 }

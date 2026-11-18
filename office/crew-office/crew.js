@@ -166,6 +166,8 @@ export function crewOf(terminals, workspace) {
       pr: clean(l.pr, 8),
       // Set with the pr label cleared once the pull request merged or closed: the coder has no work in hand, whatever its ticket.
       prDone: l.prdone === "1",
+      // Set with prdone when GitHub says the pull request merged (not closed without merging).
+      prMerged: l.prstate === "merged",
       round: clean(l.round, 4),
       note: clean(l.note, 60),
       // Set by the hooks while the session compacts (compact) or has just been cleared (clear).
@@ -765,6 +767,23 @@ export function lightsSignal(out, seen) {
   return null;
 }
 
+/**
+ * The chime setting `loh office-ping` reports as the line `chime <on|off>` (the button shows it, so a change made with
+ * `loh chime` in a terminal shows within one ping). Gives true (on), false (off), or null when there is no such line.
+ */
+export function chimeSignal(out) {
+  for (const line of String(out || "").split("\n")) {
+    const m = /^chime (on|off)$/.exec(line.trim());
+    if (m) return m[1] === "on";
+  }
+  return null;
+}
+
+/** The command the Chime button runs: `loh chime on|off`, in an agent's folder so loh finds the workspace. */
+export function chimeCall(on, agent, loh) {
+  return { cmd: loh || "loh", args: ["chime", on ? "on" : "off"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
 /** The value to save for a lights choice. */
 export function lightsValue(on) {
   return on ? "on" : "off";
@@ -958,7 +977,7 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
 }
 
 /** How long Yoda and Sara stay in a room with no session, and how long Waffles sleeps between walks: 5 to 15 minutes, random each time. */
@@ -1037,6 +1056,8 @@ const KITCHEN = ["kitchen", "lounge"];
  *    clear ends in the lounge after REST_MS;
  *  - idle for NAP_AFTER_MS (an hour) since the last turn: the rest room, zz, for at most NAP_MAX_MS; never a coder with a
  *    ticket, never in a meeting, at most NAP_BEDS - 1 at once (the longest idle first), none again before the next turn;
+ *  - a coder whose pull request it just saw merge (the pr label gone, prstate=merged): the rest room, zz, for REST_MS after
+ *    its turn ends, then its usual place; its desk is free as soon as the pr label is gone;
  *  - no session: the lounge;
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
@@ -1102,6 +1123,15 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     p.recent = p.idleFor < idleMs;
   }
 
+  // A merge seen: a coder whose pr label was there at the last render and is gone, with the pull request merged. It rests in
+  // the rest room for REST_MS once its turn is over (below). The first render only records the labels, so a pull request
+  // that merged before the office opened sends nobody to rest.
+  if (mem.prs) {
+    for (const p of people) { const a = p.agent; if (a && mem.prs.get(p.id) && !a.pr && a.prDone && a.prMerged) mem.merged.set(p.id, null); }
+  }
+  mem.prs = new Map(people.filter((p) => p.agent).map((p) => [p.id, p.agent.pr]));
+  for (const id of [...mem.merged.keys()]) if (!live.has(id) || by(id).agent.pr) mem.merged.delete(id);
+
   // Each running person's mode: what they are doing, which says where they are.
   const stillWait = new Set();
   for (const p of people) {
@@ -1120,6 +1150,13 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     mem.cleared.delete(p.id);
     // Matt sent the agent to a room: honoured once its turn has ended, and held until the next turn starts.
     if (!p.busy && a.place && a.place !== "desk") { p.mode = "go:" + a.place; continue; }
+    // A merger rests where compaction rests, REST_MS after its turn ends; while it works (it cleans up) it keeps its desk.
+    if (mem.merged.has(p.id) && !p.busy) {
+      if (mem.merged.get(p.id) === null) mem.merged.set(p.id, now);
+      const left = REST_MS - (now - mem.merged.get(p.id));
+      if (left > 0) { p.mode = "rest"; wakes.push(left); continue; }
+      mem.merged.delete(p.id);
+    }
     const sitting = p.busy || p.recent;
     if (!p.busy && p.recent && !(p.role === "coder" && ticket)) wakes.push(idleMs - p.idleFor);
     if (p.role === "coder") {
@@ -1176,7 +1213,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // A coder with no task who only sits there after its turn takes a free desk, and never takes one from anyone.
   const free = (key) => [...slots.values()].find((l) => l.includes(key));
   const take = (p, list, key) => { list.splice(list.indexOf(key), 1); p.desk = key; };
-  const ticketed = coders.filter((c) => c.agent.repo);
+  // A merger resting in the rest room has handed its desk back: the next coder can take it.
+  const ticketed = coders.filter((c) => c.agent.repo && !(c.mode === "rest" && mem.merged.has(c.id)));
   for (const p of ticketed) {
     const list = slots.get("repo:" + p.agent.repo), held = mem.desks.get(p.id);
     if (list && held && list.includes(held)) take(p, list, held);
@@ -1464,8 +1502,12 @@ function raised(mem, crew) {
     const who = titleCase(a.name);
     const blocked = a.status === "blocked";
     const note = a.noteFull;
-    now.set(a.address, { blocked, note });
+    now.set(a.address, { blocked, note, pr: a.pr });
     if (!mem.seen) continue;
+    // A merge the office watches happen: the pr label was there at the last look and is gone, with the pull request merged.
+    if (before && before.pr && !a.pr && a.prDone && a.prMerged) {
+      out.push({ kind: "done", head: `${a.repo || "?"} PR #${before.pr} merged`, body: `${who} merged it`, who: a.address, burst: true });
+    }
     if (blocked && !(before && before.blocked)) {
       const kind = a.kind === "permission" ? "perm" : "q";
       const body = a.kind === "other" ? a.msg || "blocked" : a.msg ? `${a.kind}: ${a.msg}` : a.kind;
@@ -1507,11 +1549,28 @@ export function toastPhase(t, now) {
  * change of phase (`animMs`, null when none), so the office asks for a render then and no timer repeats.
  */
 export function toastStep(mem, crew, now) {
-  for (const ev of raised(mem, crew)) toastPush(mem, ev, now);
+  const bursts = [];
+  for (const ev of raised(mem, crew)) {
+    toastPush(mem, ev, now);
+    if (ev.burst) bursts.push({ who: ev.who });
+  }
   const expired = mem.list.filter((t) => now - t.at >= TOAST_MS);
   mem.list = mem.list.filter((t) => now - t.at < TOAST_MS);
   mem.leaving = [...mem.leaving, ...expired.map((t) => ({ ...t, out: t.at + TOAST_MS }))].filter((t) => now - t.out < TOAST_EXIT_MS);
   const next = mem.list.length ? Math.min(...mem.list.map((t) => t.at + TOAST_MS - now)) : null;
   const marks = [...mem.list.map((t) => t.at + TOAST_ENTER_MS), ...mem.leaving.map((t) => t.out + TOAST_EXIT_MS)].map((x) => x - now).filter((ms) => ms > 0);
-  return { list: mem.list, leaving: mem.leaving, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
+  return { list: mem.list, leaving: mem.leaving, bursts, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
+}
+
+// ---------- confetti (ticket #70) ----------
+// The prototype's burst: 40 pieces in five colours, each living 1.2 to 1.8 s, thrown up and pulled down by gravity.
+export const BURST_PIECES = 40;
+/** How long a burst lasts in all: its longest piece. The office takes it away then. */
+export const BURST_MS = 1800;
+
+/** The pieces of one burst: { c: colour 0-4, vx, vy (units per s, up is negative), life (ms) }, from `rand`. Gravity is the drawing's. */
+export function confettiPieces(rand = Math.random) {
+  const out = [];
+  for (let i = 0; i < BURST_PIECES; i++) out.push({ c: i % 5, vx: (rand() - 0.5) * 60, vy: -25 - rand() * 35, life: Math.round(1200 + rand() * 600) });
+  return out;
 }

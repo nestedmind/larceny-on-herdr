@@ -145,7 +145,7 @@ prs_setup() {
   prs_setup MERGED
   run "$LOH" status --prs
   [ "$status" -eq 0 ]
-  grep -qx $'label\tt9\tpr=\tprdone=1' "$FAKE_HC_LOG"
+  grep -qx $'label\tt9\tpr=\tprdone=1\tprstate=merged' "$FAKE_HC_LOG"
   [ "$(jq -c '[.[] | [.name, .pr, .state]]' <<<"$output")" = '[["sucre","4","MERGED"]]' ]
   grep -qx $'pr\tview\t4\t-R\to/api\t--json\tstate\t--jq\t.state' <(tr ' ' '\t' <"$FAKE_GH_LOG")
 }
@@ -153,7 +153,7 @@ prs_setup() {
 @test "status --prs clears the pr label of a pull request closed without merging" {
   prs_setup CLOSED
   run "$LOH" status --prs
-  grep -qx $'label\tt9\tpr=\tprdone=1' "$FAKE_HC_LOG"
+  grep -qx $'label\tt9\tpr=\tprdone=1\tprstate=closed' "$FAKE_HC_LOG"
   [ "$(jq -r '.[0].state' <<<"$output")" = "CLOSED" ]
 }
 

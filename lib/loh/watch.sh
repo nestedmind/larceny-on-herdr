@@ -15,6 +15,11 @@
 # changed, so the status, kind, msg and note are read with `hc get`, which is
 # the source of truth.
 #
+# Chime: each notice also makes a sound unless the chime is off (`loh chime`,
+# .loh/chime, `chime: off` in workspace.md, LOH_CHIME=0|1; see chime_state in
+# common.sh). Linux: canberra-gtk-play, else pw-play or paplay, after notify-send;
+# macOS: sound name "Glass"; stdout: a terminal bell. One chime per batch of notes.
+#
 # Notifier: notify-send, else osascript, else a line on stdout. Text is always
 # passed as arguments, never spliced into a script. Never needs root.
 #
@@ -59,21 +64,68 @@ else
   open_root="$(workspace_root 2>/dev/null)" || open_root=""
 fi
 
-# notify <title> <body>: nothing while an office tab is open, because its toast
-# says the same thing; the office is checked at each notice, so closing the tab
-# brings the desktop notices back within office_open's window.
+# chime_play: the Linux sound, in the background with output discarded, so a
+# missing player or sound never delays or breaks a notice: canberra-gtk-play with
+# the freedesktop "message-new-instant" sound, else pw-play, else paplay with that
+# sound's file (LOH_CHIME_FILE changes the path; used by tests).
+chime_play() {
+  local file="${LOH_CHIME_FILE:-/usr/share/sounds/freedesktop/stereo/message-new-instant.oga}"
+  if command -v canberra-gtk-play >/dev/null 2>&1; then
+    (canberra-gtk-play -i message-new-instant </dev/null >/dev/null 2>&1 &)
+  elif [[ -f "$file" ]] && command -v pw-play >/dev/null 2>&1; then
+    (pw-play "$file" </dev/null >/dev/null 2>&1 &)
+  elif [[ -f "$file" ]] && command -v paplay >/dev/null 2>&1; then
+    (paplay "$file" </dev/null >/dev/null 2>&1 &)
+  fi
+  return 0
+}
+
+# chime_alone: the sound with no desktop notice (an office toast is shown instead):
+# chime_play on Linux, afplay with the Glass sound on macOS, else a bell on stdout.
+chime_alone() {
+  if command -v notify-send >/dev/null 2>&1; then
+    chime_play
+  elif command -v osascript >/dev/null 2>&1; then
+    (afplay /System/Library/Sounds/Glass.aiff </dev/null >/dev/null 2>&1 &)
+  else
+    printf '\a'
+  fi
+  return 0
+}
+
+# CHIMED is set once a chime was given in the current batch (one line of
+# `hc events`, which may announce several notes at once): a batch chimes once.
+CHIMED=""
+
+# notify <title> <body>: no desktop notice while an office tab is open, because its
+# toast says the same thing (the chime still plays); the office is checked at each notice, so closing the tab
+# brings the desktop notices back within office_open's window. The chime is
+# decided here, at each notice, so `loh chime` takes effect without a restart.
 notify() {
-  local title="$1" body="$2"
+  local title="$1" body="$2" sound=""
   if [[ -n "$open_root" ]] && office_open "$open_root"; then
+    # The toast replaces the desktop notice, not the sound: chime on its own.
+    if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then
+      CHIMED=1
+      chime_alone
+    fi
     return 0
+  fi
+  if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then
+    sound=1
+    CHIMED=1
   fi
   if command -v notify-send >/dev/null 2>&1; then
     notify-send -- "$title" "$body" || true
+    [[ -z "$sound" ]] || chime_play
   elif command -v osascript >/dev/null 2>&1; then
+    local script='display notification (item 1 of argv) with title (item 2 of argv)'
+    [[ -z "$sound" ]] || script="$script sound name \"Glass\""
     osascript -e 'on run argv' \
-      -e 'display notification (item 1 of argv) with title (item 2 of argv)' \
+      -e "$script" \
       -e 'end run' -- "$body" "$title" || true
   else
+    [[ -z "$sound" ]] || printf '\a'
     printf '%s: %s\n' "$title" "$body"
   fi
 }
@@ -170,6 +222,7 @@ SNAPSHOT_SEEN=""
 # here; the facts come from check().
 handle() {
   local line="$1" kind addr snap_mode="event"
+  CHIMED=""
   [[ -n "$SNAPSHOT_SEEN" ]] || snap_mode="snap"
   while IFS=$'\t' read -r kind addr; do
     case "$kind" in
