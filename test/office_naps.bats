@@ -136,10 +136,10 @@ const names = ["sucre", "mahone", "whip"];
 start(names, c); draw(10, idle(names, c));
 const L = draw(10 + HOUR + 1, idle(names, c));
 const L2 = draw(10 + 3 * HOUR, idle(names, c));
-console.log(rooms(L, names), rooms(L2, names));'
+const ok = (l, id) => place(l, id) !== "rest";
+console.log(ok(L, "sucre"), ok(L, "mahone"), place(L, "whip"), ok(L2, "sucre"), ok(L2, "mahone"), place(L2, "whip"));'
   [ "$status" -eq 0 ]
-  [[ "$output" != *"rest,rest"* ]]
-  [[ "$output" = *",rest "* ]] || [[ "$output" = *"rest"* ]]
+  [ "$output" = "true true rest true true lounge" ]
 }
 
 @test "a meeting wins over a nap" {
@@ -160,4 +160,15 @@ const s = (L) => n.map((i) => spot(L, i)).join(" ");
 console.log(s(a) === s(b) && s(b) === s(c), new Set(n.map((i) => spot(a, i))).size);'
   [ "$status" -eq 0 ]
   [ "$output" = "true 3" ]
+}
+
+@test "when one napper wakes, the others keep their beds" {
+  run crew_js "$HELPERS"'
+const n = ["amy", "maya", "yoda"];
+start(n); draw(10, idle(n));
+const a = draw(10 + HOUR, idle(n));
+const b = draw(11 + HOUR, [mk("amy", "working"), ...idle(["maya", "yoda"])]);
+console.log(spot(a, "maya") === spot(b, "maya"), spot(a, "yoda") === spot(b, "yoda"), place(b, "amy"), place(b, "maya"), place(b, "yoda"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true true desk rest rest" ]
 }

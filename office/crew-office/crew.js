@@ -1133,6 +1133,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // NAP_BEDS - 1 beds are taken by naps and sent agents together. Not a coder with a ticket, not Scofield, Matt or Waffles, and
   // a meeting, a compaction or a room Matt chose wins (their mode is not one of the kinds below). A nap ends at NAP_MAX_MS
   // (the lounge) or with the next turn, and there is no second nap before a turn: `napped` keeps the turn's start (mem.act since).
+  // Limit: the memory lives in the open office, so a reload forgets it and may give a second nap or restart the 90 minutes.
   {
     const kinds = ["home", "away", "deskfree"];
     const sleeper = (p) => p.agent && p.id !== "scofield" && (p.role === "coder" || PERSONAS.includes(p.id) || p.id === "amy") && kinds.includes(p.mode) && !p.busy;
