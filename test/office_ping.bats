@@ -77,3 +77,19 @@ office_open_in() {
   run office_open_in
   [ "$status" -eq 1 ]
 }
+
+@test "office-ping reports the chime setting as a chime line, on by default" {
+  LOH_WORKSPACE="$WS" run "$LOH" office-ping
+  [ "$status" -eq 0 ]
+  [ "$output" = "chime on" ]
+  echo off >"$WS/.loh/chime"
+  LOH_WORKSPACE="$WS" run "$LOH" office-ping
+  [ "$output" = "chime off" ]
+}
+
+@test "office-ping prints the chime line beside the lights line" {
+  echo "off 123" >"$WS/.loh/office-lights"
+  echo off >"$WS/.loh/chime"
+  LOH_WORKSPACE="$WS" run "$LOH" office-ping
+  [ "$output" = $'lights off 123\nchime off' ]
+}

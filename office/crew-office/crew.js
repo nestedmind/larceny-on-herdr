@@ -767,6 +767,23 @@ export function lightsSignal(out, seen) {
   return null;
 }
 
+/**
+ * The chime setting `loh office-ping` reports as the line `chime <on|off>` (the button shows it, so a change made with
+ * `loh chime` in a terminal shows within one ping). Gives true (on), false (off), or null when there is no such line.
+ */
+export function chimeSignal(out) {
+  for (const line of String(out || "").split("\n")) {
+    const m = /^chime (on|off)$/.exec(line.trim());
+    if (m) return m[1] === "on";
+  }
+  return null;
+}
+
+/** The command the Chime button runs: `loh chime on|off`, in an agent's folder so loh finds the workspace. */
+export function chimeCall(on, agent, loh) {
+  return { cmd: loh || "loh", args: ["chime", on ? "on" : "off"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
 /** The value to save for a lights choice. */
 export function lightsValue(on) {
   return on ? "on" : "off";

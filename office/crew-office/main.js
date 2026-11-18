@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsSeenKey, lightsFrom, lightsSignal, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsSeenKey, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, confettiEls, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -197,6 +197,11 @@ export default class CrewOffice extends View {
     // not apply it twice); read when the folder is first known.
     this.lightsSeen = "";
     this.lightsSeenDir = null;
+    // The chime (the sound of `loh watch` notices) is kept by loh in .loh/chime, not here: this is what the last ping said or
+    // what the button last asked for. chimeSeq counts presses, so a ping already out when one happens does not undo it.
+    this.chime = true;
+    this.chimeSeq = 0;
+    this.chimeDir = null;
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
@@ -719,6 +724,8 @@ export default class CrewOffice extends View {
     // With no folder to find the workspace from there is nothing to run in; the next render for any reason looks again.
     if (!dir) return;
     this.pingAt = now;
+    this.chimeDir = dir;
+    const seq = this.chimeSeq;
     this.wakeIn(OFFICE_PING_MS);
     if (this.lightsSeenDir !== dir) {
       this.lightsSeenDir = dir;
@@ -731,6 +738,8 @@ export default class CrewOffice extends View {
     cx.spawn(async (cx) => {
       let r = null;
       try { r = await exec(c.cmd, c.args, c.options); } catch (_) { return; } // loh is missing: the desktop notices stay on
+      const chime = r && r.code === 0 ? chimeSignal(r.stdout) : null;
+      if (chime !== null && chime !== this.chime && seq === this.chimeSeq) { this.chime = chime; cx.notify(); }
       const sig = r && r.code === 0 ? lightsSignal(r.stdout, this.lightsSeen) : null;
       if (!sig) return;
       this.lightsSeen = sig.stamp;
@@ -900,6 +909,7 @@ export default class CrewOffice extends View {
       .child(div().flex_1())
       .when(!!this.chat && !view.zoomed, (el) => el.child(div().text_size(12).text_color(t.muted).child(`Chat: ${this.chat.name}`)))
       .child(button("lights", this.lights ? "Lights off" : "Lights on", (_e, cx) => this.setLights(!this.lights, cx)))
+      .child(button("chime", this.chime ? "🔊 Chime on" : "🔇 Chime off", (_e, cx) => this.setChime(!this.chime, cx)))
       .child(button("fullscreen", this.fs ? "Exit full screen (Esc)" : "Full screen", (_e, cx) => (this.fs ? this.leaveFullscreen(cx) : this.enterFullscreen(view, cx))))
       .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
@@ -908,6 +918,15 @@ export default class CrewOffice extends View {
   setLights(on, cx) {
     this.lights = !!on;
     try { setShared(LIGHTS_KEY, lightsValue(this.lights)); } catch (_) { /* the choice is only remembered, not needed */ }
+    if (cx) cx.notify();
+  }
+
+  // The Chime button and C: run `loh chime on|off`, which keeps the setting; the next ping confirms what loh holds.
+  setChime(on, cx) {
+    this.chime = !!on;
+    this.chimeSeq++;
+    const c = chimeCall(this.chime, { cwd: this.chimeDir }, (props() || {}).loh);
+    try { exec(c.cmd, c.args, c.options).catch(() => {}); } catch (_) { /* loh is missing: the next ping shows what it holds */ }
     if (cx) cx.notify();
   }
 
@@ -1192,6 +1211,7 @@ export default class CrewOffice extends View {
         if (this.termOpen) return;
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
         if ((e.key === "l" || e.key === "L") && !e.modifiers?.control && !e.modifiers?.alt && !e.modifiers?.platform && this.handle.is_focused()) { this.setLights(!this.lights, cx); cx.stop_propagation(); return; }
+        if ((e.key === "c" || e.key === "C") && !e.modifiers?.control && !e.modifiers?.alt && !e.modifiers?.platform && this.handle.is_focused()) { this.setChime(!this.chime, cx); cx.stop_propagation(); return; }
         if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
         else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }

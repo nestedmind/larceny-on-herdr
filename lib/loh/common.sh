@@ -61,6 +61,38 @@ office_open() {
   ((t <= now + 5 && now - t <= fresh))
 }
 
+# chime_setting <workspace root>: print on or off, the chime setting saved for
+# the workspace: the first word of <root>/.loh/chime if it is on or off (what
+# `loh chime` writes), else `chime:` in .loh/workspace.md, else on. A value that
+# is neither on nor off is ignored.
+chime_setting() {
+  local root="$1" v="" line
+  if [[ -n "$root" && -f "$root/.loh/chime" ]]; then
+    read -r v _ <"$root/.loh/chime" || true
+    [[ "$v" == on || "$v" == off ]] && { printf '%s\n' "$v"; return 0; }
+  fi
+  if [[ -n "$root" && -f "$root/.loh/workspace.md" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^chime:[[:space:]]*(.*)$ ]]; then
+        v="$(_manifest_value "${BASH_REMATCH[1]}")"
+        [[ "$v" == off ]] && { echo off; return 0; }
+        break
+      fi
+    done <"$root/.loh/workspace.md"
+  fi
+  echo on
+}
+
+# chime_state <workspace root>: what `loh watch` does now: LOH_CHIME=0 or 1
+# overrides everything, else chime_setting. Read at every notification.
+chime_state() {
+  case "${LOH_CHIME-}" in
+    0) echo off ;;
+    1) echo on ;;
+    *) chime_setting "$1" ;;
+  esac
+}
+
 # office_props <crew> <workspace root>: print the props the office mod opens
 # with, as one line of JSON: the crew name, the workspace folder and this loh.
 # `loh init` and `loh office` both open the tab with them.
@@ -139,6 +171,8 @@ manifest_path() {
 #   scofield_args: --flag v    extra arguments for scofield's claude command
 #   amy_args: --flag v         extra arguments for amy's claude command
 #                              (split on whitespace, never evaluated; optional)
+#   chime: off                 no sound with `loh watch` notifications (on by
+#                              default; .loh/chime and LOH_CHIME override it)
 #   idle_minutes: 3            minutes a person sits at their desk after a turn
 #                              ends before the office sends them to the kitchen
 #                              or lounge (a whole number above zero; default 3)
@@ -151,7 +185,7 @@ manifest_path() {
 # pane_mode is one of default, acceptEdits, auto, plan, dontAsk. bypassPermissions
 # is refused on purpose: crew panes must never skip every permission check.
 #
-# Any top-level key other than name, pane_mode, scofield_args, amy_args, idle_minutes, repos and
+# Any top-level key other than name, pane_mode, scofield_args, amy_args, idle_minutes, chime, repos and
 # board is an
 # error, so a typo such as `pane_mod:` cannot silently fall back to the default.
 # scofield_args and amy_args may not hold --dangerously-skip-permissions,
@@ -178,7 +212,7 @@ _manifest_value() {
 # malformed manifest. manifest_load_file <file> parses that file instead of the
 # workspace's own (loh init checks a new manifest this way before it moves it
 # into place).
-#   WS_ROOT WS_NAME WS_PANE_MODE WS_IDLE_MINUTES WS_SCOFIELD_ARGS WS_AMY_ARGS
+#   WS_ROOT WS_NAME WS_PANE_MODE WS_IDLE_MINUTES WS_CHIME WS_SCOFIELD_ARGS WS_AMY_ARGS
 #   (the two args values are raw strings; empty when the key is absent)
 #   REPO_NAMES[] REPO_PATHS[] REPO_BRANCHES[] REPO_GITHUBS[]
 # shellcheck disable=SC2034 # WS_*_ARGS are read by up.sh, which sources this file
@@ -195,6 +229,7 @@ manifest_load_file() {
   WS_NAME=""
   WS_PANE_MODE="auto"
   WS_IDLE_MINUTES="3"
+  WS_CHIME=""
   WS_SCOFIELD_ARGS=""
   WS_AMY_ARGS=""
   REPO_NAMES=()
@@ -217,10 +252,11 @@ manifest_load_file() {
         name) WS_NAME="$val" ;;
         pane_mode) WS_PANE_MODE="$val" ;;
         idle_minutes) WS_IDLE_MINUTES="$val" ;;
+        chime) WS_CHIME="$val" ;;
         scofield_args) WS_SCOFIELD_ARGS="$val" ;;
         amy_args) WS_AMY_ARGS="$val" ;;
         board) ;;
-        *) die "$file: line $n: unknown key '$key' (allowed: name, pane_mode, scofield_args, amy_args, idle_minutes, repos, board)" ;;
+        *) die "$file: line $n: unknown key '$key' (allowed: name, pane_mode, scofield_args, amy_args, idle_minutes, chime, repos, board)" ;;
       esac
     elif [[ -n "$in_repos" && "$line" =~ ^[[:space:]]+-[[:space:]]+([A-Za-z_][A-Za-z0-9_]*):[[:space:]]*(.*)$ ]]; then
       cur=$((cur + 1))
@@ -252,6 +288,7 @@ manifest_load_file() {
   done
   [[ "$LOH_PANE_MODES" == *" $WS_PANE_MODE "* ]] || die "$file: pane_mode '$WS_PANE_MODE' is not one of:${LOH_PANE_MODES}"
   [[ "$WS_IDLE_MINUTES" =~ ^[1-9][0-9]*$ ]] || die "$file: idle_minutes '$WS_IDLE_MINUTES' must be a whole number of minutes above zero"
+  [[ -z "$WS_CHIME" || "$WS_CHIME" == on || "$WS_CHIME" == off ]] || die "$file: chime '$WS_CHIME' must be on or off"
   [[ ${#REPO_NAMES[@]} -gt 0 ]] || die "$file: no repos listed under 'repos:'"
   local i j
   for i in "${!REPO_NAMES[@]}"; do

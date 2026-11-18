@@ -44,4 +44,7 @@ if [[ -f "$root/.loh/office-lights" ]]; then
   read -r state stamp <"$root/.loh/office-lights" || true
   [[ "$state" =~ ^(on|off)$ && "$stamp" =~ ^[0-9]+$ ]] && printf 'lights %s %s\n' "$state" "$stamp"
 fi
+# The chime setting, as "chime <on|off>": the office's Chime button shows it, so a
+# change made with `loh chime` in a terminal shows within one ping.
+printf 'chime %s\n' "$(chime_setting "$root")"
 exit 0

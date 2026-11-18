@@ -298,3 +298,20 @@ MD
     [ "$status" -eq 0 ] || { echo "refused $key: $stderr"; return 1; }
   done
 }
+
+@test "manifest_load reads chime: on|off into WS_CHIME and dies on anything else" {
+  load_manifest_for_chime() {
+    printf 'name: demo\n%s\nrepos:\n  - name: api\n    path: ./api\n    branch: main\n    github: acme/api\n' "$1" >"$BATS_TEST_TMPDIR/m.md"
+    LOH_WORKSPACE="$BATS_TEST_TMPDIR" bash -c 'source "$1/lib/loh/common.sh"; manifest_load_file "$2" && echo "[$WS_CHIME]"' _ "$REPO_ROOT" "$BATS_TEST_TMPDIR/m.md"
+  }
+  run load_manifest_for_chime ""
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+  run load_manifest_for_chime "chime: off"
+  [ "$output" = "[off]" ]
+  run load_manifest_for_chime "chime: \"on\""
+  [ "$output" = "[on]" ]
+  run --separate-stderr load_manifest_for_chime "chime: loud"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"chime"* ]]
+}
