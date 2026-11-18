@@ -94,7 +94,7 @@ if [[ -n "$prs" ]]; then
     state="$("${tmo[@]}" gh pr view "$pr" -R "$github" --json state --jq .state 2>/dev/null)" || continue
     case "$state" in
       MERGED | CLOSED)
-        hc label "$addr" "pr=" "prdone=1" >/dev/null 2>&1 || continue
+        hc label "$addr" "pr=" "prdone=1" "prstate=${state,,}" >/dev/null 2>&1 || continue
         cleared+=("$(jq -cn --arg n "$name" --arg p "$pr" --arg s "$state" '{name: $n, pr: $p, state: $s}')")
         ;;
     esac

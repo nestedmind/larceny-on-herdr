@@ -1664,3 +1664,47 @@ console.log(office.panel.open, all(find(root, "floor")).includes(stack), all(fin
   [ "$status" -eq 0 ]
   [ "$output" = "true true false" ]
 }
+
+# ---- confetti and a toast on a merge (ticket #70) ----
+
+MERGE_HELPERS='
+const pieces = (root) => all(root.node).filter((n) => /^confetti-[0-9]+-x[0-9]+$/.test(id(n) || ""));
+const merge = (i) => { const l = terms()[i].labels; delete l.pr; l.prdone = "1"; l.prstate = "merged"; };
+const lines = (n) => all(n).flatMap((x) => x.kids.filter((k) => typeof k === "string"));
+const toasts = (root) => all(root.node).filter((n) => /^toast-/.test(id(n) || ""));
+'
+
+@test "a merge seen draws 40 confetti pieces at the coder's desk and one toast, and every piece is gone by 1.8 s" {
+  run office_js "$MERGE_HELPERS"'
+terms()[1].labels.pr = "12";
+render();
+merge(1);
+const a = render();
+const t = toasts(a)[0];
+const asked = office.wake ? office.wake.at - Date.now() : null;
+later(1199); const b = pieces(render()).length;
+later(601); const c = pieces(render()).length;
+console.log(pieces(a).length, toasts(a).length, lines(t).slice(0, 2).join("|"), asked !== null && asked <= 1800, b, c, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "40 1 api PR #12 merged|Sheba merged it true 40 0 1" ]
+}
+
+@test "a pull request already merged when the office opens draws no confetti and no toast" {
+  run office_js "$MERGE_HELPERS"'
+fresh();
+terms()[1].labels.pr = "12"; merge(1);
+const a = render();
+console.log(pieces(a).length, toasts(a).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 0" ]
+}
+
+@test "the confetti is drawn once: later renders add no burst" {
+  run office_js "$MERGE_HELPERS"'
+terms()[1].labels.pr = "12";
+render(); merge(1); render();
+later(500);
+console.log(pieces(render()).length, office.bursts.length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "40 1" ]
+}
