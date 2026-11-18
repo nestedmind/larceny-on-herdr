@@ -35,7 +35,7 @@ Rules for this repo:
 Use `loh say <name> "<text>"`. Names are agents' herdr names, not pane ids.
 
 - When your PR is open, run `loh say {{reviewer}} "PR #<n> ready for review: {{github}}#{{ticket}}"`. {{reviewer_name}} reviews on GitHub and replies to you by name. Rounds 1 and 2 stay between you and {{reviewer_name}}. Then end your turn; {{reviewer_name}}'s reply arrives as a new turn.
-- If a finding is still open after round 2, or you are blocked, end your turn with the escalation (what is open, and your position) as your final message. Before you end the turn, run `loh card note="escalation:<one line>"`, so `loh watch` notifies the owner. Do not run `loh say {{coordinator}}`: the coordinator waits in `hc wait --children any`, which counts as working, so a message would not be delivered. Its wait returns when your turn ends.
+- If a finding is still open after round 2, or you are blocked, end your turn with the escalation (what is open, and your position) as your final message. Before you end the turn, run `loh card note="escalation:<one line>"`, so `loh watch` notifies the owner. Do not run `loh say {{coordinator}}`: the coordinator waits in `hc wait --children any`, which counts as working, so a message typed into him would end his wait early for nothing. Its wait returns when your turn ends anyway.
 
 ## Finish
 

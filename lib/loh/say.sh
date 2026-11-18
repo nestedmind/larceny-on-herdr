@@ -5,7 +5,12 @@
 #   idle     hc send --if idle -- <to> <text>
 #   done     hc send -- <to> <text>   (agents sit in `done` between turns, and
 #                                  --if only accepts idle or working)
-#   working, blocked, anything else: wait and look again
+#   working  hc send --if working -- <to> <text>, when the target is a Claude
+#            Code session (status.app is claude-code): it takes typed input
+#            mid-turn and shows it at the next tool result. Any other app is
+#            waited for and looked at again
+#   blocked, anything else: wait and look again (a blocked target is at a
+#            dialog, and a typed line would answer it)
 # The text may start with "-": it always follows a `--`.
 # A busy target is retried up to LOH_SAY_TRIES times (default 40),
 # LOH_SAY_DELAY seconds apart (default 15), then exit 3. LOH_SAY_TRIES=0 means
@@ -54,7 +59,7 @@ if [[ -n "$queue" ]]; then
   command -v setsid >/dev/null 2>&1 && launch=(setsid nohup)
   LOH_SAY_WORKER=1 LOH_SAY_TRIES=0 "${launch[@]}" bash "${BASH_SOURCE[0]}" "$to" "$text" \
     >/dev/null 2>&1 </dev/null &
-  echo "loh: queued for $to; it is delivered when $to is idle, and a failure shows as an undelivered note"
+  echo "loh: queued for $to; it is delivered when $to can take it, and a failure shows as an undelivered note"
   exit 0
 fi
 
@@ -67,7 +72,7 @@ note_failure() {
 
 # inspect: refuse (exit 4) when the target is with Matt, stop (exit 11) when it
 # has finished, else set $state to its status: idle, done, working, blocked, or
-# empty when hc reports none.
+# empty when hc reports none, and $app to the app that reports it.
 inspect() {
   local info flag life
   info="$(hc_json get "$to")" || { note_failure "cannot look up"; die "cannot look up $to"; }
@@ -84,17 +89,25 @@ inspect() {
     exit 11
   fi
   state="$(jq -r '.status.state // ""' <<<"$info")"
+  app="$(jq -r '.status.app // ""' <<<"$info")"
 }
 
 attempt=1
 while :; do
-  state=""
+  state="" app=""
   inspect
   rc=0
   case "$state" in
     idle) out="$(hc send --if idle -- "$to" "$text" 2>&1)" || rc=$? ;;
     done) out="$(hc send -- "$to" "$text" 2>&1)" || rc=$? ;;
-    *) rc=10 out="" ;; # working, blocked or unknown: treat as busy
+    working)
+      if [[ "$app" == "claude-code" ]]; then
+        out="$(hc send --if working -- "$to" "$text" 2>&1)" || rc=$?
+      else
+        rc=10 out=""
+      fi
+      ;;
+    *) rc=10 out="" ;; # blocked or unknown: treat as busy
   esac
   case "$rc" in
     0)

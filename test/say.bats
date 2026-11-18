@@ -61,11 +61,11 @@ SH
   export LOH_SAY_DELAY=0
 }
 
-# set_get <status-state> [with_matt]: canned `hc get` answer for a live
-# terminal in that status.
+# set_get <status-state> [with_matt] [app]: canned `hc get` answer for a live
+# terminal in that status, running that app (default claude-code).
 set_get() {
-  printf '{"state":"live","status":{"state":"%s"},"labels":{"with_matt":"%s"}}\n' \
-    "$1" "${2:-0}" >"$HC_DIR/get.json"
+  printf '{"state":"live","status":{"app":"%s","state":"%s"},"labels":{"with_matt":"%s"}}\n' \
+    "${3:-claude-code}" "$1" "${2:-0}" >"$HC_DIR/get.json"
 }
 
 @test "say sends with --if idle and never --force" {
@@ -177,8 +177,8 @@ sleep_sets_status() {
   ! grep -q -- '--force' "$HC_LOG"
 }
 
-@test "say retries a working agent without sending, then sends once it is done" {
-  set_get working
+@test "say retries a working non-claude-code agent without sending, then sends once it is done" {
+  set_get working 0 zsh
   sleep_sets_status done
   LOH_SAY_TRIES=3 run "$LOH" say amy hi
   [ "$status" -eq 0 ]
@@ -195,11 +195,37 @@ sleep_sets_status() {
   grep -qxP 'send\t--if\tidle\t--\tamy\thi' "$HC_LOG"
 }
 
-@test "say gives up with exit 3 on an agent that stays working, sending nothing" {
-  set_get working
+@test "say gives up with exit 3 on a non-claude-code agent that stays working, sending nothing" {
+  set_get working 0 zsh
   LOH_SAY_TRIES=3 run --separate-stderr "$LOH" say amy hi
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"amy is busy"* ]]
+  ! grep -q '^send' "$HC_LOG"
+}
+
+@test "say sends once with --if working to a working claude-code agent, no retry" {
+  set_get working
+  printf '0\n' >"$HC_DIR/send.exits"
+  LOH_SAY_TRIES=3 run "$LOH" say amy "PR 7 ready"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^send' "$HC_LOG")" -eq 1 ]
+  grep -qxP 'send\t--if\tworking\t--\tamy\tPR 7 ready' "$HC_LOG"
+  ! grep -q -- '--force' "$HC_LOG"
+  [ "$(cat "$HC_DIR/delivered")" = $'amy\tPR 7 ready' ]
+}
+
+@test "say retries when a working claude-code agent stops working before the send lands" {
+  set_get working
+  printf '10\n0\n' >"$HC_DIR/send.exits"
+  LOH_SAY_TRIES=3 run "$LOH" say amy hi
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^send' "$HC_LOG")" -eq 2 ]
+}
+
+@test "say retries a blocked claude-code agent without sending, never with --if working" {
+  set_get blocked
+  LOH_SAY_TRIES=3 run --separate-stderr "$LOH" say amy hi
+  [ "$status" -eq 3 ]
   ! grep -q '^send' "$HC_LOG"
 }
 
@@ -286,7 +312,7 @@ if [ "$n" -ge 120 ]; then
 fi
 SH
   chmod +x "$BIN/sleep"
-  set_get working
+  set_get working 0 zsh
   LOH_SAY_TRIES=0 run "$LOH" say amy hi
   [ "$status" -eq 0 ]
   [ "$(cat "$HC_DIR/n")" -eq 120 ]
@@ -294,17 +320,32 @@ SH
 }
 
 @test "say --queue returns at once with exit 0 and the message arrives later" {
-  set_get working
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" '"'"'{"state":"live","status":{"state":"idle"},"labels":{}}'"'"' >"$HC_DIR/get.json"\n' >"$BIN/sleep"
-  chmod +x "$BIN/sleep"
+  # a blocked target stays busy until the fake sleep makes it idle, so the
+  # worker has to wait and retry whatever its start-up timing
+  set_get blocked
+  sleep_sets_status idle
   run --separate-stderr "$LOH" say --queue amy "PR 7 ready"
   [ "$status" -eq 0 ]
   [[ "$output" == *"queued"* ]]
-  for _ in $(seq 1 50); do
+  # poll for the delivery itself, with a generous bound, not a fixed wait
+  for _ in $(seq 1 300); do
     [ -s "$HC_DIR/delivered" ] && break
     command sleep 0.1
   done
   [ "$(cat "$HC_DIR/delivered")" = $'amy\tPR 7 ready' ]
+}
+
+@test "say --queue sends a working claude-code target the message at once with --if working" {
+  set_get working
+  run --separate-stderr "$LOH" say --queue amy "PR 8 ready"
+  [ "$status" -eq 0 ]
+  for _ in $(seq 1 300); do
+    [ -s "$HC_DIR/delivered" ] && break
+    command sleep 0.1
+  done
+  [ "$(cat "$HC_DIR/delivered")" = $'amy\tPR 8 ready' ]
+  grep -qxP 'send\t--if\tworking\t--\tamy\tPR 8 ready' "$HC_LOG"
+  [ "$(grep -c '^send' "$HC_LOG")" -eq 1 ]
 }
 
 @test "say --queue still validates the target before queueing" {
