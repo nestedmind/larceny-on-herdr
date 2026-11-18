@@ -14,7 +14,10 @@ setup() {
   PROTO="${PARITY_PROTO:-$main/.larceny/office/crew-office.html}"
   [ -f "$PROTO" ] || skip "the prototype page is not available (PARITY_PROTO)"
   TOOL="$REPO_ROOT/test/office-parity"
+  parity_setup
 }
+
+teardown() { parity_teardown; }
 
 # A copy of the mod in the test's temp dir, for a test to break.
 copy_mod() {
