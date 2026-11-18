@@ -1116,18 +1116,40 @@ console.log(office.lights, notified.join(","));'
   [ "$output" = "false spawned" ]
 }
 
-@test "the applied stamp is kept per workspace folder: another crew's office does not re-apply an old command" {
+@test "with no props.dir and agent folders that move, an applied command is not applied again after the button" {
   run office_js "$lights_ping"'
 answer.out = "lights off 100\n"; await ping();
-const keys = Object.keys(globalThis.SHARED).filter((k) => k.startsWith("crew-office.lights-seen")).join(",");
-for (const t of terms()) t.cwd = "/other/" + t.name;
-fresh(); for (const t of terms()) t.cwd = "/other/" + t.name;
-globalThis.SHARED["crew-office.lights"] = "on";
-fresh(); for (const t of terms()) t.cwd = "/other/" + t.name;
+find(render(), "lights").props.on_click[0]({}, cx);
+for (const t of terms()) t.cwd = "/ws/.worktrees/" + t.name;
 await ping();
+const keys = Object.keys(globalThis.SHARED).filter((k) => k.startsWith("crew-office.lights-seen")).join(",");
 console.log(keys, office.lights);'
   [ "$status" -eq 0 ]
-  [ "$output" = "crew-office.lights-seen./ws/scofield false" ]
+  [ "$output" = "crew-office.lights-seen true" ]
+}
+
+@test "two crews' offices do not undo each other's lights after a reload: one seen key, only a larger stamp applies" {
+  run office_js "$lights_ping"'
+answer.out = "lights off 200\n"; await ping();
+find(render(), "lights").props.on_click[0]({}, cx);
+fresh(); for (const t of terms()) t.cwd = "/wsA/" + t.name;
+answer.out = "lights off 100\n"; await ping();
+console.log(office.lights, globalThis.SHARED["crew-office.lights-seen"]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true 200" ]
+}
+
+@test "the ping sends the stamp it last applied, once there is one" {
+  run office_js "$lights_ping"'
+const args = [];
+const hook = globalThis.EXEC_HOOK;
+globalThis.EXEC_HOOK = (c, a, o) => { if (a[0] === "office-ping") args.push(a.join(" ")); return hook(c, a, o); };
+await ping();
+answer.out = "lights off 100\n"; await ping();
+await ping();
+console.log(args.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "office-ping --lights on|office-ping --lights on|office-ping --lights off --seen 100" ]
 }
 
 @test "the stamp already applied is kept over a reload, so an old record does not undo the button" {
@@ -1164,9 +1186,11 @@ console.log([
   j(lightsSignal("lights off", "")),
   j(lightsSignal(null, "")),
   j(lightsSignal("noise\nlights off 9\n", null)),
+  j(lightsSignal("lights off 5\n", "6")),
+  j(lightsSignal("lights off 1000000000000000000001\n", "1000000000000000000000")),
 ].join(" "))'
   [ "$status" -eq 0 ]
-  [ "$output" = '{"on":false,"stamp":"100"} {"on":true,"stamp":"7"} null null null null null {"on":false,"stamp":"9"}' ]
+  [ "$output" = '{"on":false,"stamp":"100"} {"on":true,"stamp":"7"} null null null null null {"on":false,"stamp":"9"} null {"on":false,"stamp":"1000000000000000000001"}' ]
 }
 
 # The repo list is read again every minute, not only when the workspace, folder or crew size changes.

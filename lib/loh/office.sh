@@ -50,7 +50,13 @@ if [[ "${1:-}" == "lights" ]]; then
       shown="$root/.loh/office-lights-shown"
       if office_open "$root" && [[ -f "$shown" ]]; then
         # An open office reports what it shows with each ping, so the button and L count.
-        read -r state _ <"$shown" || true
+        # It counts only once it has applied the pending command (its stamp is the command's): the ping that
+        # delivers a command still reports the state from before it.
+        read -r state _ seen <"$shown" || true
+        if [[ -f "$file" ]]; then
+          read -r cmd stamp <"$file" || true
+          if [[ "$stamp" =~ ^[0-9]+$ && "$seen" != "$stamp" ]]; then state="$cmd"; fi
+        fi
       elif [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
       [[ "$state" == off ]] || state=on
       printf '%s\n' "$state"
