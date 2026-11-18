@@ -14,15 +14,64 @@
 # only a note. The heartbeat (.loh/office-open, see `loh office-ping`) matters
 # for one case: it is fresh and no id is saved, an office opened by hand, so
 # the old tab has to be closed by hand. `loh office --close` closes the saved tab.
+#
+# loh office lights [on|off]: switch the office lights from a terminal, or print
+# the current state: what the open office last reported through its ping (so the
+# button and L count), else the last choice made here, else on. The choice goes to
+# <workspace>/.loh/office-lights as "<on|off> <stamp>", the stamp being the time
+# in nanoseconds (seconds where date has no nanoseconds) and always larger than the last, so a repeated choice is still a new one. `loh office-ping`
+# prints that line and the open office, which runs it every 5 seconds, applies a
+# stamp it has not seen yet, as if the button were pressed: whichever choice
+# came last, from here or from the button, wins. It needs neither herdr-app nor
+# a manifest.
 set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
   echo "Usage: loh office [--close]" >&2
+  echo "       loh office lights [on|off]" >&2
   echo "  Opens the office tab with its props, to open it, to change props, or when no tab is open or its saved id is stale. Office code reloads by itself." >&2
   exit 2
 }
+
+if [[ "${1:-}" == "lights" ]]; then
+  lights_usage() {
+    echo "Usage: loh office lights [on|off]" >&2
+    exit 2
+  }
+  [[ $# -le 2 ]] || lights_usage
+  root="$(workspace_root)" || exit 1
+  file="$root/.loh/office-lights"
+  case "${2-}" in
+    "")
+      if [[ $# -eq 2 ]]; then lights_usage; fi
+      state=on
+      shown="$root/.loh/office-lights-shown"
+      if office_open "$root" && [[ -f "$shown" ]]; then
+        # An open office reports what it shows with each ping, so the button and L count.
+        read -r state _ <"$shown" || true
+      elif [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
+      [[ "$state" == off ]] || state=on
+      printf '%s\n' "$state"
+      ;;
+    on | off)
+      [[ -d "$root/.loh" ]] || die "no .loh folder in $root"
+      tmp="$file.tmp.$$"
+      # The stamp only has to be new, and a later one larger: nanoseconds where date has them (macOS's does not), else
+      # seconds, and never at or below the last stamp.
+      stamp="$(date +%s%N)"
+      [[ "$stamp" =~ ^[0-9]+$ ]] || stamp="$(date +%s)000000000"
+      prev=""
+      if [[ -f "$file" ]]; then read -r _ prev <"$file" || true; fi
+      if [[ "$prev" =~ ^[0-9]+$ ]] && ((prev >= stamp)); then stamp=$((prev + 1)); fi
+      printf '%s %s\n' "$2" "$stamp" >"$tmp"
+      mv -f "$tmp" "$file"
+      ;;
+    *) lights_usage ;;
+  esac
+  exit 0
+fi
 
 close=""
 case $# in

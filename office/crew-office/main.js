@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsSeenKey, lightsFrom, lightsSignal, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -189,6 +189,10 @@ export default class CrewOffice extends View {
     // The lights: on at the start, then whatever was saved. Herdr's dark mode only sets the stage colour.
     this.lights = true;
     try { this.lights = lightsFrom(shared(LIGHTS_KEY)); } catch (_) { /* none saved: lights on */ }
+    // The stamp of the last `loh office lights` choice applied, per workspace folder (kept with the choice, so a reload does
+    // not apply it twice); read when the folder is first known.
+    this.lightsSeen = "";
+    this.lightsSeenDir = null;
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
@@ -705,15 +709,30 @@ export default class CrewOffice extends View {
 
   // Tell loh an office is open, now and every OFFICE_PING_MS (a render is asked for then, as for the repo list): while it
   // hears, `loh watch` sends no desktop notice, because the toast says it. It runs in an agent's folder, which is how loh finds the workspace.
-  pingLoh(crew, now) {
+  pingLoh(crew, now, cx) {
     if (this.pingAt && now - this.pingAt < OFFICE_PING_MS) { this.wakeIn(this.pingAt + OFFICE_PING_MS - now); return; }
     const dir = this.workspaceDir(crew);
     // With no folder to find the workspace from there is nothing to run in; the next render for any reason looks again.
     if (!dir) return;
     this.pingAt = now;
     this.wakeIn(OFFICE_PING_MS);
-    const c = pingCall({ cwd: dir }, (props() || {}).loh);
-    try { exec(c.cmd, c.args, c.options).catch(() => {}); } catch (_) { /* loh is missing: the desktop notices stay on */ }
+    if (this.lightsSeenDir !== dir) {
+      this.lightsSeenDir = dir;
+      this.lightsSeen = "";
+      try { this.lightsSeen = String(shared(lightsSeenKey(dir)) || ""); } catch (_) { /* none saved */ }
+    }
+    // The ping says what the office shows, and its answer carries the choice of `loh office lights on|off`; one not seen
+    // yet is applied as the button would. The continuation runs in cx.spawn with its own cx: the render's is dead by then.
+    const c = pingCall({ cwd: dir }, (props() || {}).loh, this.lights);
+    cx.spawn(async (cx) => {
+      let r = null;
+      try { r = await exec(c.cmd, c.args, c.options); } catch (_) { return; } // loh is missing: the desktop notices stay on
+      const sig = r && r.code === 0 ? lightsSignal(r.stdout, this.lightsSeen) : null;
+      if (!sig) return;
+      this.lightsSeen = sig.stamp;
+      try { setShared(lightsSeenKey(dir), sig.stamp); } catch (_) { /* only remembered */ }
+      this.setLights(sig.on, cx);
+    });
   }
 
   // A toast was clicked: it goes, and that agent's chat opens as a click on the person opens it.
@@ -949,7 +968,7 @@ export default class CrewOffice extends View {
       const due = [ts.nextMs, ts.animMs].filter((x) => x !== null);
       if (due.length) this.wakeIn(Math.min(...due));
     }
-    this.pingLoh(crew, now);
+    this.pingLoh(crew, now, cx);
     let focus = null;
     try { focus = focused(); } catch (_) { /* no focus information: only the message box counts */ }
     // Focus arriving on a terminal he opened from the office counts as Matt at work for TYPING_HOLD, like a key in the message

@@ -98,8 +98,10 @@ export function reposCall(agent, loh) {
 export const OFFICE_PING_MS = 5000;
 
 /** The command that tells loh an office is open (`loh office-ping`): `loh watch` then leaves the notices to the toasts. */
-export function pingCall(agent, loh) {
-  return { cmd: loh || "loh", args: ["office-ping"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+export function pingCall(agent, loh, lights) {
+  // `lights` (true: on) is what the office shows now, so `loh office lights` can say it.
+  const args = lights === undefined ? ["office-ping"] : ["office-ping", "--lights", lights ? "on" : "off"];
+  return { cmd: loh || "loh", args, options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
 /** The command that asks where the reactions are kept (loh react --dir). Same folder rules as reposCall. */
@@ -743,6 +745,24 @@ export const LIGHTS_KEY = "crew-office.lights";
 /** The remembered lights choice, read back: on unless it was saved as off. */
 export function lightsFrom(saved) {
   return saved !== "off";
+}
+
+/** Where the stamp of the last `loh office lights` choice applied is kept, per workspace folder, so a reload does not apply the same one again. */
+export function lightsSeenKey(dir) {
+  return `crew-office.lights-seen.${dir || ""}`;
+}
+
+/**
+ * The lights choice `loh office lights on|off` made, read from `loh office-ping`'s output, which carries the line
+ * `lights <on|off> <stamp>`. Gives { on, stamp } when the stamp is not the one already applied (`seen`), else null:
+ * a missing, malformed or already applied record changes nothing. The stamp is kept as text (it is nanoseconds).
+ */
+export function lightsSignal(out, seen) {
+  for (const line of String(out || "").split("\n")) {
+    const m = /^lights (on|off) (\d+)$/.exec(line.trim());
+    if (m) return m[2] === String(seen == null ? "" : seen) ? null : { on: m[1] === "on", stamp: m[2] };
+  }
+  return null;
 }
 
 /** The value to save for a lights choice. */
