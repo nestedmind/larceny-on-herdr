@@ -98,9 +98,11 @@ export function reposCall(agent, loh) {
 export const OFFICE_PING_MS = 5000;
 
 /** The command that tells loh an office is open (`loh office-ping`): `loh watch` then leaves the notices to the toasts. */
-export function pingCall(agent, loh, lights) {
-  // `lights` (true: on) is what the office shows now, so `loh office lights` can say it.
+export function pingCall(agent, loh, lights, seen) {
+  // `lights` (true: on) is what the office shows now, so `loh office lights` can say it; `seen` is the stamp of the last
+  // command it applied, so the status knows whether that state already follows the pending command.
   const args = lights === undefined ? ["office-ping"] : ["office-ping", "--lights", lights ? "on" : "off"];
+  if (lights !== undefined && /^\d+$/.test(String(seen || ""))) args.push("--seen", String(seen));
   return { cmd: loh || "loh", args, options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
@@ -749,20 +751,21 @@ export function lightsFrom(saved) {
   return saved !== "off";
 }
 
-/** Where the stamp of the last `loh office lights` choice applied is kept, per workspace folder, so a reload does not apply the same one again. */
-export function lightsSeenKey(dir) {
-  return `crew-office.lights-seen.${dir || ""}`;
-}
+/** Where the stamp of the last `loh office lights` choice applied is kept: one for the office, like the choice itself. */
+export const LIGHTS_SEEN_KEY = "crew-office.lights-seen";
 
 /**
  * The lights choice `loh office lights on|off` made, read from `loh office-ping`'s output, which carries the line
- * `lights <on|off> <stamp>`. Gives { on, stamp } when the stamp is not the one already applied (`seen`), else null:
- * a missing, malformed or already applied record changes nothing. The stamp is kept as text (it is nanoseconds).
+ * `lights <on|off> <stamp>`. Gives { on, stamp } when the stamp is larger than the one already applied (`seen`), else null:
+ * a missing, malformed, already applied or older record changes nothing. The stamp is kept as text (it is nanoseconds).
  */
 export function lightsSignal(out, seen) {
   for (const line of String(out || "").split("\n")) {
     const m = /^lights (on|off) (\d+)$/.exec(line.trim());
-    if (m) return m[2] === String(seen == null ? "" : seen) ? null : { on: m[1] === "on", stamp: m[2] };
+    if (m) {
+      const was = /^\d+$/.test(String(seen == null ? "" : seen)) ? BigInt(seen) : 0n;
+      return BigInt(m[2]) > was ? { on: m[1] === "on", stamp: m[2] } : null;
+    }
   }
   return null;
 }

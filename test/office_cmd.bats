@@ -270,19 +270,60 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   read -r s t <"$WS/.loh/office-lights-shown"
   [ "$s" = off ]
   [[ "$t" =~ ^[0-9]+$ ]]
-  for bad in "--lights" "--lights dim" "off" "--dark on"; do
+  run "$LOH" office-ping --lights on --seen 123
+  [ "$status" -eq 0 ]
+  read -r s t u <"$WS/.loh/office-lights-shown"
+  [ "$s $u" = "on 123" ]
+  for bad in "--lights" "--lights dim" "off" "--dark on" "--seen 5" "--lights on --seen x"; do
     run --separate-stderr "$LOH" office-ping $bad
     [ "$status" -eq 2 ]
-    [[ "$stderr" == *"Usage: loh office-ping [--lights on|off]"* ]]
+    [[ "$stderr" == *"Usage: loh office-ping [--lights on|off] [--seen <stamp>]"* ]]
   done
 }
 
 @test "office lights with no argument prints what an open office reports, over the last terminal choice" {
   cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
   "$LOH" office lights on
-  "$LOH" office-ping --lights off
+  read -r _ t <"$(lights_file)"
+  "$LOH" office-ping --lights off --seen "$t"
   run "$LOH" office lights
   [ "$output" = off ]
+}
+
+@test "office lights right after a command prints the command's choice, before and after the ping that delivers it" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  "$LOH" office-ping --lights on
+  "$LOH" office lights off
+  run "$LOH" office lights
+  [ "$output" = off ]
+  read -r _ t <"$(lights_file)"
+  "$LOH" office-ping --lights on
+  run "$LOH" office lights
+  [ "$output" = off ]
+  "$LOH" office-ping --lights off --seen "$t"
+  run "$LOH" office lights
+  [ "$output" = off ]
+  "$LOH" office-ping --lights on --seen "$t"
+  run "$LOH" office lights
+  [ "$output" = on ]
+  # another crew's later stamp, kept in the office's one seen key, also means it has applied this one
+  "$LOH" office-ping --lights on --seen "$((t + 1000))"
+  run "$LOH" office lights
+  [ "$output" = on ]
+}
+
+@test "office lights compares stamps of any length, past what shell arithmetic holds" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  echo "off 99999999999999999999" >"$(lights_file)"
+  "$LOH" office-ping --lights on --seen 100000000000000000000
+  run "$LOH" office lights
+  [ "$output" = on ]
+  "$LOH" office-ping --lights on --seen 9999999999999999999
+  run "$LOH" office lights
+  [ "$output" = off ]
+  "$LOH" office-ping --lights on --seen 99999999999999999999
+  run "$LOH" office lights
+  [ "$output" = on ]
 }
 
 @test "office lights with no argument falls back to the last terminal choice when the office has stopped pinging" {
