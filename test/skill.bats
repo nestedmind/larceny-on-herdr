@@ -176,6 +176,17 @@ named_commands() {
   [[ "$line" == *"final message"* ]]
 }
 
+@test "the reviewer ends her turn after dispatching a review helper and never waits on it" {
+  line=$(grep -F 'dispatch one reviewer subagent' "$(skill_file)")
+  [[ "$line" == *"Then end your turn."* ]]
+  [[ "$line" == *"Never wait in-turn on a helper"* ]]
+}
+
+@test "the coordinator confirms a review on GitHub before relaying after a loh say amy wait" {
+  line=$(grep -F 'wait on her with `hc wait amy' "$(skill_file)")
+  [[ "$line" == *"confirm on GitHub that a review of the current head has landed"* ]]
+}
+
 @test "the approval check names the reviewer login and how to get it" {
   grep -qF 'loh gh amy api user --jq .login' "$(skill_file)"
   grep -qF "\`author.login\` is the reviewer's login" "$(skill_file)"
