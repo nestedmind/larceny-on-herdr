@@ -80,17 +80,35 @@ chime_play() {
   return 0
 }
 
+# chime_alone: the sound with no desktop notice (an office toast is shown instead):
+# chime_play on Linux, afplay with the Glass sound on macOS, else a bell on stdout.
+chime_alone() {
+  if command -v notify-send >/dev/null 2>&1; then
+    chime_play
+  elif command -v osascript >/dev/null 2>&1; then
+    (afplay /System/Library/Sounds/Glass.aiff </dev/null >/dev/null 2>&1 &)
+  else
+    printf '\a'
+  fi
+  return 0
+}
+
 # CHIMED is set once a chime was given in the current batch (one line of
 # `hc events`, which may announce several notes at once): a batch chimes once.
 CHIMED=""
 
-# notify <title> <body>: nothing while an office tab is open, because its toast
-# says the same thing; the office is checked at each notice, so closing the tab
+# notify <title> <body>: no desktop notice while an office tab is open, because its
+# toast says the same thing (the chime still plays); the office is checked at each notice, so closing the tab
 # brings the desktop notices back within office_open's window. The chime is
 # decided here, at each notice, so `loh chime` takes effect without a restart.
 notify() {
   local title="$1" body="$2" sound=""
   if [[ -n "$open_root" ]] && office_open "$open_root"; then
+    # The toast replaces the desktop notice, not the sound: chime on its own.
+    if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then
+      CHIMED=1
+      chime_alone
+    fi
     return 0
   fi
   if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then

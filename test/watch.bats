@@ -676,13 +676,28 @@ SH
   [ "$(played 2)" -eq 2 ]
 }
 
-@test "no chime while an office tab is open, as there is no notification either" {
+@test "while an office tab is open there is no desktop notice but the chime still plays" {
   stub_player canberra-gtk-play
   date +%s >"$LOH_WORKSPACE/.loh/office-open"
   blocked_one
   run_watch
   [ "$(notified)" -eq 0 ]
+  [ "$(played 1)" -eq 1 ]
+}
+
+@test "with the office open, chime off silences it, and a burst chimes once" {
+  stub_player canberra-gtk-play
+  date +%s >"$LOH_WORKSPACE/.loh/office-open"
+  echo off >"$LOH_WORKSPACE/.loh/chime"
+  blocked_one
+  run_watch
   [ "$(played 0)" -eq 0 ]
+  echo on >"$LOH_WORKSPACE/.loh/chime"
+  for a in t1 t2 t3; do status_get $a sheba blocked permission "q $a"; done
+  printf '{"terminals":[{"address":"t1"},{"address":"t2"},{"address":"t3"}]}\n' >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 0 ]
+  [ "$(played 1)" -eq 1 ]
 }
 
 @test "on macOS the notification carries sound name Glass, unless the chime is off" {
