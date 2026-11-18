@@ -393,7 +393,7 @@ console.log(log.builds);'
   [ "$output" = "2" ]
 }
 
-@test "Waffles is drawn long side-on when she walks east or west and long up and down when she walks north or south" {
+@test "Waffles is drawn from above: long left-right facing east or west, long up and down facing north or south" {
   run draw_js '
 const seen = [];
 const el = draw.Layer.prototype.el;
@@ -410,18 +410,21 @@ console.log(["e", "w", "n", "s"].map(extent).join(" "));'
   [ "$output" = "wide wide tall tall" ]
 }
 
-@test "Waffles sitting still keeps her side view whichever way her last leg faced" {
+@test "Waffles standing still is drawn from above too, long along the way she last faced" {
   run draw_js '
 const seen = [];
 const el = draw.Layer.prototype.el;
 draw.Layer.prototype.el = function () { seen.push(this); return el.call(this); };
-seen.length = 0;
-draw.dogEls({ id: "dog", state: "sit", dir: 1 }, 1, false, "s");
-const pts = seen.flatMap((l) => l.ops).filter((o) => o.fill === draw.PAL.dog).flatMap((o) => o.cmds).filter((c) => c.length >= 3 && typeof c[1] === "number");
-const xs = pts.map((c) => c[1]), ys = pts.map((c) => c[2]);
-console.log((Math.max(...xs) - Math.min(...xs)) > (Math.max(...ys) - Math.min(...ys)) ? "wide" : "tall");'
+const extent = (face) => {
+  seen.length = 0;
+  draw.dogEls({ id: "dog", state: "sit", dir: 1 }, 1, false, face);
+  const pts = seen.flatMap((l) => l.ops).filter((o) => o.fill === draw.PAL.dog).flatMap((o) => o.cmds).filter((c) => c.length >= 3 && typeof c[1] === "number");
+  const xs = pts.map((c) => c[1]), ys = pts.map((c) => c[2]);
+  return (Math.max(...xs) - Math.min(...xs)) > (Math.max(...ys) - Math.min(...ys)) ? "wide" : "tall";
+};
+console.log(["e", "w", "n", "s"].map(extent).join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wide" ]
+  [ "$output" = "wide wide tall tall" ]
 }
 
 @test "a walker's bob and arm elements keep their ids and loops through a turn, so the swing keeps its phase at a corner" {
@@ -516,7 +519,7 @@ const dump = (p, walking, face) => {
 };
 const sha = (s) => require("crypto").createHash("sha1").update(s).digest("hex").slice(0, 12);'
 
-@test "Waffles asleep, and walking north or south, are drawn exactly as before" {
+@test "Waffles asleep, and walking north or south, are drawn exactly as as before" {
   run draw_js "import('crypto').then(({ createHash }) => { globalThis.require = () => ({ createHash });
 $DOG_DUMP
 console.log([dump({ id: 'dog', state: 'sleep', dir: 1 }, false, 'e'), dump({ id: 'dog', state: 'sit', dir: 1 }, true, 'n'), dump({ id: 'dog', state: 'sit', dir: 1 }, true, 's')].map(sha).join(' ')); });"
@@ -524,7 +527,7 @@ console.log([dump({ id: 'dog', state: 'sleep', dir: 1 }, false, 'e'), dump({ id:
   [ "$output" = "2d060788b7b1 c4cd75f8b713 42ab32f3fa59" ]
 }
 
-@test "Waffles side-on, standing or walking, has a snout, a floppy ear that stays inside the head line, and feet below her body" {
+@test "Waffles facing east or west has the same top view as north or south, turned: two ears and eyes ahead of the body, no snout or feet below it" {
   run draw_js "
 const calls = [];
 const ell = draw.Layer.prototype.ell;
@@ -533,18 +536,15 @@ const out = [];
 for (const [face, f] of [['e', 1], ['w', -1]]) for (const walking of [false, true]) {
   calls.length = 0;
   const els = draw.dogEls({ id: 'dog', state: 'sit', dir: 1 }, 1, walking, face);
-  const rel = (c) => ({ ...c, dx: f * (c.x - 30), top: c.y - c.ry, bottom: c.y + c.ry });
-  const body = rel(calls.find((c) => c.fill === draw.PAL.dog && c.rx === 6 && c.ry === 3.6));
-  const head = calls.find((c) => c.fill === draw.PAL.dog && c.rx === 3 && c.ry === 3);
-  const snout = rel(calls.find((c) => c.fill === draw.PAL.dog && c.rx > c.ry && c.rx < 3));
-  const ear = rel(calls.find((c) => c.fill === draw.PAL.dogDark && c.ry > c.rx));
-  const feet = els.map((e) => e.node.props.top).filter((t) => t).map((t) => t[0]);
+  const body = calls.find((c) => c.fill === draw.PAL.dog && c.rx === 6 && c.ry === 3.6);
+  const ears = calls.filter((c) => c.fill === draw.PAL.dogDark && c.rx === 1.6 && c.ry === 1.2);
+  const feet = els.slice(1, 5);
   out.push([
-    snout.dx + snout.rx > 9,                          // reaches past the head's front edge
-    ear.top >= head.y - head.ry && ear.bottom > head.y,      // hangs, never above the head line
-    Math.max(...feet) + 2.4 > 30 + body.ry + 1,              // feet reach clear below the body
-    ear.dx > 0 && ear.dx < 6,                              // the ear is on the head's side of the body, behind its centre
-    els.filter((e) => (e.node.loops || []).some((l) => l[0] === 'left')).length === (walking ? 4 : 0),  // the feet step only when she walks
+    ears.length === 2 && ears.every((e) => f * (e.x - body.x) > 5),            // both ears at the head, ahead of the body
+    ears[0].y < body.y && ears[1].y > body.y,                                   // one each side of her
+    feet.length === 4 && feet.every((e) => e.node.props.top[0] + 1.2 <= body.y + body.ry && e.node.props.top[0] + 1.2 >= body.y - body.ry),  // feet stay under the body outline
+    els.filter((e) => (e.node.loops || []).some((l) => l[0] === 'left')).length === (walking ? 4 : 0),  // feet step along her length
+    els.filter((e) => (e.node.loops || []).some((l) => l[0] === 'top')).length === 1,  // only the tail tip wags across
   ].join(','));
 }
 console.log(out.join(' '));"
