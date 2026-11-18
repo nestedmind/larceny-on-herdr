@@ -1062,6 +1062,69 @@ console.log(off, on, office.lights);'
   [ "$output" = "false true true" ]
 }
 
+# `loh office lights on|off`: the ping's answer carries the choice, a stamp not seen yet is applied like the button.
+lights_ping='
+const answer = { out: "" };
+globalThis.EXEC_HOOK = (c, a) => Promise.resolve(a[0] === "office-ping" ? { code: 0, stdout: answer.out, stderr: "" } : { code: 1, stdout: "", stderr: "" });
+for (const t of terms()) t.cwd = "/ws/" + t.name;
+const ping = async () => { office.pingAt = 0; render(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };'
+
+@test "a lights record from loh switches the lights once, whatever the button did, and a newer one wins again" {
+  run office_js "$lights_ping"'
+await ping();
+const none = office.lights;
+answer.out = "lights off 100\n"; await ping();
+const off = office.lights, saved = globalThis.SHARED["crew-office.lights"];
+find(render(), "lights").props.on_click[0]({}, cx);
+await ping();
+const button = office.lights;
+answer.out = "lights off 101\n"; await ping();
+const again = office.lights;
+answer.out = "lights on 102\n"; await ping();
+console.log(none, off, saved, button, again, office.lights, globalThis.SHARED["crew-office.lights"]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false off true false true on" ]
+}
+
+@test "the stamp already applied is kept over a reload, so an old record does not undo the button" {
+  run office_js "$lights_ping"'
+answer.out = "lights off 100\n"; await ping();
+find(render(), "lights").props.on_click[0]({}, cx);
+fresh();
+for (const t of terms()) t.cwd = "/ws/" + t.name;
+await ping();
+console.log(office.lights, globalThis.SHARED["crew-office.lights"]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true on" ]
+}
+
+@test "a ping answer that is not a lights record changes nothing" {
+  run office_js "$lights_ping"'
+for (const junk of ["", "hello", "lights dim 5", "lights off", "lights off x"]) { answer.out = junk; await ping(); }
+console.log(office.lights);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true" ]
+}
+
+@test "lightsSignal reads the record from the ping's output and skips a stamp already seen" {
+  command -v node >/dev/null || skip "node not installed"
+  run node --input-type=module -e '
+import { lightsSignal } from "'"$REPO_ROOT"'/office/crew-office/crew.js";
+const j = (v) => JSON.stringify(v);
+console.log([
+  j(lightsSignal("lights off 100\n", "")),
+  j(lightsSignal("lights on 7\n", "6")),
+  j(lightsSignal("lights off 100\n", "100")),
+  j(lightsSignal("", "")),
+  j(lightsSignal("lights dim 5", "")),
+  j(lightsSignal("lights off", "")),
+  j(lightsSignal(null, "")),
+  j(lightsSignal("noise\nlights off 9\n", null)),
+].join(" "))'
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"on":false,"stamp":"100"} {"on":true,"stamp":"7"} null null null null null {"on":false,"stamp":"9"}' ]
+}
+
 # The repo list is read again every minute, not only when the workspace, folder or crew size changes.
 repos_probe='
 globalThis.PROPS = { crew: "sandbox", dir: "/ws" };

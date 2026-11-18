@@ -745,6 +745,22 @@ export function lightsFrom(saved) {
   return saved !== "off";
 }
 
+/** Where the stamp of the last `loh office lights` choice applied is kept, so a reload does not apply the same one again. */
+export const LIGHTS_SEEN_KEY = "crew-office.lights-seen";
+
+/**
+ * The lights choice `loh office lights on|off` made, read from `loh office-ping`'s output, which carries the line
+ * `lights <on|off> <stamp>`. Gives { on, stamp } when the stamp is not the one already applied (`seen`), else null:
+ * a missing, malformed or already applied record changes nothing. The stamp is kept as text (it is nanoseconds).
+ */
+export function lightsSignal(out, seen) {
+  for (const line of String(out || "").split("\n")) {
+    const m = /^lights (on|off) (\d+)$/.exec(line.trim());
+    if (m) return m[2] === String(seen == null ? "" : seen) ? null : { on: m[1] === "on", stamp: m[2] };
+  }
+  return null;
+}
+
 /** The value to save for a lights choice. */
 export function lightsValue(on) {
   return on ? "on" : "off";

@@ -37,6 +37,7 @@ Paths are in larceny 0.1.5, commit 03a9bfc. Where one of these says to use `Agen
 | `loh wake [--timeout S]` | Run it in the background. Exits when a coder's turn ends, blocks, ends its terminal or changes its note, when a `loh say --queue` of yours fails, or when a review lands or a PR's head, mergeability or state changes in a workspace repo. Prints one line per change; at the timeout (default 900) prints `timeout after <S>s` |
 | `loh release <coder> [--force]` | Archives the coder's transcript into `.loh/transcripts/`, then ends it. Refuses a non-coder, and a working coder without `--force` |
 | `loh down [--all]` | Default: archives the transcript of, and kills, every coder of this crew, working or not. `--all`: kills every terminal with this crew label, standing agents included. Use it to stop the round, never to clear finished coders |
+| `loh office lights [on\|off]` | Switches the office lights, as the office's own button does: the open office follows within about 5 s, and the last choice, from here or from the button, wins. With no argument prints `on` or `off`. Needs no herdr-app |
 
 `loh gh` and `loh git` read the token file and set `GH_TOKEN` and the four `GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables themselves. Never write `$(cat <token-file>)` or those variables yourself. The rules in larceny's `coder` skill, "Git identity" (verify authorship after each commit and before each push, never `git config`) still apply, run through `loh git`.
 

@@ -190,3 +190,64 @@ fresh_heartbeat() { date +%s >"$WS/.loh/office-open"; }
   grep -q 'office_props' "$REPO_ROOT/lib/loh/office.sh"
   ! grep -q "jq -cn --arg crew" "$REPO_ROOT/lib/loh/init.sh"
 }
+
+# loh office lights [on|off]
+
+lights_file() { echo "$WS/.loh/office-lights"; }
+
+@test "office lights off writes the choice and a stamp, and on writes it again with a newer stamp" {
+  run "$LOH" office lights off
+  [ "$status" -eq 0 ]
+  read -r s1 t1 <"$(lights_file)"
+  [ "$s1" = off ]
+  [[ "$t1" =~ ^[0-9]+$ ]]
+  run "$LOH" office lights on
+  [ "$status" -eq 0 ]
+  read -r s2 t2 <"$(lights_file)"
+  [ "$s2" = on ]
+  [ "$t2" -gt "$t1" ]
+}
+
+@test "office lights off twice still gives a new stamp, so the second one wins over a button press between" {
+  "$LOH" office lights off
+  read -r _ t1 <"$(lights_file)"
+  "$LOH" office lights off
+  read -r _ t2 <"$(lights_file)"
+  [ "$t2" -gt "$t1" ]
+}
+
+@test "office lights with no argument prints the current state, on when none was set" {
+  run "$LOH" office lights
+  [ "$status" -eq 0 ]
+  [ "$output" = on ]
+  "$LOH" office lights off
+  run "$LOH" office lights
+  [ "$output" = off ]
+  [ ! -e "$WS/.loh/office-lights.tmp" ]
+}
+
+@test "office lights with another argument prints usage and exits 2, writing nothing" {
+  run --separate-stderr "$LOH" office lights dim
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Usage: loh office lights [on|off]"* ]]
+  run --separate-stderr "$LOH" office lights on now
+  [ "$status" -eq 2 ]
+  [ ! -e "$(lights_file)" ]
+}
+
+@test "office lights does not need herdr-app" {
+  PATH="/usr/bin:/bin" run "$LOH" office lights off
+  [ "$status" -eq 0 ]
+  [ -s "$(lights_file)" ]
+}
+
+@test "office-ping prints the lights record for the office, nothing when none was set" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  run "$LOH" office-ping
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  "$LOH" office lights off
+  read -r _ t <"$(lights_file)"
+  run "$LOH" office-ping
+  [ "$output" = "lights off $t" ]
+}

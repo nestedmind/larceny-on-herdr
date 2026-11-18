@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsFrom, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -189,6 +189,9 @@ export default class CrewOffice extends View {
     // The lights: on at the start, then whatever was saved. Herdr's dark mode only sets the stage colour.
     this.lights = true;
     try { this.lights = lightsFrom(shared(LIGHTS_KEY)); } catch (_) { /* none saved: lights on */ }
+    // The stamp of the last `loh office lights` choice applied (kept with the choice, so a reload does not apply it twice).
+    this.lightsSeen = "";
+    try { this.lightsSeen = String(shared(LIGHTS_SEEN_KEY) || ""); } catch (_) { /* none saved */ }
     this.panelW = clampPanelW(null, 1e9);
     this.splitW = 0; // the resizable group's own width, once measured
     this.termOpen = false; // a full-terminal window of this copy is open
@@ -713,7 +716,18 @@ export default class CrewOffice extends View {
     this.pingAt = now;
     this.wakeIn(OFFICE_PING_MS);
     const c = pingCall({ cwd: dir }, (props() || {}).loh);
-    try { exec(c.cmd, c.args, c.options).catch(() => {}); } catch (_) { /* loh is missing: the desktop notices stay on */ }
+    // Its answer carries the choice of `loh office lights on|off`; one not seen yet is applied as the button would.
+    // No cx here (a render's dies with it), so the view is told through the one kept from init.
+    try {
+      exec(c.cmd, c.args, c.options).then((r) => {
+        const sig = r && r.code === 0 ? lightsSignal(r.stdout, this.lightsSeen) : null;
+        if (!sig) return;
+        this.lightsSeen = sig.stamp;
+        try { setShared(LIGHTS_SEEN_KEY, sig.stamp); } catch (_) { /* only remembered */ }
+        this.setLights(sig.on, null);
+        try { this.acx.notify(this.floorView); } catch (_) { /* the view was reloaded or closed */ }
+      }).catch(() => {});
+    } catch (_) { /* loh is missing: the desktop notices stay on */ }
   }
 
   // A toast was clicked: it goes, and that agent's chat opens as a click on the person opens it.
