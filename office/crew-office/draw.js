@@ -720,8 +720,8 @@ export function personEls(p, k, face, walking, world, rest = false) {
 }
 
 /**
- * Waffles, as the prototype's drawDog(): curled asleep with a slow "zz" only once she has settled on
- * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags.
+ * Waffles: curled asleep with a slow "zz" only once she has settled on
+ * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags. Side-on she departs from the prototype's drawDog() on purpose (ticket #148: floppy ear, snout, feet below the body).
  */
 export function dogEls(p, k, walking, face) {
   const B = BOX, x = B, y = B;
@@ -738,13 +738,19 @@ export function dogEls(p, k, walking, face) {
   }
   if (walking && (face === "n" || face === "s")) return out.concat(dogAlong(p, k, walking, face === "n" ? -1 : 1));
   const f = face === "e" ? 1 : face === "w" ? -1 : p.dir < 0 ? -1 : 1;
-  const legs = [[-3, -2.6], [3, -2.6], [-3, 2.6], [3, 2.6]].map(([lx, ly], i) => {
+  const legs = [[-4, 3.8], [-2, 3.8], [2, 3.8], [4, 3.8]].map(([lx, ly], i) => {
+    // the feet reach below the body's outline (ry 3.6), so they show when she stands as well as when she walks
     const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
     return walking ? el.loop("left", { from: (x + lx - 1.2 + (i % 2 ? -1 : 1)) * k, to: (x + lx - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
   });
   const g = new Layer(k, 0, 0, 2 * B, 2 * B);
   g.ell(x, y, 6, 3.6, PAL.dog);
-  g.circ(x + f * 6, y - 0.4, 3, PAL.dog); g.ell(x + f * 6, y - 3, 1.2, 1.6, PAL.dogDark); g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
+  g.circ(x + f * 6, y - 0.4, 3, PAL.dog);
+  // a short snout out in front of the head, with a dark nose
+  g.ell(x + f * 9, y + 0.5, 2.2, 1.4, PAL.dog); g.circ(x + f * 10.8, y + 0.1, 0.7, PAL.dogDark);
+  // a floppy ear hanging down from the back of the head, never above the head line
+  g.ell(x + f * 4.6, y + 0.8, 1.3, 2.3, PAL.dogDark);
+  g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
   g.line(x - f * 5.6, y, x - f * 7.1, y, PAL.dog, 1.4);
   // the tip of the tail wags; the base stays
   const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x - f * 7.1, y, x - f * 8.6, y, PAL.dog, 1.4).el()
@@ -796,6 +802,25 @@ export function mover(prefix, at, chain, k, walking, leaf) {
     inner = slide(el, walking ? { duration: l.ms, delay: l.delay, easing: "linear" } : instant);
   }
   return slide(div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner), instant);
+}
+
+/**
+ * One burst of confetti (ticket #70), as the prototype draws it: pieces 2 by 1.2 units in the five state colours, thrown from
+ * `b` ({ id, x, y, pieces }) and pulled down by gravity (50 units/s^2). Motion is native, as everywhere here: a piece is three
+ * nested boxes whose loops add up to x + vx t, y + vy t + 25 t^2 for t up to its life (the office stops drawing it then, so no
+ * loop is seen turning back). The colours are the floor's, the same in both themes. `pieces` are those still alive.
+ */
+export function confettiEls(b, pieces, k) {
+  const cols = [PAL.work, PAL.q, PAL.esc, PAL.perm, PAL.accent];
+  const box = () => div().absolute().left(0).top(0).w(0).h(0);
+  return pieces.map((p, i) => {
+    const t = p.life / 1000, period = Math.max(100, 2 * p.life);
+    const leaf = div().absolute().left(-1 * k).top(-0.6 * k).w(2 * k).h(1.2 * k).rounded(0.4 * k).bg(cols[p.c]);
+    const fall = box().id(`${b.id}-f${i}`).child(leaf).loop("top", { from: 0, to: 25 * t * t * k, period, easing: "ease-in" });
+    const rise = box().id(`${b.id}-r${i}`).child(fall).loop("top", { from: 0, to: p.vy * t * k, period, easing: "linear" });
+    return box().id(`${b.id}-x${i}`).left(b.x * k).top(b.y * k).child(rise)
+      .loop("left", { from: b.x * k, to: (b.x + p.vx * t) * k, period, easing: "linear" });
+  });
 }
 
 /** A person's drawing box, centred on the mover that carries it. */

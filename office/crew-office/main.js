@@ -9,8 +9,8 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsSeenKey, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
-import { BLOCKED, PAL, SLOTS, ball, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
+import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, lightsSeenKey, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { BLOCKED, PAL, SLOTS, ball, confettiEls, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
 import { Panel } from "./panel.js";
@@ -143,6 +143,10 @@ export default class CrewOffice extends View {
     this.mem = newMemory();
     // The toasts showing, and what each agent was last seen with (crew.js toastStep). `pingAt` is when loh was last told the office is open.
     this.toasts = newToasts();
+    // The confetti showing ({ id, x, y, at, pieces }), and the merges seen whose desk is not known yet (resolved once the render has the walks).
+    this.bursts = [];
+    this.burstsDue = [];
+    this.burstN = 0;
     // Each toast's measured height, by id.
     this.toastH = new Map();
     this.pingAt = 0;
@@ -984,6 +988,7 @@ export default class CrewOffice extends View {
     // first listing is only recorded, never announced.)
     if (crew.length) {
       const ts = toastStep(this.toasts, crew, now);
+      this.burstsDue.push(...ts.bursts);
       const due = [ts.nextMs, ts.animMs].filter((x) => x !== null);
       if (due.length) this.wakeIn(Math.min(...due));
     }
@@ -1021,6 +1026,18 @@ export default class CrewOffice extends View {
     this.sig = sig;
     const u = (n) => n * k;
     const mo = this.motion(L, !this.anim);
+    // Confetti at the merger's desk: where they stand now (their walk to the rest room starts after this render). Gone for good
+    // once its longest piece is: each piece is drawn until its own life ends, and a render is asked for at the next end. (herdr gives
+    // no reduced-motion setting to the mods, so it is not honoured: a known gap, noted in the PR.)
+    for (const d of this.burstsDue.splice(0)) {
+      const who = L.people.find((p) => p.agent && p.agent.address === d.who);
+      const m = who ? mo.get(who.id) : null;
+      if (m) this.bursts.push({ id: `confetti-${++this.burstN}`, x: m.x, y: m.y - 6, at: now, pieces: confettiPieces(this.random()) });
+    }
+    this.bursts = this.bursts.filter((b) => b.pieces.some((p) => now - b.at < p.life));
+    const alive = this.bursts.map((b) => ({ b, pieces: b.pieces.filter((p) => now - b.at < p.life) }));
+    const ends = alive.flatMap(({ b, pieces }) => pieces.map((p) => b.at + p.life - now));
+    if (ends.length) this.wakeIn(Math.min(...ends));
 
     // The floor does not change with the crew, only with the plan; a new scale only resizes it. Its
     // paths are built a little at a time, so no render runs past herdr's deadline building them.
@@ -1163,7 +1180,7 @@ export default class CrewOffice extends View {
       .child(pic ? image(pic).absolute().left(0).top(0).w(u(L.W)).h(u(L.H)) : this.floorView);
     const floor = div().id("floor").relative().flex_none().w(u(L.W)).h(u(L.H)).rounded(6).bg(PAL.wall)
       .child(floorBox).children(glows).child(plaque.el())
-      .children(ball(L, k, rally)).children(figures).children(nightEls).children(hits)
+      .children(ball(L, k, rally)).children(figures).children(alive.flatMap(({ b, pieces }) => confettiEls(b, pieces, k))).children(nightEls).children(hits)
       // Room labels, repo chips and the wall screen's text stay bright at night, so they come after it.
       .children(labels(L, k, crew.length)).children(tags)
       // The toasts are in the floor's box, as the prototype's are in its stage: after everything, so they are on top.
