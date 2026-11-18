@@ -274,6 +274,14 @@ named_commands() {
   brief=$(awk '/^### The verifier brief/{f=1;next} /^#{2,3} /{f=0} f' "$(skill_file)")
   [[ "$brief" == *'from the real caller'* ]]
   [[ "$brief" == *'do not stub an input the caller computes'* ]]
+  [[ "$brief" == *'through its real entry point'* ]]
+  [[ "$brief" == *'check each acceptance criterion against what that produces'* ]]
+}
+
+@test "the reviewer and the verifier run on Amy's own model" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *"Run both on your own model"* ]]
+  [[ "$section" == *'pass your model to the `Agent` call'* ]]
 }
 
 @test "the skill gives the findings log columns and who fills each" {
