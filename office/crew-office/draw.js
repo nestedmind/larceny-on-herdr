@@ -721,7 +721,7 @@ export function personEls(p, k, face, walking, world, rest = false) {
 
 /**
  * Waffles: curled asleep with a slow "zz" only once she has settled on
- * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags. Side-on she departs from the prototype's drawDog() on purpose (ticket #148: floppy ear, snout, feet below the body).
+ * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags.  On her feet she is drawn from above, like the rest of the office.
  */
 export function dogEls(p, k, walking, face) {
   const B = BOX, x = B, y = B;
@@ -736,43 +736,37 @@ export function dogEls(p, k, walking, face) {
       .loop("top", { from: (y - 7) * k, to: (y - 13) * k, period: 2100, easing: "linear" }));
     return out;
   }
-  if (walking && (face === "n" || face === "s")) return out.concat(dogAlong(p, k, walking, face === "n" ? -1 : 1));
-  const f = face === "e" ? 1 : face === "w" ? -1 : p.dir < 0 ? -1 : 1;
-  const legs = [[-4, 3.8], [-2, 3.8], [2, 3.8], [4, 3.8]].map(([lx, ly], i) => {
-    // the feet reach below the body's outline (ry 3.6), so they show when she stands as well as when she walks
-    const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
-    return walking ? el.loop("left", { from: (x + lx - 1.2 + (i % 2 ? -1 : 1)) * k, to: (x + lx - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
-  });
-  const g = new Layer(k, 0, 0, 2 * B, 2 * B);
-  g.ell(x, y, 6, 3.6, PAL.dog);
-  g.circ(x + f * 6, y - 0.4, 3, PAL.dog);
-  // a short snout out in front of the head, with a dark nose
-  g.ell(x + f * 9, y + 0.5, 2.2, 1.4, PAL.dog); g.circ(x + f * 10.8, y + 0.1, 0.7, PAL.dogDark);
-  // a floppy ear hanging down from the back of the head, never above the head line
-  g.ell(x + f * 4.6, y + 0.8, 1.3, 2.3, PAL.dogDark);
-  g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
-  g.line(x - f * 5.6, y, x - f * 7.1, y, PAL.dog, 1.4);
-  // the tip of the tail wags; the base stays
-  const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x - f * 7.1, y, x - f * 8.6, y, PAL.dog, 1.4).el()
-    .loop("top", { from: -1.5 * k, to: 1.5 * k, period: 440 });
-  out.push(...legs, g.el(), tip);
-  return out;
+  // Walking, she faces the way the leg goes. Standing, she faces the way she last walked, which the layout gives as `dir`:
+  // `face` is always "s" at rest, so it says nothing about her.
+  const dir = walking ? face : p.dir < 0 ? "w" : "e";
+  return out.concat(dogTop(k, walking, dir));
 }
-/** Waffles walking north (g = -1) or south (g = 1): long up and down, head first, with her legs stepping along the walk. */
-function dogAlong(p, k, walking, g) {
+/**
+ * Waffles on her feet, seen from above like everyone else in the office: long along the way she faces (n, s, e or w),
+ * head first, her legs stepping along the walk and only the tail's tip wagging.
+ */
+function dogTop(k, walking, dir) {
   const B = BOX, x = B, y = B;
-  const legs = [[-2.6, -3], [2.6, -3], [-2.6, 3], [2.6, 3]].map(([lx, ly], i) => {
-    const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
-    return walking ? el.loop("top", { from: (y + ly - 1.2 + (i % 2 ? -1 : 1)) * k, to: (y + ly - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
+  const vert = dir === "n" || dir === "s";
+  const g = dir === "n" || dir === "w" ? -1 : 1;
+  // a point `a` along her length (signed, world) and `c` across it, as an offset from her centre
+  const at = (a, c) => (vert ? [x + c, y + a] : [x + a, y + c]);
+  const legs = [[-2.6, -3], [2.6, -3], [-2.6, 3], [2.6, 3]].map(([c, a], i) => {
+    const [lx, ly] = at(a, c);
+    const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((lx - 1.2) * k).top((ly - 1.2) * k);
+    const step = (i % 2 ? -1 : 1);
+    return walking ? (vert ? el.loop("top", { from: (ly - 1.2 + step) * k, to: (ly - 1.2 - step) * k, period: 377 })
+      : el.loop("left", { from: (lx - 1.2 + step) * k, to: (lx - 1.2 - step) * k, period: 377 })) : el;
   });
+  const ell = (a, c, ra, rc, fill, b) => b.ell(...at(a, c), vert ? rc : ra, vert ? ra : rc, fill);
   const b = new Layer(k, 0, 0, 2 * B, 2 * B);
-  b.ell(x, y, 3.6, 6, PAL.dog);
-  b.circ(x, y + g * 6, 3, PAL.dog);
-  b.ell(x - 2.6, y + g * 5.6, 1.2, 1.6, PAL.dogDark); b.ell(x + 2.6, y + g * 5.6, 1.2, 1.6, PAL.dogDark);
-  b.circ(x - 1.1, y + g * 7.6, 0.6, PAL.eye); b.circ(x + 1.1, y + g * 7.6, 0.6, PAL.eye);
-  b.line(x, y - g * 5.6, x, y - g * 7.1, PAL.dog, 1.4);
-  const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x, y - g * 7.1, x, y - g * 8.6, PAL.dog, 1.4).el()
-    .loop("left", { from: -1.5 * k, to: 1.5 * k, period: 440 });
+  ell(0, 0, 6, 3.6, PAL.dog, b);
+  b.circ(...at(g * 6, 0), 3, PAL.dog);
+  ell(g * 5.6, -2.6, 1.6, 1.2, PAL.dogDark, b); ell(g * 5.6, 2.6, 1.6, 1.2, PAL.dogDark, b);
+  b.circ(...at(g * 7.6, -1.1), 0.6, PAL.eye); b.circ(...at(g * 7.6, 1.1), 0.6, PAL.eye);
+  b.line(...at(-g * 5.6, 0), ...at(-g * 7.1, 0), PAL.dog, 1.4);
+  const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(...at(-g * 7.1, 0), ...at(-g * 8.6, 0), PAL.dog, 1.4).el()
+    .loop(vert ? "left" : "top", { from: -1.5 * k, to: 1.5 * k, period: 440 });
   return [...legs, b.el(), tip];
 }
 const arcPt = (g, cx, cy, r, a) => [g.X(cx + Math.cos(a) * r), g.Y(cy + Math.sin(a) * r)];
