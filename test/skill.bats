@@ -228,13 +228,80 @@ named_commands() {
   [[ "$section" == *'posts nothing and messages no one'* ]]
 }
 
-@test "reviewer section makes Amy the gate before any verdict" {
+@test "reviewer section makes Amy decide from the findings and the verifier, without a full re-read" {
   section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
-  [[ "$section" == *'read the diff yourself'* ]]
-  [[ "$section" == *'keep it, correct it, or throw it out with a reason'* ]]
-  [[ "$section" == *'concurrency, boundaries'* ]]
+  [[ "$section" == *'You decide without re-reading the whole diff'* ]]
+  [[ "$section" == *'CONFIRMED blockers block'* ]]
+  [[ "$section" == *'REFUTED findings are dropped'* ]]
+  [[ "$section" == *'UNCERTAIN'*'read that part of the code yourself'* ]]
+  [[ "$section" == *'unmet or partly met is a blocker unless the PR explains it'* ]]
   [[ "$section" == *'never posted as it is'* ]]
   [[ "$section" == *'never counts as an approval'* ]]
+  run grep -F 'Before any verdict, read the diff yourself' "$(skill_file)"
+  [ "$status" -ne 0 ]
+}
+
+@test "reviewer section dispatches a separate verifier after the reviewer returns" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'separate `Agent` dispatch'* ]]
+  [[ "$section" == *'when the reviewer returns'* ]]
+  [[ "$section" == *'If the reviewer found nothing, still dispatch the verifier'* ]]
+  [[ "$section" == *'one reviewer per PR, not several by topic'* ]]
+}
+
+@test "the reviewer brief asks for numbered findings with file:line, severity, claim and evidence" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'numbered list of findings'* ]]
+  [[ "$section" == *'blocker, suggestion or nit'* ]]
+  [[ "$section" == *'file:line'* ]]
+}
+
+@test "the verifier brief gives claims only, asks CONFIRMED/REFUTED/UNCERTAIN and the acceptance criteria, and forbids posting" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'### The verifier brief'* ]]
+  brief=$(awk '/^### The verifier brief/{f=1;next} /^#{2,3} /{f=0} f' "$(skill_file)")
+  [[ "$brief" == *'claim, file:line and severity'* ]]
+  [[ "$brief" == *"not the reviewer's reasoning or evidence"* ]]
+  [[ "$brief" == *'CONFIRMED, REFUTED or UNCERTAIN'* ]]
+  [[ "$brief" == *'met, unmet or partly'* ]]
+  [[ "$brief" == *'forbid it `post-review.sh`, `gh pr review` and `loh say`'* || "$brief" == *'`post-review.sh`, `gh pr review` and `loh say`'* ]]
+  [[ "$brief" == *'posts nothing and messages no one'* ]]
+}
+
+@test "both briefs say to trace behaviour from the real caller with the inputs it supplies" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'Trace each behaviour the ticket requires from the real caller'* ]]
+  brief=$(awk '/^### The verifier brief/{f=1;next} /^#{2,3} /{f=0} f' "$(skill_file)")
+  [[ "$brief" == *'from the real caller'* ]]
+  [[ "$brief" == *'do not stub an input the caller computes'* ]]
+  [[ "$brief" == *'through its real entry point'* ]]
+  [[ "$brief" == *'check each acceptance criterion against what that produces'* ]]
+}
+
+@test "the reviewer and the verifier run on Amy's own model" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *"Run both on your own model"* ]]
+  [[ "$section" == *'pass your model to the `Agent` call'* ]]
+}
+
+@test "the skill gives the findings log columns and who fills each" {
+  grep -qF '.loh/review-findings.md' "$(skill_file)"
+  grep -qF 'date | repo#PR | round | head | finding (one line) | severity | verifier: CONFIRMED/REFUTED/UNCERTAIN | Amy: kept/dropped | outcome' "$(skill_file)"
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'You append one row per finding'* ]]
+  [[ "$section" == *'fixed'*'dismissed'*'wrong'* ]]
+  [[ "$section" == *'The coordinator fills the outcome at merge'* ]]
+  [[ "$section" == *'`escape` row'* ]]
+}
+
+@test "the skill gives the verifier timing columns in review-times.md" {
+  grep -qF '.loh/review-times.md' "$(skill_file)"
+  grep -qF 'verifier start | verifier done' "$(skill_file)"
+}
+
+@test "a reviewer and its verifier count as one slot" {
+  section=$(awk '/^## Reviewer/{f=1;next} /^## /{f=0} f' "$(skill_file)")
+  [[ "$section" == *'a reviewer and its verifier count as one slot'* ]]
 }
 
 @test "reviewer section gives a follow-up round a fresh subagent and caps them at 4" {
