@@ -738,7 +738,11 @@ export default class CrewOffice extends View {
       const sig = r && r.code === 0 ? lightsSignal(r.stdout, this.lightsSeen) : null;
       if (!sig) return;
       this.lightsSeen = sig.stamp;
-      try { setShared(LIGHTS_SEEN_KEY, sig.stamp); } catch (_) { /* only remembered */ }
+      // Another (stale, hidden) office may have saved a larger stamp: keep the larger one.
+      try {
+        const saved = String(shared(LIGHTS_SEEN_KEY) || "");
+        setShared(LIGHTS_SEEN_KEY, /^\d+$/.test(saved) && BigInt(saved) > BigInt(sig.stamp) ? saved : sig.stamp);
+      } catch (_) { /* only remembered */ }
       this.setLights(sig.on, cx);
     });
   }

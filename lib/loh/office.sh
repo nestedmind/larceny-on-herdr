@@ -51,11 +51,12 @@ if [[ "${1:-}" == "lights" ]]; then
       if office_open "$root" && [[ -f "$shown" ]]; then
         # An open office reports what it shows with each ping, so the button and L count.
         # It counts only once it has applied the pending command (its stamp is the command's): the ping that
-        # delivers a command still reports the state from before it.
+        # delivers a command still reports the state from before it. The office keeps one seen stamp for all crews, so
+        # a stamp at or above the command's (another crew's later one) also means it has applied it.
         read -r state _ seen <"$shown" || true
         if [[ -f "$file" ]]; then
           read -r cmd stamp <"$file" || true
-          if [[ "$stamp" =~ ^[0-9]+$ && "$seen" != "$stamp" ]]; then state="$cmd"; fi
+          if [[ "$stamp" =~ ^[0-9]+$ ]] && { [[ ! "$seen" =~ ^[0-9]+$ ]] || ((seen < stamp)); }; then state="$cmd"; fi
         fi
       elif [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
       [[ "$state" == off ]] || state=on

@@ -306,6 +306,10 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   "$LOH" office-ping --lights on --seen "$t"
   run "$LOH" office lights
   [ "$output" = on ]
+  # another crew's later stamp, kept in the office's one seen key, also means it has applied this one
+  "$LOH" office-ping --lights on --seen "$((t + 1000))"
+  run "$LOH" office lights
+  [ "$output" = on ]
 }
 
 @test "office lights with no argument falls back to the last terminal choice when the office has stopped pinging" {

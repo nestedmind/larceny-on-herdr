@@ -1139,6 +1139,19 @@ console.log(office.lights, globalThis.SHARED["crew-office.lights-seen"]);'
   [ "$output" = "true 200" ]
 }
 
+@test "a stale office does not lower the shared seen stamp" {
+  run office_js "$lights_ping"'
+globalThis.SHARED["crew-office.lights-seen"] = "500";
+answer.out = "lights off 600\n"; await ping();
+const a = globalThis.SHARED["crew-office.lights-seen"];
+office.lightsSeen = "100";
+globalThis.SHARED["crew-office.lights-seen"] = "900";
+answer.out = "lights off 200\n"; await ping();
+console.log(a, globalThis.SHARED["crew-office.lights-seen"]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "600 900" ]
+}
+
 @test "the ping sends the stamp it last applied, once there is one" {
   run office_js "$lights_ping"'
 const args = [];
