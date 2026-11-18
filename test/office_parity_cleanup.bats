@@ -24,8 +24,16 @@ $1
 JS
 }
 
-# The members of a process group; empty once it is gone.
-group_members() { ps -o pid= -g "$1" 2>/dev/null | tr -d ' ' | grep . || true; }
+# The members of a process group (matched on the PGID column); empty once it is gone.
+group_members() { ps -eo pid=,pgid= | awk -v g="$1" '$2 == g { print $1 }'; }
+
+# Polls until the group is empty, for up to 10 s, and prints what is left if it is not.
+wait_gone() {
+  local i
+  for i in $(seq 100); do [ -z "$(group_members "$1")" ] && return 0; sleep 0.1; done
+  echo "group $1 still has: $(ps -eo pid=,pgid=,args= | awk -v g="$1" '$2 == g' | cut -c1-120)" >&2
+  return 1
+}
 
 # Waits until the script has launched its Chrome and printed the group id.
 wait_up() {
@@ -35,8 +43,8 @@ wait_up() {
 }
 
 assert_clean() {
-  [ -z "$(group_members "$1")" ]
-  ! compgen -G "$PARITY_TMP/parity-chrome-*" >/dev/null
+  wait_gone "$1"
+  run ! compgen -G "$PARITY_TMP/parity-chrome-*"
 }
 
 pgid_of() { sed -n 's/^pgid //p' <<<"$output" | head -1; }
@@ -69,9 +77,9 @@ await Chrome.launch({}).catch((e) => console.log('failed: ' + e.message));
 "
   [ "$status" -eq 0 ]
   [[ "$output" == *"did not open a debugging port"* ]]
-  ! compgen -G "$PARITY_TMP/parity-chrome-*" >/dev/null
+  run ! compgen -G "$PARITY_TMP/parity-chrome-*"
   local pg
-  while read -r pg; do [ -z "$(group_members "$pg")" ]; done <"$PARITY_PIDS"
+  while read -r pg; do wait_gone "$pg"; done <"$PARITY_PIDS"
 }
 
 @test "a run ended by SIGTERM mid-run leaves no Chrome and no profile folder" {
@@ -108,5 +116,5 @@ await Chrome.launch({}).catch((e) => console.log('failed: ' + e.message));
   wait "$node_pid" || true
   [ -n "$(group_members "$pgid")" ]
   parity_teardown
-  [ -z "$(group_members "$pgid")" ]
+  wait_gone "$pgid"
 }

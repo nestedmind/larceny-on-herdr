@@ -1,8 +1,8 @@
 // A headless Chrome driven over its remote-debugging port with node's own WebSocket: nothing to install.
 // Used to read the prototype, to analyse a shot of the live window, and to make the overlay and diff images.
 
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, appendFileSync, existsSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,15 +13,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // so ending the group ends its helpers and pipes too. Only these groups are ever signalled, never a match by name.
 const live = new Set();
 
+function groupAlive(pgid) {
+  const r = spawnSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" });
+  return String(r.stdout).split("\n").some((l) => { const [g, st] = l.trim().split(/\s+/); return Number(g) === pgid && !st.startsWith("Z"); });
+}
+
 function endGroup(proc, dir) {
   try { process.kill(-proc.pid, "SIGKILL"); } catch (_) { /* already gone */ }
+  // Wait (up to 3 s) until no live member of the group is left (a zombie, such as the leader before node reaps it, is
+  // not live), so nothing is still writing into the folder when it is removed.
+  for (let i = 0; i < 100 && groupAlive(proc.pid); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);
   for (let i = 0; i < 5; i++) {
     try { rmSync(dir, { recursive: true, force: true }); } catch (_) { /* a dying Chrome may still write */ }
     if (!existsSync(dir)) break;
   }
+  try { rmSync(tmps.get(proc), { recursive: true, force: true }); } catch (_) { /* gone */ }
   live.delete(proc);
 }
 const dirs = new Map();
+const tmps = new Map();
 const endAll = () => { for (const p of [...live]) endGroup(p, dirs.get(p)); };
 process.on("exit", endAll);
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { endAll(); process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[sig]); });
@@ -29,10 +39,11 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { endAl
 export class Chrome {
   static async launch({ width = 1600, height = 1000, before = "" } = {}) {
     const dir = mkdtempSync(join(process.env.PARITY_TMP || tmpdir(), "parity-chrome-"));
-    mkdirSync(join(dir, "tmp"));
+    // Chrome's own temp files (its socket path must stay under 108 characters, so this is a short folder, not under the profile).
+    const ctmp = mkdtempSync(join(tmpdir(), "pct-"));
     const proc = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "--no-first-run", "--disable-gpu",
-      "--hide-scrollbars", "--no-proxy-server", "--force-device-scale-factor=1", `--window-size=${width},${height}`, "about:blank"], { stdio: "ignore", detached: true, env: { ...process.env, TMPDIR: join(dir, "tmp") } });
-    live.add(proc); dirs.set(proc, dir);
+      "--hide-scrollbars", "--no-proxy-server", "--force-device-scale-factor=1", `--window-size=${width},${height}`, "about:blank"], { stdio: "ignore", detached: true, env: { ...process.env, TMPDIR: ctmp } });
+    live.add(proc); dirs.set(proc, dir); tmps.set(proc, ctmp);
     if (process.env.PARITY_PIDS) appendFileSync(process.env.PARITY_PIDS, proc.pid + "\n");
     const portFile = join(dir, "DevToolsActivePort");
     try {
