@@ -502,3 +502,50 @@ import("./crew.mjs").then((crew) => {
   [ "$status" -eq 0 ]
   [ "$output" = "2 3 2 2 3 2" ]
 }
+
+# Everything a dogEls call draws: each layer's ops, plus the node tree's props and loops.
+DOG_DUMP='
+const seen = [];
+const el = draw.Layer.prototype.el;
+draw.Layer.prototype.el = function () { seen.push(this); return el.call(this); };
+const dump = (p, walking, face) => {
+  seen.length = 0;
+  const out = draw.dogEls(p, 1, walking, face);
+  const tree = (x) => x && x.node ? { p: x.node.props, l: x.node.loops, k: x.node.kids.map(tree) } : x;
+  return JSON.stringify([seen.map((l) => l.ops), out.map(tree)]);
+};
+const sha = (s) => require("crypto").createHash("sha1").update(s).digest("hex").slice(0, 12);'
+
+@test "Waffles asleep, and walking north or south, are drawn exactly as before" {
+  run draw_js "import('crypto').then(({ createHash }) => { globalThis.require = () => ({ createHash });
+$DOG_DUMP
+console.log([dump({ id: 'dog', state: 'sleep', dir: 1 }, false, 'e'), dump({ id: 'dog', state: 'sit', dir: 1 }, true, 'n'), dump({ id: 'dog', state: 'sit', dir: 1 }, true, 's')].map(sha).join(' ')); });"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2d060788b7b1 c4cd75f8b713 42ab32f3fa59" ]
+}
+
+@test "Waffles side-on, standing or walking, has a snout, a floppy ear that stays inside the head line, and feet below her body" {
+  run draw_js "
+const calls = [];
+const ell = draw.Layer.prototype.ell;
+draw.Layer.prototype.ell = function (x, y, rx, ry, fill) { calls.push({ x, y, rx, ry, fill }); return ell.call(this, x, y, rx, ry, fill); };
+const out = [];
+for (const [face, f] of [['e', 1], ['w', -1]]) for (const walking of [false, true]) {
+  calls.length = 0;
+  const els = draw.dogEls({ id: 'dog', state: 'sit', dir: 1 }, 1, walking, face);
+  const rel = (c) => ({ ...c, dx: f * (c.x - 30), top: c.y - c.ry, bottom: c.y + c.ry });
+  const body = rel(calls.find((c) => c.fill === draw.PAL.dog && c.rx === 6 && c.ry === 3.6));
+  const head = calls.find((c) => c.fill === draw.PAL.dog && c.rx === 3 && c.ry === 3);
+  const snout = rel(calls.find((c) => c.fill === draw.PAL.dog && c.rx > c.ry && c.rx < 3));
+  const ear = rel(calls.find((c) => c.fill === draw.PAL.dogDark && c.ry > c.rx));
+  const feet = els.map((e) => e.node.props.top).filter((t) => t).map((t) => t[0]);
+  out.push([
+    snout.dx + snout.rx > 9,                          // reaches past the head's front edge
+    ear.top >= head.y - head.ry && ear.bottom > head.y,      // hangs, never above the head line
+    Math.max(...feet) + 2.4 > 30 + body.ry,                  // feet reach below the body
+  ].join(','));
+}
+console.log(out.join(' '));"
+  [ "$status" -eq 0 ]
+  [ "$output" = "true,true,true true,true,true true,true,true true,true,true" ]
+}

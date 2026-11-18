@@ -738,13 +738,19 @@ export function dogEls(p, k, walking, face) {
   }
   if (walking && (face === "n" || face === "s")) return out.concat(dogAlong(p, k, walking, face === "n" ? -1 : 1));
   const f = face === "e" ? 1 : face === "w" ? -1 : p.dir < 0 ? -1 : 1;
-  const legs = [[-3, -2.6], [3, -2.6], [-3, 2.6], [3, 2.6]].map(([lx, ly], i) => {
+  const legs = [[-4, 3.8], [-2, 3.8], [2, 3.8], [4, 3.8]].map(([lx, ly], i) => {
+    // the feet reach below the body's outline (ry 3.6), so they show when she stands as well as when she walks
     const el = new Layer(k, 0, 0, 2.4, 2.4).circ(1.2, 1.2, 1.1, PAL.dogDark).el().left((x + lx - 1.2) * k).top((y + ly - 1.2) * k);
     return walking ? el.loop("left", { from: (x + lx - 1.2 + (i % 2 ? -1 : 1)) * k, to: (x + lx - 1.2 + (i % 2 ? 1 : -1)) * k, period: 377 }) : el;
   });
   const g = new Layer(k, 0, 0, 2 * B, 2 * B);
   g.ell(x, y, 6, 3.6, PAL.dog);
-  g.circ(x + f * 6, y - 0.4, 3, PAL.dog); g.ell(x + f * 6, y - 3, 1.2, 1.6, PAL.dogDark); g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
+  g.circ(x + f * 6, y - 0.4, 3, PAL.dog);
+  // a short snout out in front of the head, with a dark nose
+  g.ell(x + f * 9, y + 0.5, 2.2, 1.4, PAL.dog); g.circ(x + f * 10.8, y + 0.1, 0.7, PAL.dogDark);
+  // a floppy ear hanging down from the back of the head, never above the head line
+  g.ell(x + f * 4.6, y + 0.8, 1.3, 2.3, PAL.dogDark);
+  g.circ(x + f * 7.6, y - 0.8, 0.6, PAL.eye);
   g.line(x - f * 5.6, y, x - f * 7.1, y, PAL.dog, 1.4);
   // the tip of the tail wags; the base stays
   const tip = new Layer(k, 0, 0, 2 * B, 2 * B).line(x - f * 7.1, y, x - f * 8.6, y, PAL.dog, 1.4).el()
