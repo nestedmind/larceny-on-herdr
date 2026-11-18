@@ -315,7 +315,7 @@ SH
   status_ev t11 blocked >"$D/events.jsonl"
   run_watch
   [ "$status" -eq 0 ]
-  [ "$output" = "Amy needs you: permission: go on?" ]
+  [ "$output" = $'\a''Amy needs you: permission: go on?' ]
 }
 
 @test "it restarts hc events after it exits, with a growing backoff" {
@@ -527,4 +527,189 @@ SH
   run_watch
   [ "$(notified)" -eq 1 ]
   grep -q $'Sucre needs you' "$D/notify.log"
+}
+
+# ---- the chime ----------------------------------------------------------------
+# A stub player records its arguments; no real sound is ever played. The player
+# runs in the background, so played() waits briefly for its log.
+
+stub_player() { # <name>
+  cat >"$BIN/$1" <<'SH'
+#!/usr/bin/env bash
+(
+  IFS=$'\t'
+  printf '%s\n' "$*" >>"$D/play.log"
+)
+SH
+  chmod +x "$BIN/$1"
+}
+
+# played <count>: wait up to 3 s for <count> lines in play.log, then settle a moment to catch extras.
+played() {
+  local i
+  for i in $(seq 1 30); do
+    [[ -f "$D/play.log" && "$(wc -l <"$D/play.log" | tr -d ' ')" -ge "$1" ]] && break
+    sleep 0.1
+  done
+  sleep 0.3
+  [[ -f "$D/play.log" ]] && wc -l <"$D/play.log" | tr -d ' ' || echo 0
+}
+
+blocked_one() {
+  status_get t9 sheba blocked permission "Run rm?"
+  status_ev t9 blocked >"$D/events.jsonl"
+}
+
+@test "a notification chimes once with canberra-gtk-play and the freedesktop sound id" {
+  stub_player canberra-gtk-play
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 1 ]
+  [ "$(played 1)" -eq 1 ]
+  [ "$(cat "$D/play.log")" = "-i	message-new-instant" ]
+}
+
+@test "without canberra-gtk-play it plays the sound file with pw-play, else paplay" {
+  : >"$BATS_TEST_TMPDIR/pop.oga"
+  stub_player pw-play
+  stub_player paplay
+  blocked_one
+  LOH_CHIME_FILE="$BATS_TEST_TMPDIR/pop.oga" run_watch
+  [ "$(played 1)" -eq 1 ]
+  [ "$(cat "$D/play.log")" = "$BATS_TEST_TMPDIR/pop.oga" ]
+  rm "$D/play.log" "$BIN/pw-play"
+  LOH_CHIME_FILE="$BATS_TEST_TMPDIR/pop.oga" run_watch
+  [ "$(played 1)" -eq 1 ]
+  [ "$(cat "$D/play.log")" = "$BATS_TEST_TMPDIR/pop.oga" ]
+}
+
+@test "pw-play and paplay need the sound file to exist, and canberra does not" {
+  stub_player pw-play
+  blocked_one
+  LOH_CHIME_FILE="$BATS_TEST_TMPDIR/missing.oga" run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 1 ]
+  [ "$(played 0)" -eq 0 ]
+}
+
+@test "with no player installed the notification still shows and watch exits cleanly" {
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 1 ]
+  [ ! -e "$D/play.log" ]
+}
+
+@test "a player that fails or prints does not break the notification or the output" {
+  cat >"$BIN/canberra-gtk-play" <<'SH'
+#!/usr/bin/env bash
+echo noise
+echo err >&2
+exit 3
+SH
+  chmod +x "$BIN/canberra-gtk-play"
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$(notified)" -eq 1 ]
+  [[ "$output" != *noise* ]]
+  [[ "$stderr" != *err* ]]
+}
+
+@test "loh chime off silences the next notification without restarting watch, and on restores it" {
+  stub_player canberra-gtk-play
+  # the second notice's chime decision is made after the first one's notify-send has flipped the file
+  cat >"$BIN/notify-send" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$D/notify.log"
+n=$(wc -l <"$D/notify.log")
+case "$n" in
+  1) echo off >"$LOH_WORKSPACE/.loh/chime" ;;
+  2) echo on >"$LOH_WORKSPACE/.loh/chime" ;;
+esac
+SH
+  chmod +x "$BIN/notify-send"
+  for a in t1 t2 t3; do status_get $a sheba blocked permission "q $a"; done
+  { status_ev t1 blocked; status_ev t2 blocked; status_ev t3 blocked; } >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 3 ]
+  # notice 1 chimes (the file is still unset), notice 2 is silent (off), notice 3 chimes (on again)
+  [ "$(played 2)" -eq 2 ]
+}
+
+@test "chime: off in workspace.md and LOH_CHIME=0 each silence it, and LOH_CHIME=1 wins over both" {
+  stub_player canberra-gtk-play
+  blocked_one
+  manifest "$LOH_WORKSPACE" "name: w" "chime: off"
+  run_watch
+  [ "$(notified)" -eq 1 ]
+  [ "$(played 0)" -eq 0 ]
+  rm -f "$D/notify.log"
+  LOH_CHIME=1 run_watch
+  [ "$(played 1)" -eq 1 ]
+  rm -f "$D/notify.log" "$D/play.log"
+  manifest "$LOH_WORKSPACE" "name: w"
+  LOH_CHIME=0 run_watch
+  [ "$(notified)" -eq 1 ]
+  [ "$(played 0)" -eq 0 ]
+  echo off >"$LOH_WORKSPACE/.loh/chime"
+  LOH_CHIME=1 run_watch
+  [ "$(played 1)" -eq 1 ]
+}
+
+@test "a burst of notes announced at once gives one chime, though each is notified" {
+  stub_player canberra-gtk-play
+  for a in t1 t2 t3; do status_get $a sheba blocked permission "q $a"; done
+  printf '{"terminals":[{"address":"t1"},{"address":"t2"},{"address":"t3"}]}\n' >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 3 ]
+  [ "$(played 1)" -eq 1 ]
+}
+
+@test "separate events each chime" {
+  stub_player canberra-gtk-play
+  for a in t1 t2; do status_get $a sheba blocked permission "q $a"; done
+  { status_ev t1 blocked; status_ev t2 blocked; } >"$D/events.jsonl"
+  run_watch
+  [ "$(notified)" -eq 2 ]
+  [ "$(played 2)" -eq 2 ]
+}
+
+@test "no chime while an office tab is open, as there is no notification either" {
+  stub_player canberra-gtk-play
+  date +%s >"$LOH_WORKSPACE/.loh/office-open"
+  blocked_one
+  run_watch
+  [ "$(notified)" -eq 0 ]
+  [ "$(played 0)" -eq 0 ]
+}
+
+@test "on macOS the notification carries sound name Glass, unless the chime is off" {
+  rm "$BIN/notify-send"
+  cat >"$BIN/osascript" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$D/osa.log"
+SH
+  chmod +x "$BIN/osascript"
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  grep -q 'sound name "Glass"' "$D/osa.log"
+  rm "$D/osa.log"
+  echo off >"$LOH_WORKSPACE/.loh/chime"
+  run_watch
+  [ -s "$D/osa.log" ]
+  ! grep -q 'sound name' "$D/osa.log"
+}
+
+@test "the stdout fallback prints a terminal bell with the line, unless the chime is off" {
+  rm "$BIN/notify-send"
+  blocked_one
+  run_watch
+  [ "$status" -eq 0 ]
+  [ "$output" = $'\a''Sheba needs you: permission: Run rm?' ]
+  echo off >"$LOH_WORKSPACE/.loh/chime"
+  run_watch
+  [ "$output" = 'Sheba needs you: permission: Run rm?' ]
 }

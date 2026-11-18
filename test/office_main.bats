@@ -1664,3 +1664,75 @@ console.log(office.panel.open, all(find(root, "floor")).includes(stack), all(fin
   [ "$status" -eq 0 ]
   [ "$output" = "true true false" ]
 }
+
+# The chime: the ping's `chime <on|off>` line is what the button shows, and the button runs `loh chime on|off`.
+@test "chimeSignal reads the chime line from the ping's output, and chimeCall runs loh chime in the agent's folder" {
+  command -v node >/dev/null || skip "node not installed"
+  run node --input-type=module -e '
+import { chimeSignal, chimeCall } from "'"$REPO_ROOT"'/office/crew-office/crew.js";
+const j = (v) => JSON.stringify(v);
+console.log([
+  j(chimeSignal("chime off\n")),
+  j(chimeSignal("lights on 5\nchime on\n")),
+  j(chimeSignal("")),
+  j(chimeSignal("chime loud")),
+  j(chimeSignal("chime")),
+  j(chimeSignal(null)),
+  j(chimeCall(false, { cwd: "/ws" }, "/x/loh")),
+  j(chimeCall(true, null, null)),
+].join(" "))'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'false true null null null null {"cmd":"/x/loh","args":["chime","off"],"options":{"cwd":"/ws","timeout":5000}} {"cmd":"loh","args":["chime","on"],"options":{"timeout":5000}}' ]
+}
+
+@test "the Chime button shows the state, and a click runs loh chime on|off, and C does the same" {
+  run office_js "$lights_ping"'
+const calls = [];
+const hook = globalThis.EXEC_HOOK;
+globalThis.EXEC_HOOK = (c, a, o) => { if (a[0] === "chime") calls.push(a.join(" ") + "@" + o.cwd); return hook(c, a, o); };
+await ping();
+const label = () => find(render(), "chime").kids.join("");
+const a = label();
+find(render(), "chime").props.on_click[0]({}, cx);
+await Promise.resolve();
+const b = [office.chime, label()];
+find(render(), "root").props.on_key_down[0]({ key: "c", modifiers: {} }, { stop_propagation() {}, notify() {} });
+await Promise.resolve();
+console.log(a, "/", b.join("/"), "/", office.chime, "/", calls.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "🔊 Chime on / false/🔇 Chime off / true / chime off@/ws/scofield|chime on@/ws/scofield" ]
+}
+
+@test "the ping's chime line sets what the button shows, so a terminal change shows within one ping" {
+  run office_js "$lights_ping"'
+const label = () => find(render(), "chime").kids.join("");
+const seen = [label()];
+answer.out = "chime off\n"; await ping(); seen.push(label());
+answer.out = "lights on 5\nchime on\n"; await ping(); seen.push(label());
+answer.out = "junk"; await ping(); seen.push(label());
+console.log(seen.join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "🔊 Chime on|🔇 Chime off|🔊 Chime on|🔊 Chime on" ]
+}
+
+@test "a ping that was already out when the button was pressed does not undo the press" {
+  run office_js "$lights_ping"'
+let release;
+globalThis.EXEC_HOOK = (c, a) => a[0] === "office-ping" ? new Promise((r) => { release = () => r({ code: 0, stdout: "chime on\n", stderr: "" }); }) : Promise.resolve({ code: 0, stdout: "", stderr: "" });
+office.pingAt = 0; render();
+find(render(), "chime").props.on_click[0]({}, cx);
+release(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+console.log(office.chime);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "the chime button sits next to the lights button" {
+  run office_js '
+for (let i = 0; i < 14; i++) render();
+const bar = find(render(), "totals");
+const ids = bar.kids.map((k) => (k && k.node ? id(k.node) : undefined));
+console.log(ids[ids.indexOf("lights") + 1]);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "chime" ]
+}
