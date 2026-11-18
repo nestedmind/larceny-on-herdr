@@ -804,6 +804,25 @@ export function mover(prefix, at, chain, k, walking, leaf) {
   return slide(div().id(prefix).absolute().left(at.x * k).top(at.y * k).w(0).h(0).child(inner), instant);
 }
 
+/**
+ * One burst of confetti (ticket #70), as the prototype draws it: pieces 2 by 1.2 units in the five state colours, thrown from
+ * `b` ({ id, x, y, pieces }) and pulled down by gravity (50 units/s^2). Motion is native, as everywhere here: a piece is three
+ * nested boxes whose loops add up to x + vx t, y + vy t + 25 t^2 for t up to its life (the office stops drawing it then, so no
+ * loop is seen turning back). The colours are the floor's, the same in both themes. `pieces` are those still alive.
+ */
+export function confettiEls(b, pieces, k) {
+  const cols = [PAL.work, PAL.q, PAL.esc, PAL.perm, PAL.accent];
+  const box = () => div().absolute().left(0).top(0).w(0).h(0);
+  return pieces.map((p, i) => {
+    const t = p.life / 1000, period = Math.max(100, 2 * p.life);
+    const leaf = div().absolute().left(-1 * k).top(-0.6 * k).w(2 * k).h(1.2 * k).rounded(0.4 * k).bg(cols[p.c]);
+    const fall = box().id(`${b.id}-f${i}`).child(leaf).loop("top", { from: 0, to: 25 * t * t * k, period, easing: "ease-in" });
+    const rise = box().id(`${b.id}-r${i}`).child(fall).loop("top", { from: 0, to: p.vy * t * k, period, easing: "linear" });
+    return box().id(`${b.id}-x${i}`).left(b.x * k).top(b.y * k).child(rise)
+      .loop("left", { from: b.x * k, to: (b.x + p.vx * t) * k, period, easing: "linear" });
+  });
+}
+
 /** A person's drawing box, centred on the mover that carries it. */
 export function figureBox(id, k, kids) {
   return div().id("person-" + id).absolute().left(-BOX * k).top(-BOX * k).w(2 * BOX * k).h(2 * BOX * k).children(kids);

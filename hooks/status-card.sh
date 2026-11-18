@@ -280,7 +280,8 @@ case "$event" in
         repo_arg=()
         [[ "$command" =~ (^|[[:space:]])(-R|--repo)[[:space:]]+([^[:space:]]+) ]] && repo_arg=(-R "${BASH_REMATCH[3]}")
         case "$(pr_state "$mine" "${repo_arg[@]}")" in
-          MERGED | CLOSED) label "pr=" "prdone=1" ;;
+          MERGED) label "pr=" "prdone=1" "prstate=merged" ;;
+          CLOSED) label "pr=" "prdone=1" "prstate=closed" ;;
         esac
       fi
     fi
