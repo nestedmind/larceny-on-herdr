@@ -312,6 +312,20 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   [ "$output" = on ]
 }
 
+@test "office lights compares stamps of any length, past what shell arithmetic holds" {
+  cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
+  echo "off 99999999999999999999" >"$(lights_file)"
+  "$LOH" office-ping --lights on --seen 100000000000000000000
+  run "$LOH" office lights
+  [ "$output" = on ]
+  "$LOH" office-ping --lights on --seen 9999999999999999999
+  run "$LOH" office lights
+  [ "$output" = off ]
+  "$LOH" office-ping --lights on --seen 99999999999999999999
+  run "$LOH" office lights
+  [ "$output" = on ]
+}
+
 @test "office lights with no argument falls back to the last terminal choice when the office has stopped pinging" {
   cp "$REPO_ROOT/lib/loh/office-ping.sh" "$PLUGIN_TREE/lib/loh/office-ping.sh"
   "$LOH" office lights on

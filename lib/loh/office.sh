@@ -36,6 +36,12 @@ usage() {
 }
 
 if [[ "${1:-}" == "lights" ]]; then
+  # num_less A B: A < B for digit strings of any length (no shell arithmetic, so no overflow).
+  num_less() {
+    local a="${1#"${1%%[!0]*}"}" b="${2#"${2%%[!0]*}"}"
+    ((${#a} != ${#b})) && return $((${#a} < ${#b} ? 0 : 1))
+    [[ "$a" < "$b" ]]
+  }
   lights_usage() {
     echo "Usage: loh office lights [on|off]" >&2
     exit 2
@@ -56,7 +62,7 @@ if [[ "${1:-}" == "lights" ]]; then
         read -r state _ seen <"$shown" || true
         if [[ -f "$file" ]]; then
           read -r cmd stamp <"$file" || true
-          if [[ "$stamp" =~ ^[0-9]+$ ]] && { [[ ! "$seen" =~ ^[0-9]+$ ]] || ((seen < stamp)); }; then state="$cmd"; fi
+          if [[ "$stamp" =~ ^[0-9]+$ ]] && { [[ ! "$seen" =~ ^[0-9]+$ ]] || num_less "$seen" "$stamp"; }; then state="$cmd"; fi
         fi
       elif [[ -f "$file" ]]; then read -r state _ <"$file" || true; fi
       [[ "$state" == off ]] || state=on
