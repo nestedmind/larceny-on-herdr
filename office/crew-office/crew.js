@@ -977,7 +977,7 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), prs: null, merged: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
 }
 
 /** How long Yoda and Sara stay in a room with no session, and how long Waffles sleeps between walks: 5 to 15 minutes, random each time. */
