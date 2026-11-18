@@ -18,7 +18,7 @@
 # loh office lights [on|off]: switch the office lights from a terminal, or print
 # the current state (on, unless it was set to off). The choice goes to
 # <workspace>/.loh/office-lights as "<on|off> <stamp>", the stamp being the time
-# in nanoseconds, so a repeated choice is still a new one. `loh office-ping`
+# in nanoseconds (seconds where date has no nanoseconds) and always larger than the last, so a repeated choice is still a new one. `loh office-ping`
 # prints that line and the open office, which runs it every 5 seconds, applies a
 # stamp it has not seen yet, as if the button were pressed: whichever choice
 # came last, from here or from the button, wins. It needs neither herdr-app nor
@@ -53,7 +53,14 @@ if [[ "${1:-}" == "lights" ]]; then
     on | off)
       [[ -d "$root/.loh" ]] || die "no .loh folder in $root"
       tmp="$file.tmp.$$"
-      printf '%s %s\n' "$2" "$(date +%s%N)" >"$tmp"
+      # The stamp only has to be new, and a later one larger: nanoseconds where date has them (macOS's does not), else
+      # seconds, and never at or below the last stamp.
+      stamp="$(date +%s%N)"
+      [[ "$stamp" =~ ^[0-9]+$ ]] || stamp="$(date +%s)000000000"
+      prev=""
+      if [[ -f "$file" ]]; then read -r _ prev <"$file" || true; fi
+      if [[ "$prev" =~ ^[0-9]+$ ]] && ((prev >= stamp)); then stamp=$((prev + 1)); fi
+      printf '%s %s\n' "$2" "$stamp" >"$tmp"
       mv -f "$tmp" "$file"
       ;;
     *) lights_usage ;;

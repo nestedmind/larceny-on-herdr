@@ -251,3 +251,14 @@ lights_file() { echo "$WS/.loh/office-lights"; }
   run "$LOH" office-ping
   [ "$output" = "lights off $t" ]
 }
+
+@test "office lights stamps stay increasing when the clock gives only seconds or goes back" {
+  printf '#!/bin/sh\n[ "$1" = "+%%s%%N" ] && echo "1700000000%%N" || echo 1700000000\n' >"$BATS_TEST_TMPDIR/stubs/date"
+  chmod +x "$BATS_TEST_TMPDIR/stubs/date"
+  "$LOH" office lights off
+  read -r _ t1 <"$(lights_file)"
+  [ "$t1" = 1700000000000000000 ]
+  "$LOH" office lights off
+  read -r _ t2 <"$(lights_file)"
+  [ "$t2" = 1700000000000000001 ]
+}
