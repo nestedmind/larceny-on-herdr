@@ -542,10 +542,12 @@ for (const [face, f] of [['e', 1], ['w', -1]]) for (const walking of [false, tru
   out.push([
     snout.dx + snout.rx > 9,                          // reaches past the head's front edge
     ear.top >= head.y - head.ry && ear.bottom > head.y,      // hangs, never above the head line
-    Math.max(...feet) + 2.4 > 30 + body.ry,                  // feet reach below the body
+    Math.max(...feet) + 2.4 > 30 + body.ry + 1,              // feet reach clear below the body
+    ear.dx > 0 && ear.dx < 6,                              // the ear is on the head's side of the body, behind its centre
+    els.filter((e) => (e.node.loops || []).some((l) => l[0] === 'left')).length === (walking ? 4 : 0),  // the feet step only when she walks
   ].join(','));
 }
 console.log(out.join(' '));"
   [ "$status" -eq 0 ]
-  [ "$output" = "true,true,true true,true,true true,true,true true,true,true" ]
+  [ "$output" = "true,true,true,true,true true,true,true,true,true true,true,true,true,true true,true,true,true,true" ]
 }

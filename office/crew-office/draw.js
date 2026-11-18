@@ -720,8 +720,8 @@ export function personEls(p, k, face, walking, world, rest = false) {
 }
 
 /**
- * Waffles, as the prototype's drawDog(): curled asleep with a slow "zz" only once she has settled on
- * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags.
+ * Waffles: curled asleep with a slow "zz" only once she has settled on
+ * her bed; on her feet, facing the way she walks, with her legs stepping while she moves. Only the tail's tip wags. Side-on she departs from the prototype's drawDog() on purpose (ticket #148: floppy ear, snout, feet below the body).
  */
 export function dogEls(p, k, walking, face) {
   const B = BOX, x = B, y = B;
