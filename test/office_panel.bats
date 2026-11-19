@@ -402,7 +402,7 @@ console.log(JSON.stringify(globalThis.CLIP[1]));'
 # its local position, which is where the pointer is in the panel.
 THEME='{ foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", popover: "#181818", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" }'
 
-@test "right-click menu: a message's Copy puts that message's text on the clipboard and shows Copied, and the menu goes" {
+@test "right-click menu: a message's Copy message puts that message's text on the clipboard and shows Copied, and the menu goes" {
   run panel_js '
 panel.turns = [{ role: "user", text: "Hi", ts: "" }, { role: "assistant", text: "**Hello**\n\n- a", ts: "" }];
 click((cx) => { panel.pressRight({ kind: "message", key: "m1", text: panel.turns[1].text }); panel.rootRight({ button: "right", local_position: { x: 40, y: 90 } }, cx); });
