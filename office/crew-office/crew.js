@@ -575,7 +575,8 @@ export function worldFor(repoNames = [], aspect = 0, names = null) {
   const pts = (key, list) => list.map(([x, y]) => at(room(key), x, y));
   const spots = {
     kitchen: pts("kitchen", [[126, 216], [166, 216], [126, 246], [166, 246], [146, 206], [146, 256]]),
-    lounge: pts("lounge", [[214, 184], [232, 184], [250, 184], [210, 228], [272, 228], [226, 258], [254, 258], [284, 200]]),
+    // the first three are the sofa's seats: it stands against the top wall (see draw.js), so they keep to the wall as well
+    lounge: [...[[214, 179], [232, 179], [250, 179]].map(([x, y]) => at(room("lounge"), x, y, 0.5, 0)), ...pts("lounge", [[210, 228], [272, 228], [226, 258], [254, 258], [284, 200]])],
     pong: pts("pong", [[318, 224], [378, 224], [332, 264], [364, 264]]),
     rest: pts("rest", [[418, 200], [458, 200], [418, 252], [458, 252]]),
   };
@@ -1013,7 +1014,7 @@ export function settingsCall(agent, loh) {
  * held last time. Whoever is no longer in the office is forgotten. Keep one per office, never share it.
  */
 export function newMemory() {
-  return { act: new Map(), wait: new Map(), cleared: new Map(), prs: null, merged: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
+  return { act: new Map(), wait: new Map(), cleared: new Map(), prs: null, merged: new Map(), spots: new Map(), nap: new Map(), napped: new Map(), last: new Map(), born: null, desks: new Map(), pos: new Map(), desk: new Map(), wander: new Map(), dog: null, rand: null };
 }
 
 /** How long Yoda and Sara stay in a room with no session, and how long Waffles sleeps between walks: 5 to 15 minutes, random each time. */
@@ -1090,12 +1091,14 @@ const KITCHEN = ["kitchen", "lounge"];
  *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
  *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
  *    clear ends in the lounge after REST_MS;
- *  - idle for NAP_AFTER_MS (an hour) since the last turn, anyone with a session (a coder with a ticket too): the rest room,
- *    zz, for at most NAP_MAX_MS; never in a meeting or a room Matt chose, at most NAP_BEDS at once together with compaction,
- *    clear and sent agents (first to reach the hour first), none again before the next turn;
+ *  - idle for NAP_AFTER_MS (an hour), anyone the office draws but Matt and Waffles, with a session (a coder with a ticket too) or
+ *    without (the hour counts from the last turn the office saw, else from when the office started): the rest room, zz, for at
+ *    most NAP_MAX_MS, then their usual idle place (the lounge, or the wander for Yoda and Sara), and a new nap after another
+ *    NAP_AFTER_MS idle, a turn or not; a new turn wakes them at once. Never in a meeting or a room Matt chose, at most NAP_BEDS at
+ *    once together with compaction, clear and sent agents (first to reach the hour first);
  *  - a coder whose pull request it just saw merge (the pr label gone, prstate=merged): its usual idle place (lounge or
  *    kitchen) once its turn ends, never the rest room; its desk is free as soon as the pr label is gone;
- *  - no session: the lounge;
+ *  - no session: the lounge (Yoda and Sara wander), or a nap, as above;
  *  - Matt out (`opts.mattOut`): at the entrance, gone from the floor, Waffles on her bed (at the entrance while an agent is blocked);
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
@@ -1108,6 +1111,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   const now = typeof opts.now === "number" ? opts.now : 0;
   const idleMs = opts.idleMs > 0 ? opts.idleMs : IDLE_MS;
   const mem = opts.mem || newMemory();
+  if (mem.born === null) mem.born = now; // when this office started, for someone it never saw take a turn
   // The office passes Math.random; with none given the numbers are fixed, so a layout is the same every time.
   const rand = typeof opts.rand === "function" ? opts.rand : (mem.rand ||= seededRand(1));
   const extraRepos = [...new Set(crew.filter((a) => a.role === "coder" && a.repo).map((a) => a.repo))].filter((r) => !repoList.includes(r)).sort();
@@ -1159,6 +1163,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       p.idleFor = Math.min(p.idleFor, now - mem.desk.get(p.id));
     } else mem.desk.delete(p.id);
     p.recent = p.idleFor < idleMs;
+    mem.last.set(p.id, mem.act.get(p.id).since); // the last turn the office saw, kept after the session ends
   }
 
   // A merge seen: a coder whose pr label was there at the last render and is gone, with the pull request merged. It goes to
@@ -1203,34 +1208,37 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     else p.mode = "away";
     if (p.mode === "wait") stillWait.add(p.id);
   }
-  // Naps (ticket #167). Anyone with a session idle for NAP_AFTER_MS lies down in the rest room, the longest idle first (so
-  // first come, first served), while fewer than NAP_BEDS sleep, naps and compaction, clear and sent agents together. Not Matt
-  // or Waffles, and a meeting, a compaction or a room Matt chose wins (their mode is not one of the kinds below). A nap ends at NAP_MAX_MS
-  // (the lounge) or with the next turn, and there is no second nap before a turn: `napped` keeps the turn's start (mem.act since).
-  // Limit: the memory lives in the open office, so a reload forgets it and may give a second nap or restart the 90 minutes.
+  // Naps (tickets #167, #176). Everyone the office draws, with a session or without, lies down in the rest room after an hour
+  // idle, the longest idle first (first come, first served), while fewer than NAP_BEDS sleep, naps and compaction, clear and sent
+  // agents together. Not Matt or Waffles, and a meeting, a compaction or a room Matt chose wins (their mode is not one of the
+  // kinds below). With a session the hour counts from the end of the last turn; without one, from the last turn the office saw,
+  // or from when the office started if it never saw one. A nap ends at NAP_MAX_MS (the usual idle place: the lounge, or the
+  // wander for Yoda and Sara) or with the next turn. After waking, someone who stays idle naps again NAP_AFTER_MS later, a turn
+  // or not: `napped` keeps the turn and when the nap ended. A new turn restarts the hour.
+  // Limit: the memory lives in the open office, so a reload forgets it and may restart the 90 minutes.
   {
     const kinds = ["home", "away", "deskfree", "desk", "wait", "esc"];
-    const sleeper = (p) => p.agent && kinds.includes(p.mode) && !p.busy;
-    const turn = (p) => mem.act.get(p.id).since;
+    const sleeper = (p) => p.id !== "matt" && p.id !== "dog" && (p.agent ? kinds.includes(p.mode) && !p.busy : true);
+    const turn = (p) => (p.agent ? mem.act.get(p.id).since : mem.last.has(p.id) ? mem.last.get(p.id) : -1);
+    const idleOf = (p) => { const n = mem.napped.get(p.id); return n && n.turn === turn(p) ? now - n.at : p.agent ? p.idleFor : now - (mem.last.has(p.id) ? mem.last.get(p.id) : mem.born); };
     for (const [id, n] of [...mem.nap]) {
       const p = by(id);
       if (!p || !sleeper(p) || turn(p) !== n.turn) mem.nap.delete(id);
-      else if (now - n.since >= NAP_MAX_MS) { mem.nap.delete(id); mem.napped.set(id, n.turn); }
+      else if (now - n.since >= NAP_MAX_MS) { mem.nap.delete(id); mem.napped.set(id, { turn: n.turn, at: now }); }
     }
-    for (const [id, t] of [...mem.napped]) { const p = by(id); if (!p || !p.agent || turn(p) !== t) mem.napped.delete(id); }
+    for (const [id, n] of [...mem.napped]) { const p = by(id); if (!p || !sleeper(p) || turn(p) !== n.turn) mem.napped.delete(id); }
     const fixed = people.filter((p) => p.agent && (p.mode === "go:rest" || p.mode === "rest")).length;
     // Compaction, a clear and a sent agent always get a bed: the napper who lay down last gets up and goes to its usual place.
     const byLatest = [...mem.nap].sort((a, b) => b[1].since - a[1].since || (a[0] < b[0] ? 1 : -1));
     for (const [id] of byLatest) if (mem.nap.size + fixed > NAP_BEDS) mem.nap.delete(id);
     const room = NAP_BEDS - fixed - mem.nap.size;
-    const ready = people.filter((p) => sleeper(p) && !mem.nap.has(p.id) && mem.napped.get(p.id) !== turn(p) && p.idleFor >= NAP_AFTER_MS)
-      .sort((a, b) => b.idleFor - a.idleFor || (a.id < b.id ? -1 : 1));
+    const ready = people.filter((p) => sleeper(p) && !mem.nap.has(p.id) && idleOf(p) >= NAP_AFTER_MS)
+      .sort((a, b) => idleOf(b) - idleOf(a) || (a.id < b.id ? -1 : 1));
     for (const p of ready.slice(0, Math.max(0, room))) mem.nap.set(p.id, { since: now, turn: turn(p) });
     for (const p of people) {
-      if (!p.agent) continue;
       const n = mem.nap.get(p.id);
       if (n) { p.mode = "rest"; p.napping = true; stillWait.delete(p.id); wakes.push(NAP_MAX_MS - (now - n.since)); }
-      else if (sleeper(p) && mem.napped.get(p.id) !== turn(p) && p.idleFor < NAP_AFTER_MS) wakes.push(NAP_AFTER_MS - p.idleFor);
+      else if (sleeper(p) && idleOf(p) < NAP_AFTER_MS) wakes.push(NAP_AFTER_MS - idleOf(p));
     }
   }
   for (const id of [...mem.wait.keys()]) if (!stillWait.has(id)) mem.wait.delete(id);
@@ -1296,7 +1304,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       else if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
-    if (!p.running) { if (p.id === "yoda" || p.id === "sara") need(p, wanderChain(mem, p.id, now, rand, wakes), true); else need(p, AWAY); continue; }
+    if (!p.running && !p.napping) { if (p.id === "yoda" || p.id === "sara") need(p, wanderChain(mem, p.id, now, rand, wakes), true); else need(p, AWAY); continue; }
     switch (p.mode) {
       case "rest": need(p, ["rest"]); break;
       case "lounge": need(p, AWAY); break;
