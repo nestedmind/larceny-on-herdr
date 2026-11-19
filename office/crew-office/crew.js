@@ -576,7 +576,7 @@ export function worldFor(repoNames = [], aspect = 0, names = null) {
   const spots = {
     kitchen: pts("kitchen", [[126, 216], [166, 216], [126, 246], [166, 246], [146, 206], [146, 256]]),
     // the first three are the sofa's seats: it stands against the top wall (see draw.js), so they keep to the wall as well
-    lounge: [...[[214, 179], [232, 179], [250, 179]].map(([x, y]) => at(room("lounge"), x, y, 0.5, 0)), ...pts("lounge", [[210, 228], [272, 228], [226, 258], [254, 258], [284, 200]])],
+    lounge: [...[[214, 190], [232, 190], [250, 190]].map(([x, y]) => at(room("lounge"), x, y, 0.5, 0)), ...pts("lounge", [[210, 228], [272, 228], [226, 258], [254, 258], [284, 200]])],
     pong: pts("pong", [[318, 224], [378, 224], [332, 264], [364, 264]]),
     rest: pts("rest", [[418, 200], [458, 200], [418, 252], [458, 252]]),
   };
@@ -819,6 +819,11 @@ export function chimeSignal(out) {
 /** The command the Chime button runs: `loh chime on|off`, in an agent's folder so loh finds the workspace. */
 export function chimeCall(on, agent, loh) {
   return { cmd: loh || "loh", args: ["chime", on ? "on" : "off"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
+}
+
+/** The command that plays the chime once: `loh chime play`, in an agent's folder so loh finds the workspace. */
+export function chimePlayCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["chime", "play"], options: { cwd: (agent && agent.cwd) || undefined, timeout: 5000 } };
 }
 
 /** The value to save for a lights choice. */
@@ -1196,7 +1201,14 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     // A merger goes to the lounge or the kitchen once its turn ends; while it works (it cleans up) it keeps its desk.
     // Its next turn after that is ordinary work again.
     if (mem.merged.has(p.id)) {
-      if (!p.busy) { mem.merged.set(p.id, true); p.mode = "away"; continue; }
+      if (!p.busy) {
+        // The turn is over: the merger goes to its desk, if it is not there, and the confetti goes off on arrival (the office
+        // calls cheerDone then); after that it goes to its usual idle place. Not for longer than CHEER_MAX_MS.
+        let m = mem.merged.get(p.id);
+        if (m === null) { m = { at: now }; mem.merged.set(p.id, m); }
+        if (m !== true && now - m.at < CHEER_MAX_MS) { p.mode = "deskfree"; wakes.push(CHEER_MAX_MS - (now - m.at)); continue; }
+        mem.merged.set(p.id, true); p.mode = "away"; continue;
+      }
       if (mem.merged.get(p.id) === true) mem.merged.delete(p.id);
     }
     const sitting = p.busy || p.recent;
@@ -1521,11 +1533,10 @@ export const TOAST_MS = 7000;
 export const TOAST_ENTER_MS = 40;
 export const TOAST_EXIT_MS = 250;
 export const TOAST_SLIDE_MS = 220;
-// The prototype's hint line. It says what the toast does about sound: a question chimes only when the chime is on, and
-// the office has none, so a question says the chime is off.
-function toastHint(kind) {
-  const what = kind === "q" ? "Toast, chime is off" : kind === "perm" ? "Toast, no sound" : "Toast";
-  return `${what} · click to open`;
+// The hint line says what the toast did about sound (#177): the office plays the chime with each batch of toasts while the
+// chime is on, so a toast says "chimed", or "chime off" when it is off.
+function toastHint(chimed) {
+  return `${chimed ? "Toast, chimed" : "Toast, chime off"} · click to open`;
 }
 
 /** The state the toasts keep between renders: what each agent was last seen with, and what is showing. */
@@ -1575,7 +1586,7 @@ function raised(mem, crew) {
 export function toastPush(mem, ev, at) {
   mem.n += 1;
   // New arrays each time: a list a caller was handed never changes under it.
-  const all = [{ id: `toast-${mem.n}`, kind: ev.kind, head: ev.head, body: ev.body, hint: ev.hint || toastHint(ev.kind), who: ev.who || "", at, out: null }, ...mem.list];
+  const all = [{ id: `toast-${mem.n}`, kind: ev.kind, head: ev.head, body: ev.body, hint: ev.hint || toastHint(true), who: ev.who || "", at, out: null }, ...mem.list];
   mem.list = all.slice(0, TOAST_MAX);
   mem.leaving = [...mem.leaving, ...all.slice(TOAST_MAX).map((t) => ({ ...t, out: at }))];
 }
@@ -1597,10 +1608,11 @@ export function toastPhase(t, now) {
  * finished leaving, and say how long until the next one goes (`nextMs`, null when none is showing) and until the next
  * change of phase (`animMs`, null when none), so the office asks for a render then and no timer repeats.
  */
-export function toastStep(mem, crew, now) {
+export function toastStep(mem, crew, now, chime = true) {
   const bursts = [];
-  for (const ev of raised(mem, crew)) {
-    toastPush(mem, ev, now);
+  const fresh = raised(mem, crew);
+  for (const ev of fresh) {
+    toastPush(mem, { ...ev, hint: toastHint(!!chime) }, now);
     if (ev.burst) bursts.push({ who: ev.who });
   }
   const expired = mem.list.filter((t) => now - t.at >= TOAST_MS);
@@ -1608,18 +1620,23 @@ export function toastStep(mem, crew, now) {
   mem.leaving = [...mem.leaving, ...expired.map((t) => ({ ...t, out: t.at + TOAST_MS }))].filter((t) => now - t.out < TOAST_EXIT_MS);
   const next = mem.list.length ? Math.min(...mem.list.map((t) => t.at + TOAST_MS - now)) : null;
   const marks = [...mem.list.map((t) => t.at + TOAST_ENTER_MS), ...mem.leaving.map((t) => t.out + TOAST_EXIT_MS)].map((x) => x - now).filter((ms) => ms > 0);
-  return { list: mem.list, leaving: mem.leaving, bursts, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
+  return { list: mem.list, leaving: mem.leaving, bursts, raised: fresh.length, nextMs: next, animMs: marks.length ? Math.min(...marks) : null };
 }
 
 // ---------- confetti (ticket #70) ----------
-// The prototype's burst: 40 pieces in five colours, each living 1.2 to 1.8 s, thrown up and pulled down by gravity.
+// The prototype's burst, made longer (Matt, 20 Nov): 40 pieces in five colours, each living 2 to 3 s, thrown up and pulled down by gravity.
 export const BURST_PIECES = 40;
 /** How long a burst lasts in all: its longest piece. The office takes it away then. */
-export const BURST_MS = 1800;
+export const BURST_MS = 3000;
+
+/** A merger waits at its desk for its confetti at most this long (ms); then it goes to its usual idle place anyway. */
+export const CHEER_MAX_MS = 60000;
+/** The office fired the merger's confetti: it may go to its usual idle place now. */
+export function cheerDone(mem, id) { if (mem.merged.has(id)) mem.merged.set(id, true); }
 
 /** The pieces of one burst: { c: colour 0-4, vx, vy (units per s, up is negative), life (ms) }, from `rand`. Gravity is the drawing's. */
 export function confettiPieces(rand = Math.random) {
   const out = [];
-  for (let i = 0; i < BURST_PIECES; i++) out.push({ c: i % 5, vx: (rand() - 0.5) * 60, vy: -25 - rand() * 35, life: Math.round(1200 + rand() * 600) });
+  for (let i = 0; i < BURST_PIECES; i++) out.push({ c: i % 5, vx: (rand() - 0.5) * 60, vy: -25 - rand() * 35, life: Math.round(2000 + rand() * 1000) });
   return out;
 }

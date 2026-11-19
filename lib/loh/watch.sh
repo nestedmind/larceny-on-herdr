@@ -9,7 +9,8 @@
 #     `loh say --queue` sets when it finally cannot deliver): "<Name>'s message
 #     was not delivered", body <text>.
 # While an office tab is open (`loh office-ping`, read by office_open) it shows
-# these as toasts and no desktop notification is sent; with none open, they are.
+# these as toasts and plays the chime itself: no desktop notification and no sound
+# are sent from here. With none open, they are.
 # Bodies are cut to 120 characters. An agent is notified once per block, and an
 # escalation once per distinct note. An event only tells us *which* terminal
 # changed, so the status, kind, msg and note are read with `hc get`, which is
@@ -64,35 +65,6 @@ else
   open_root="$(workspace_root 2>/dev/null)" || open_root=""
 fi
 
-# chime_play: the Linux sound, in the background with output discarded, so a
-# missing player or sound never delays or breaks a notice: canberra-gtk-play with
-# the freedesktop "message-new-instant" sound, else pw-play, else paplay with that
-# sound's file (LOH_CHIME_FILE changes the path; used by tests).
-chime_play() {
-  local file="${LOH_CHIME_FILE:-/usr/share/sounds/freedesktop/stereo/message-new-instant.oga}"
-  if command -v canberra-gtk-play >/dev/null 2>&1; then
-    (canberra-gtk-play -i message-new-instant </dev/null >/dev/null 2>&1 &)
-  elif [[ -f "$file" ]] && command -v pw-play >/dev/null 2>&1; then
-    (pw-play "$file" </dev/null >/dev/null 2>&1 &)
-  elif [[ -f "$file" ]] && command -v paplay >/dev/null 2>&1; then
-    (paplay "$file" </dev/null >/dev/null 2>&1 &)
-  fi
-  return 0
-}
-
-# chime_alone: the sound with no desktop notice (an office toast is shown instead):
-# chime_play on Linux, afplay with the Glass sound on macOS, else a bell on stdout.
-chime_alone() {
-  if command -v notify-send >/dev/null 2>&1; then
-    chime_play
-  elif command -v osascript >/dev/null 2>&1; then
-    (afplay /System/Library/Sounds/Glass.aiff </dev/null >/dev/null 2>&1 &)
-  else
-    printf '\a'
-  fi
-  return 0
-}
-
 # CHIMED is set once a chime was given in the current batch (one line of
 # `hc events`, which may announce several notes at once): a batch chimes once.
 CHIMED=""
@@ -104,11 +76,8 @@ CHIMED=""
 notify() {
   local title="$1" body="$2" sound=""
   if [[ -n "$open_root" ]] && office_open "$open_root"; then
-    # The toast replaces the desktop notice, not the sound: chime on its own.
-    if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then
-      CHIMED=1
-      chime_alone
-    fi
+    # The toast replaces the desktop notice, and the office plays the chime with its toasts (`loh chime play`), so
+    # nothing is sent here: a second sound would double it.
     return 0
   fi
   if [[ -z "$CHIMED" && "$(chime_state "$open_root")" == on ]]; then

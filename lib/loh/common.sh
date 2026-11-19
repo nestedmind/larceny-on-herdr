@@ -576,3 +576,32 @@ archive_transcript() {
   fi
   echo "archived $name's transcript to $dest"
 }
+
+# chime_play: the Linux sound, in the background with output discarded, so a
+# missing player or sound never delays or breaks a notice: canberra-gtk-play with
+# the freedesktop "message-new-instant" sound, else pw-play, else paplay with that
+# sound's file (LOH_CHIME_FILE changes the path; used by tests).
+chime_play() {
+  local file="${LOH_CHIME_FILE:-/usr/share/sounds/freedesktop/stereo/message-new-instant.oga}"
+  if command -v canberra-gtk-play >/dev/null 2>&1; then
+    (canberra-gtk-play -i message-new-instant </dev/null >/dev/null 2>&1 &)
+  elif [[ -f "$file" ]] && command -v pw-play >/dev/null 2>&1; then
+    (pw-play "$file" </dev/null >/dev/null 2>&1 &)
+  elif [[ -f "$file" ]] && command -v paplay >/dev/null 2>&1; then
+    (paplay "$file" </dev/null >/dev/null 2>&1 &)
+  fi
+  return 0
+}
+
+# chime_alone: the sound with no desktop notice (an office toast is shown instead):
+# chime_play on Linux, afplay with the Glass sound on macOS, else a bell on stdout.
+chime_alone() {
+  if command -v notify-send >/dev/null 2>&1; then
+    chime_play
+  elif command -v osascript >/dev/null 2>&1; then
+    (afplay /System/Library/Sounds/Glass.aiff </dev/null >/dev/null 2>&1 &)
+  else
+    printf '\a'
+  fi
+  return 0
+}

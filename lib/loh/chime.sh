@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# loh chime [on|off]: switch the sound of `loh watch` notifications, or print it.
+# loh chime [on|off|play]: switch the sound of `loh watch` notifications, or print it;
+# `play` makes the sound once, whatever the setting (the office runs it with its toasts).
 #
 # The choice goes to <workspace>/.loh/chime ("on" or "off"). `loh watch` reads it
 # at every notification, so a change takes effect at once, and the office's Chime
@@ -11,7 +12,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
-  echo "Usage: loh chime [on|off]" >&2
+  echo "Usage: loh chime [on|off|play]" >&2
   exit 2
 }
 
@@ -29,5 +30,6 @@ case "${1-}" in
     printf '%s\n' "$1" >"$tmp"
     mv -f "$tmp" "$root/.loh/chime"
     ;;
+  play) chime_alone ;;
   *) usage ;;
 esac

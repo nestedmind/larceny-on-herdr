@@ -29,10 +29,10 @@ const worldOf = (P, n) => {
 };
 
 /** Where an item may be, in world units: [lo, hi] on each axis. `room` carries the shift and growth (crew.js mkRoom). */
-// Matt's change of 19 Nov (#176): the lounge's sofa stands against the top wall, its back level with the kitchen counters, so
-// its three seats are 5 units higher than the prototype's and keep to the wall as the room grows (no share of the room's extra height).
-const SOFA_SEATS = 3, SOFA_UP = 5;
-const spotRange = (room, kind, i, s) => (kind === "lounge" && i < SOFA_SEATS ? { x: rangeIn(room, s.x, s.y).x, y: [s.y - SOFA_UP + room.sy, s.y - SOFA_UP + room.sy] } : rangeIn(room, s.x, s.y));
+// Matt's change of 19 Nov (#176 PR): the lounge's sofa stands near the top wall, 6 units lower than the prototype's (its back at y 174, clear of the
+// LOUNGE label), so its three seats are 6 units lower than the prototype's and keep to the wall as the room grows (no share of the room's extra height).
+const SOFA_SEATS = 3, SOFA_DOWN = 6;
+const spotRange = (room, kind, i, s) => (kind === "lounge" && i < SOFA_SEATS ? { x: rangeIn(room, s.x, s.y).x, y: [s.y + SOFA_DOWN + room.sy, s.y + SOFA_DOWN + room.sy] } : rangeIn(room, s.x, s.y));
 const rangeIn = (room, x, y) => ({ x: [x + room.sx, x + room.sx + room.gw], y: [y + room.sy, y + room.sy + room.gh] });
 
 class Findings {

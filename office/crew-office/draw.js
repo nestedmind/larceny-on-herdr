@@ -510,8 +510,8 @@ export function floorLayer(world, k, mod = () => "crew-office") {
   mid(kitchen, () => { g.circ(146, 231, 24, PAL.sage); g.circ(146, 231, 11, PAL.table); g.circ(146, 231, 2, PAL.fridge); });
   edge(kitchen, 102, 280, () => plant(g, 102, 280, 4.5));
   // lounge
-  // the sofa stands against the top wall, its back level with the kitchen counters (y 163), and stays there as the room grows
-  at(lounge, 0.5, 0, () => { g.rr(202, 163, 62, 14, 4, PAL.sofaDark); g.rr(204, 169, 58, 10, 3, PAL.sofa); });
+  // the sofa stands near the top wall and keeps to it as the room grows; its back is at y 174, the smallest gap that clears the LOUNGE label at every scale from 1 up (the label ends at y 173.5 at scale 1)
+  at(lounge, 0.5, 0, () => { g.rr(202, 174, 62, 14, 4, PAL.sofaDark); g.rr(204, 180, 58, 10, 3, PAL.sofa); });
   mid(lounge, () => {
     g.ell(241, 228, 30, 19, PAL.orange); g.rr(228, 220, 26, 15, 4, PAL.table);
     g.circ(236, 226, 1.6, PAL.fridge); g.rr(242, 225, 7, 5, 0.8, PAL.books[2]);

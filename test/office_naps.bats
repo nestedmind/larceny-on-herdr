@@ -198,7 +198,9 @@ start(n);
 draw(10, idle(n).concat(open("working")));
 draw(10 + HOUR, idle(n).concat(open("working")));
 const merged = ["sucre", "mahone"].map((x, i) => mk(x, "idle", {task: "api#" + (i + 1), prdone: "1", prstate: "merged"}));
-const L = draw(11 + HOUR, idle(n).concat(merged));
+draw(11 + HOUR, idle(n).concat(merged));
+crew.cheerDone(mem, "sucre"); crew.cheerDone(mem, "mahone"); // their confetti went off
+const L = draw(12 + HOUR, idle(n).concat(merged));
 console.log(rooms(L, ["amy", "maya", "yoda", "sucre", "mahone"]));'
   [ "$status" -eq 0 ]
   [ "$output" = "rest,rest,rest,lounge,lounge" ]

@@ -80,30 +80,50 @@ console.log(r[1].bursts.map((b) => b.who).join(","), r[1].list.length);'
   [ "$output" = "t-sucre,t-whip 2" ]
 }
 
-@test "a burst is 40 pieces in five colours that live 1.2 to 1.8 s" {
+@test "a burst is 40 pieces in five colours that live 2 to 3 s" {
   run crew_js "$HELPERS"'
 const p = crew.confettiPieces(crew.seededRand(7));
 const cols = new Set(p.map((x) => x.c));
-console.log(p.length, [...cols].sort().join(""), p.every((x) => x.life >= 1200 && x.life <= 1800), crew.BURST_MS);'
+console.log(p.length, [...cols].sort().join(""), p.every((x) => x.life >= 2000 && x.life <= 3000), crew.BURST_MS);'
   [ "$status" -eq 0 ]
-  [ "$output" = "40 01234 true 1800" ]
+  [ "$output" = "40 01234 true 3000" ]
 }
 
-@test "the merger goes to the lounge or kitchen once its turn ends, never the rest room; the desk is free" {
+@test "the merger goes to its desk when its turn ends, then to the lounge or kitchen once its confetti went off, never the rest room; the desk is free after that" {
   run crew_js "$HELPERS"'
-const L = lay([[0, [open()]], [10, [merged()]], [10 + 3, [merged()]], [10 + 5, [merged()]]]);
-console.log(L.map((l) => P(l, "sucre").mode + ":" + (P(l, "sucre").place === "kitchen" ? "lounge" : P(l, "sucre").place)).join(" "), P(L[1], "sucre").desk);'
+const mem = crew.newMemory();
+const at = (s, ts) => crew.layoutCrew(agents(...ts), ["api"], 0, {mem, now: s * 1000});
+const a = at(0, [open()]), b = at(10, [merged()]), c = at(13, [merged()]);
+crew.cheerDone(mem, "sucre");
+const d = at(14, [merged()]), e = at(16, [merged()]);
+const w = (l) => P(l, "sucre").mode + ":" + (P(l, "sucre").place === "kitchen" ? "lounge" : P(l, "sucre").place);
+console.log([a, b, c, d, e].map(w).join(" "), P(d, "sucre").desk);'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait:lounge away:lounge away:lounge away:lounge null" ]
+  [ "$output" = "wait:lounge deskfree:desk deskfree:desk away:lounge away:lounge null" ]
 }
 
-@test "a merger still working keeps its desk, and goes to the lounge once its turn ends" {
+@test "a merger whose confetti never goes off goes to the lounge or kitchen after CHEER_MAX_MS" {
   run crew_js "$HELPERS"'
+const mem = crew.newMemory();
+const at = (s, ts) => crew.layoutCrew(agents(...ts), ["api"], 0, {mem, now: s * 1000});
+at(0, [open()]); at(10, [merged()]);
+const a = at(10 + crew.CHEER_MAX_MS / 1000 - 1, [merged()]), b = at(10 + crew.CHEER_MAX_MS / 1000, [merged()]);
+console.log(P(a, "sucre").mode, P(b, "sucre").mode, a.wakeIn);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "deskfree away 1000" ]
+}
+
+@test "a merger still working keeps its desk, and (once its turn ends and its confetti went off) goes to the lounge" {
+  run crew_js "$HELPERS"'
+const mem = crew.newMemory();
+const at = (s, ts) => crew.layoutCrew(agents(...ts), ["api"], 0, {mem, now: s * 1000});
 const w = T("sucre", {state: "working"}, {prdone: "1", prstate: "merged"});
-const L = lay([[0, [open()]], [5, [w]], [20, [w]], [30, [merged()]], [32, [merged()]]]);
+const L = [at(0, [open()]), at(5, [w]), at(20, [w]), at(30, [merged()])];
+crew.cheerDone(mem, "sucre");
+L.push(at(32, [merged()]));
 console.log(L.map((l) => P(l, "sucre").mode).join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait deskfree deskfree away away" ]
+  [ "$output" = "wait deskfree deskfree deskfree away" ]
 }
 
 @test "a pull request already merged when the office opens sends nobody away" {
