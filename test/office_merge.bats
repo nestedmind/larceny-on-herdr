@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # A coder's pull request merging (ticket #70): one confetti burst and one toast on the change from open to merged,
-# nothing for a pull request that was already merged, and a rest in the rest room for the merger.
+# nothing for a pull request that was already merged, and no rest room for the merger.
 
 bats_require_minimum_version 1.5.0
 load test_helper
@@ -89,24 +89,24 @@ console.log(p.length, [...cols].sort().join(""), p.every((x) => x.life >= 1200 &
   [ "$output" = "40 01234 true 1800" ]
 }
 
-@test "the merger rests in the rest room for REST_MS after its turn ends, then leaves; the desk is free" {
+@test "the merger goes to the lounge or kitchen once its turn ends, never the rest room; the desk is free" {
   run crew_js "$HELPERS"'
 const L = lay([[0, [open()]], [10, [merged()]], [10 + 3, [merged()]], [10 + 5, [merged()]]]);
-console.log(L.map((l) => P(l, "sucre").mode + ":" + P(l, "sucre").place).join(" "), P(L[1], "sucre").desk);'
+console.log(L.map((l) => P(l, "sucre").mode + ":" + (P(l, "sucre").place === "kitchen" ? "lounge" : P(l, "sucre").place)).join(" "), P(L[1], "sucre").desk);'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait:kitchen rest:rest rest:rest deskfree:desk null" ]
+  [ "$output" = "wait:lounge away:lounge away:lounge away:lounge null" ]
 }
 
-@test "a merger still working keeps its desk, and rests once its turn ends" {
+@test "a merger still working keeps its desk, and goes to the lounge once its turn ends" {
   run crew_js "$HELPERS"'
 const w = T("sucre", {state: "working"}, {prdone: "1", prstate: "merged"});
 const L = lay([[0, [open()]], [5, [w]], [20, [w]], [30, [merged()]], [32, [merged()]]]);
 console.log(L.map((l) => P(l, "sucre").mode).join(" "));'
   [ "$status" -eq 0 ]
-  [ "$output" = "wait deskfree deskfree rest rest" ]
+  [ "$output" = "wait deskfree deskfree away away" ]
 }
 
-@test "a pull request already merged when the office opens sends nobody to rest" {
+@test "a pull request already merged when the office opens sends nobody away" {
   run crew_js "$HELPERS"'
 const L = lay([[0, [merged()]], [1, [merged()]]]);
 console.log(L.map((l) => P(l, "sucre").mode).join(" "));'
@@ -114,7 +114,7 @@ console.log(L.map((l) => P(l, "sucre").mode).join(" "));'
   [ "$output" = "deskfree deskfree" ]
 }
 
-@test "a pull request closed without merging sends nobody to rest" {
+@test "a pull request closed without merging sends nobody away" {
   run crew_js "$HELPERS"'
 const L = lay([[0, [open()]], [1, [closed()]]]);
 console.log(L.map((l) => P(l, "sucre").mode).join(" "));'

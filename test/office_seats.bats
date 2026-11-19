@@ -116,10 +116,10 @@ console.log(a.map((L) => P(L, "yoda").place + "/" + P(L, "sara").place).join(" "
   [ "$output" = "meeting/meeting meeting/meeting lounge/lounge" ]
 }
 
-@test "a coder with a ticket and no PR stays at its desk when its turn ends, for as long as it lasts" {
+@test "a coder with a ticket and no PR stays at its desk when its turn ends, for the first hour" {
   run crew_js "$HELPERS"'
 const w = [T("sucre", "working", {role: "coder", task: "api#4"})], d = [T("sucre", "done", {role: "coder", task: "api#4"})];
-const a = play([[0, w], [5, d], [5000, d]]);
+const a = play([[0, w], [5, d], [3000, d]]);
 console.log(a.map((L) => at(L, "sucre")).join(" "));'
   [ "$status" -eq 0 ]
   [ "$output" = "desk:repo:api:1 desk:repo:api:1 desk:repo:api:1" ]

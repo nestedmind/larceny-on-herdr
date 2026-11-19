@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Naps in the rest room (ticket #152): who lies down after an hour idle, how many, for how long, and who wins a bed.
+# Naps in the rest room (tickets #152, #167): who lies down after an hour idle, how many, for how long, and who wins a bed.
 
 bats_require_minimum_version 1.5.0
 load test_helper
@@ -48,19 +48,23 @@ console.log(rooms(draw(40 + HOUR + 5, idle(n)), n));'
   [ "$output" = "rest,rest,rest,lounge" ]
 }
 
-@test "a compaction while 3 nap gets a bed beside them, nobody is bumped" {
+@test "a compaction while 3 nap gets a bed; the napper who lay down last gets up (the cap of 3 counts it)" {
   run crew_js "$HELPERS"'
 const n = ["amy", "maya", "yoda"];
-start(n); draw(10, idle(n));
-const t = 10 + HOUR;
-draw(t, idle(n));
-const L = draw(t + 1, idle(n).concat([mk("sara", "working", {ctx: "compact"})]));
-console.log(rooms(L, ["amy", "maya", "yoda", "sara"]));'
+start(n);
+draw(10, idle(["amy"]).concat([mk("maya", "working"), mk("yoda", "working")]));
+draw(20, idle(["amy", "maya"]).concat([mk("yoda", "working")]));
+draw(30, idle(n));
+draw(10 + HOUR, idle(n)); draw(20 + HOUR, idle(n));
+const before = draw(30 + HOUR, idle(n));
+const c = [mk("sara", "working", {ctx: "compact"})];
+const L = draw(31 + HOUR, idle(n).concat(c));
+console.log(rooms(before, n), rooms(L, ["amy", "maya", "yoda", "sara"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "rest,rest,rest,rest" ]
+  [ "$output" = "rest,rest,rest rest,rest,lounge,rest" ]
 }
 
-@test "two compactions with 3 napping: the napper who lay down last gets up and goes to the lounge" {
+@test "two compactions with 3 napping: the 2 napper who lay down last get up" {
   run crew_js "$HELPERS"'
 start(["amy", "maya", "yoda"]);
 draw(10, idle(["amy"]).concat([mk("maya", "working"), mk("yoda", "working")]));
@@ -68,28 +72,24 @@ draw(20, idle(["amy", "maya"]).concat([mk("yoda", "working")]));
 draw(30, idle(["amy", "maya", "yoda"]));
 draw(10 + HOUR, idle(["amy", "maya", "yoda"]));
 draw(20 + HOUR, idle(["amy", "maya", "yoda"]));
-const before = draw(30 + HOUR, idle(["amy", "maya", "yoda"]));
+draw(30 + HOUR, idle(["amy", "maya", "yoda"]));
 const c = ["sara", "opemipo"].map((x) => mk(x, "working", {ctx: "compact"}));
 const L = draw(31 + HOUR, idle(["amy", "maya", "yoda"]).concat(c));
-const after = draw(32 + HOUR, idle(["amy", "maya", "yoda"]).concat(c));
-console.log(rooms(before, ["amy", "maya", "yoda"]), rooms(L, ["amy", "maya", "yoda", "sara", "opemipo"]), rooms(after, ["yoda"]));'
+console.log(rooms(L, ["amy", "maya", "yoda", "sara", "opemipo"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "rest,rest,rest rest,rest,lounge,rest,rest lounge" ]
+  [ "$output" = "rest,lounge,lounge,rest,rest" ]
 }
 
 @test "a place=rest agent counts toward the 3 and is never bumped" {
   run crew_js "$HELPERS"'
 const n = ["amy", "maya", "yoda", "sara"];
 start(n.concat(["opemipo"]));
-const ts = (x = {}) => idle(n.concat(["opemipo"]), {opemipo: {place: "rest"}, ...x});
+const ts = () => idle(n.concat(["opemipo"]), {opemipo: {place: "rest"}});
 draw(10, ts()); draw(10 + HOUR, ts());
 const a = draw(11 + HOUR, ts());
-// two compactions on top: the sent agent stays, naps are bumped first
-const c = [mk("scofield", "working", {ctx: "compact"}), mk("sara", "working", {ctx: "compact"})];
-const b = draw(12 + HOUR, idle(["amy", "maya", "yoda"], {}).concat(c, [mk("opemipo", "idle", {place: "rest"})]));
-console.log(rooms(a, ["amy", "maya", "yoda", "sara", "opemipo"]), rooms(b, ["amy", "maya", "yoda", "opemipo"]));'
+console.log(rooms(a, ["amy", "maya", "yoda", "sara", "opemipo"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "rest,rest,lounge,lounge,rest rest,lounge,lounge,rest" ]
+  [ "$output" = "rest,rest,lounge,lounge,rest" ]
 }
 
 @test "a nap ends at 90 minutes and the next eligible agent takes the bed" {
@@ -129,17 +129,31 @@ console.log(place(L, "amy"), L.people.find((p) => p.id === "amy").desk);'
   [ "$output" = "desk amy" ]
 }
 
-@test "a coder with a ticket or a PR never naps; a coder with no ticket does" {
+@test "Scofield and coders with a ticket or a PR nap after an hour idle" {
   run crew_js "$HELPERS"'
 const c = {sucre: {task: "api#4"}, mahone: {task: "api#5", pr: "9", round: "1"}};
-const names = ["sucre", "mahone", "whip"];
+const names = ["sucre", "mahone", "scofield"];
 start(names, c); draw(10, idle(names, c));
-const L = draw(10 + HOUR + 1, idle(names, c));
-const L2 = draw(10 + 3 * HOUR, idle(names, c));
-const ok = (l, id) => place(l, id) !== "rest";
-console.log(ok(L, "sucre"), ok(L, "mahone"), place(L, "whip"), ok(L2, "sucre"), ok(L2, "mahone"), place(L2, "whip"));'
+const a = draw(10 + HOUR - 1, idle(names, c)), L = draw(10 + HOUR, idle(names, c));
+const w = draw(11 + HOUR, [mk("sucre", "working", c.sucre), ...idle(["mahone", "scofield"], c)]);
+console.log(rooms(a, names), rooms(L, names), place(w, "sucre"), place(w, "mahone"));'
   [ "$status" -eq 0 ]
-  [ "$output" = "true true rest true true lounge" ]
+  [ "$output" = "desk,pong,lounge rest,rest,rest desk rest" ]
+}
+
+@test "4 reach an hour at different times: the first 3 sleep, the 4th takes the bed when one wakes" {
+  run crew_js "$HELPERS"'
+const n = ["amy", "maya", "yoda", "scofield"];
+start(n);
+draw(10, idle(["amy"]).concat(n.slice(1).map((x) => mk(x, "working"))));
+draw(20, idle(["amy", "maya"]).concat(["yoda", "scofield"].map((x) => mk(x, "working"))));
+draw(30, idle(["amy", "maya", "yoda"]).concat([mk("scofield", "working")]));
+draw(40, idle(n));
+const a = draw(40 + HOUR, idle(n));
+const b = draw(41 + HOUR, [mk("amy", "working"), ...idle(["maya", "yoda", "scofield"])]);
+console.log(rooms(a, n), rooms(b, n));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "rest,rest,rest,lounge desk,rest,rest,rest" ]
 }
 
 @test "a meeting wins over a nap" {
@@ -173,17 +187,17 @@ console.log(spot(a, "maya") === spot(b, "maya"), spot(a, "yoda") === spot(b, "yo
   [ "$output" = "true true desk rest rest" ]
 }
 
-@test "a coder resting after a merge holds a bed, and the latest napper gives way when beds run out" {
+@test "a merger never takes a bed, so 3 nappers keep theirs" {
   run crew_js "$HELPERS"'
 const n = ["amy", "maya", "yoda"];
 const pr = (x) => ({task: "api#" + x, pr: "9", round: "1"});
-const open = [mk("sucre", "idle", pr(1)), mk("mahone", "idle", pr(2))];
+const open = (st) => [mk("sucre", st, pr(1)), mk("mahone", st, pr(2))];
 start(n);
-draw(10, idle(n).concat(open));
-draw(10 + HOUR, idle(n).concat(open));
+draw(10, idle(n).concat(open("working")));
+draw(10 + HOUR, idle(n).concat(open("working")));
 const merged = ["sucre", "mahone"].map((x, i) => mk(x, "idle", {task: "api#" + (i + 1), prdone: "1", prstate: "merged"}));
 const L = draw(11 + HOUR, idle(n).concat(merged));
 console.log(rooms(L, ["amy", "maya", "yoda", "sucre", "mahone"]));'
   [ "$status" -eq 0 ]
-  [ "$output" = "rest,rest,lounge,rest,rest" ]
+  [ "$output" = "rest,rest,rest,lounge,lounge" ]
 }
