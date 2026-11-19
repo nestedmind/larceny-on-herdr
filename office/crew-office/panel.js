@@ -19,6 +19,8 @@ const FOLLOW_AGAIN_MS = 50;
 const WORDS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const STATE_WORDS = { working: "Working", blocked: "Needs you", done: "Done", idle: "Idle" };
 const COPIED_MS = 1500;
+// The host action Ctrl+C runs on highlighted text (not in the kit docs; see copyLogSelection).
+const LOG_COPY_ACTION = "shell_root::Copy";
 // How often the photo folder is read again, so a photo added while the office is open appears within this.
 export const PHOTOS_EVERY_MS = 60000;
 // herdr's own UI font has a regular face only, so bold and italics (and semibold names) drew as plain text. Noto
@@ -488,7 +490,7 @@ export class Panel {
     const item = m.items.find((i) => i.id === id);
     if (!item || !item.enabled) return;
     this.menu = null;
-    if (m.kind === "message") { this.copy(m.key, m.text, cx); return; }
+    if (m.kind === "message") { this.copyLogSelection(m, cx); return; }
     const st = this.agent && this.inputs.get(this.agent.address);
     if (!st) { cx.notify(); return; }
     // Put the selection back as it was when the menu opened, then act on it (replace works on the selection).
@@ -508,6 +510,20 @@ export class Panel {
     }
     st.focus();
     cx.notify();
+  }
+
+  // The log's Copy (ticket #172). The kit cannot read the text highlighted in a TextView, so the menu asks herdr-app to
+  // copy it: `window.dispatch_action` runs the same handler Ctrl+C does. The action's name, "shell_root::Copy", is
+  // not in the kit's documentation (it is in herdr-app's own binary), so it may change. With nothing highlighted it
+  // is expected to copy nothing and leave the clipboard alone; the item cannot be greyed out, as the mod cannot see
+  // the selection. If the host refuses the name, the whole message is copied as before.
+  copyLogSelection(m, cx) {
+    try {
+      window.dispatch_action(LOG_COPY_ACTION);
+      cx.notify(); // the menu is closed (pickMenu), so draw without it
+    } catch (_) {
+      this.copy(m.key, m.text, cx);
+    }
   }
 
   menuView(t) {
