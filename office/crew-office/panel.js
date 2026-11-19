@@ -31,6 +31,7 @@ export function oneNewline(was, now) {
   while (i < was.length && was[i] === now[i]) i++;
   return now[i] === "\n" && now.slice(i + 1) === was.slice(i);
 }
+const MENU_W = 140, MENU_ROW = 28, MENU_PAD = 4; // the right-click menu: width, row height, padding
 const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
 
 export class Panel {
@@ -59,6 +60,8 @@ export class Panel {
     this.tab = "chat"; // "chat" or "activity"
     this.hover = null; // the log row under the pointer: its Copy shows
     this.copied = null; // the row whose Copy was just clicked
+    this.menu = null; // the right-click menu open now: { kind, key, text, x, y, items }
+    this.rightFor = null; // what the right press under the pointer is on, until the panel root's handler opens its menu
     this.last = new Map(); // each box's text after its last change
     this.preNl = null; // the text before the newline the last Enter put in
     this.focused = false; // the message box has the keyboard
@@ -87,6 +90,8 @@ export class Panel {
 
   select(a, cx) {
     if (this.address !== a.address) {
+      this.menu = null;
+      this.rightFor = null;
       this.address = a.address;
       this.turns = [];
       this.pending = [];
@@ -107,6 +112,8 @@ export class Panel {
       st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
       st.on("change", (_e, c) => {
+        // An edit while the menu is open: its saved selection is no longer the box's.
+        if (this.menu && this.menu.kind === "box") { this.menu = null; c.notify(); }
         // Remember the text before a lone newline went in, so Enter's newline can be taken back out.
         const v = st.value(), was = this.last.get(a.address) ?? "";
         // Any other change forgets it: only the very last edit being that newline counts.
@@ -129,6 +136,8 @@ export class Panel {
   }
 
   close(cx) {
+    this.menu = null;
+    this.rightFor = null;
     this.address = null;
     this.agent = null;
     cx.notify();
@@ -427,6 +436,92 @@ export class Panel {
     else st.replace("\n");
   }
 
+  // Right-click menus (ticket #170). herdr gives a mod the right button's press (`on_mouse_down("right")`), the
+  // pointer's place in the element it is on (`local_position`), the clipboard (`cx.read_from_clipboard`,
+  // `cx.write_to_clipboard`) and the text box's selection and replace (`selected_range`, `replace`). A press goes to
+  // the element under the pointer first and then to its parents, so a row or the box says what it is with pressRight,
+  // and the panel's root, which is the only element that knows where the pointer is in the panel, opens the menu.
+  // For the box it also keeps the selection as it was at this press: a click on a menu item may move the keyboard
+  // off the box, and Cut and Copy act on what was selected when the menu opened.
+  pressRight(target) {
+    const st = target.kind === "box" && this.agent && this.inputs.get(this.agent.address);
+    this.rightFor = st ? { ...target, sel: st.selected_range(), value: st.value() } : target;
+  }
+
+  rootRight(e, cx) {
+    const target = this.rightFor;
+    this.rightFor = null;
+    if (!target) { this.closeMenu(cx); return; }
+    const p = (e && e.local_position) || { x: 0, y: 0 };
+    const box = target.kind === "box";
+    const items = box ? this.boxItems(target.sel, cx) : [{ id: "copy", label: "Copy", enabled: true }];
+    const h = items.length * MENU_ROW + 2 * MENU_PAD + 2;
+    // The box is at the bottom of the panel, so its menu opens upward from the pointer; one is kept inside the panel.
+    const x = Math.max(0, Math.min(p.x, this.width - MENU_W));
+    const y = Math.max(0, box ? p.y - h : p.y);
+    this.menu = { kind: target.kind, key: target.key, text: target.text, sel: target.sel, value: target.value, x, y, items };
+    cx.notify();
+  }
+
+  // Cut and Copy need a selection; Paste needs text on the clipboard.
+  boxItems(r, cx) {
+    r = r || { start: 0, end: 0 };
+    const sel = r.end > r.start;
+    const clip = !!cx.read_from_clipboard();
+    return [{ id: "cut", label: "Cut", enabled: sel }, { id: "copy", label: "Copy", enabled: sel }, { id: "paste", label: "Paste", enabled: clip }];
+  }
+
+  closeMenu(cx) {
+    if (!this.menu) return;
+    this.menu = null;
+    cx.notify();
+  }
+
+  // Escape closes the menu. It is caught on the panel's root, so it works wherever the keyboard is.
+  menuKey(e, cx) {
+    if (this.menu && e && e.key === "escape") { cx.stop_propagation(); this.closeMenu(cx); }
+  }
+
+  pickMenu(id, cx) {
+    const m = this.menu;
+    if (!m) return;
+    const item = m.items.find((i) => i.id === id);
+    if (!item || !item.enabled) return;
+    this.menu = null;
+    if (m.kind === "message") { this.copy(m.key, m.text, cx); return; }
+    const st = this.agent && this.inputs.get(this.agent.address);
+    if (!st) { cx.notify(); return; }
+    // Put the selection back as it was when the menu opened, then act on it (replace works on the selection).
+    // The saved range is only good for the text it was taken from: if the box changed since (typing while the
+    // menu was open), act on nothing rather than on the wrong span.
+    if (m.value !== undefined && st.value() !== m.value) { cx.notify(); return; }
+    const r = m.sel || st.selected_range();
+    st.set_selected_range(r);
+    if (id === "copy" || id === "cut") {
+      if (r.end > r.start) {
+        cx.write_to_clipboard(st.value().slice(r.start, r.end));
+        if (id === "cut") st.replace("");
+      }
+    } else if (id === "paste") {
+      const text = cx.read_from_clipboard();
+      if (text) st.replace(text);
+    }
+    st.focus();
+    cx.notify();
+  }
+
+  menuView(t) {
+    const m = this.menu;
+    const row = (i) => h_flex().id(`menu-${i.id}`).h(MENU_ROW).px(8).items_center().rounded(4).text_size(13)
+      .text_color(i.enabled ? t.foreground : t.muted).opacity(i.enabled ? 1 : 0.5)
+      .when(i.enabled, (el) => el.cursor_pointer().hover((e) => e.bg(t.hover)).on_click((_e, c) => { c.stop_propagation(); this.pickMenu(i.id, c); }))
+      .child(i.label);
+    return v_flex().id("panel-menu").absolute().left(m.x).top(m.y).w(MENU_W).p(MENU_PAD).gap(0).rounded(6).border_1().border_color(t.border).bg(t.popover).shadow_lg()
+      .on_mouse_down_out((_e, c) => this.closeMenu(c))
+      .on_mouse_down("right", (_e, c) => c.stop_propagation())
+      .children(m.items.map(row));
+  }
+
   // Copy puts text on the clipboard and shows "Copied" on that row for COPIED_MS.
   copy(key, text, cx) {
     cx.write_to_clipboard(text);
@@ -539,11 +634,14 @@ export class Panel {
     const composer = v_flex().flex_none().gap(8).px(12).pt(8).pb(12).border_t(1).border_color(t.border)
       .when(!!this.error, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.notSent ? `Not sent: ${this.error} Your message is back in the box.` : this.error)))
       .child(this.form(t, raw, why));
-    return v_flex().id("panel").size_full().overflow_hidden().gap(0).font_family(FONT).bg(t.canvas).border_l(1).border_color(t.border)
+    return v_flex().id("panel").relative().size_full().overflow_hidden().gap(0).font_family(FONT).bg(t.canvas).border_l(1).border_color(t.border)
+      .on_mouse_down("right", (e, c) => this.rootRight(e, c))
+      .on_key_down((e, c) => this.menuKey(e, c))
       .child(top)
       .child(tabs)
       .child(this.tab === "chat" ? this.chatLog(t, a, cx) : this.activity(t))
-      .child(composer);
+      .child(composer)
+      .when(!!this.menu, (el) => el.child(this.menuView(t)));
   }
 
   // The avatar: the person's photo in a circle with a thin border, cropped to a square (the default crop, or the
@@ -602,6 +700,7 @@ export class Panel {
       const row = h_flex().id(key).relative().w_full().gap(pic === 24 ? 8 : 10).px(12)
         .mt(sp.mt).pt(sp.pt).pb(sp.pb).items_start()
         .when(mine, (el) => el.bg(t.raised)).opacity(m.pending && !m.unsure ? 0.6 : 1)
+        .on_mouse_down("right", () => this.pressRight({ kind: "message", key, text: copyText(m) }))
         .on_hover((h, c) => { const was = this.hover; if (h) this.hover = key; else if (this.hover === key) this.hover = null; if (this.hover !== was) c.notify(); })
         .child(head ? this.avatar(m.launch ? "" : avatarName(m, a, this.person()), pic, t, mine ? t.raised : t.canvas, m.role === "user" && !m.launch) : div().flex_none().w(pic))
         .child(text)
@@ -667,6 +766,7 @@ export class Panel {
       .when(on, (el) => el.border_2().border_color(t.accent).px(7).py(3))
       .when(!on, (el) => el.border_1().border_color(t.muted).px(8).py(4))
       .on_key_down((e, c) => this.key(e, c))
+      .on_mouse_down("right", () => this.pressRight({ kind: "box" }))
       .child(Textarea.new(this.inputs.get(a.address)).text_size(14).line_height("20px").p(0).border_0());
     const send = h_flex().id("panel-send").flex_none().h(30).px(14).items_center().justify_center().rounded(6).bg(t.solid)
       .text_size(13).font_bold().text_color(t.solid_foreground).opacity(why || this.sending ? 0.5 : 1)

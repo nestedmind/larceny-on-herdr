@@ -15,7 +15,7 @@ panel_js() {
   local d="$BATS_TEST_TMPDIR/panel"
   mkdir -p "$d/node_modules/gpui-kit" "$d/node_modules/gpui-base" "$d/node_modules/herdr"
   cat > "$d/node_modules/gpui-kit/index.js" <<'JS'
-const el = () => new Proxy({}, { get: () => () => el() });
+const el = () => new Proxy({}, { get: (_, k) => (...a) => { if (k === "on_mouse_down") (globalThis.HANDLERS ||= []).push(a); return el(); } });
 export const div = el;
 export const svg = () => el();
 export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return el(); };
@@ -26,7 +26,7 @@ JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
-export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); }, replace(v) { s.text += v; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
+export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); delete s.sel; }, set_selected_range(r) { s.sel = r; }, selected_range: () => s.sel || { start: s.text.length, end: s.text.length }, replace(v) { const r = s.selected_range(); s.text = s.text.slice(0, r.start) + v + s.text.slice(r.end); s.sel = { start: r.start + v.length, end: r.start + v.length }; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
 export const ScrollHandle = { new: () => ({ scroll_to_item(i) { (globalThis.SCROLLS ||= []).push(i); } }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
@@ -67,6 +67,7 @@ const mkcx = () => {
     timer: { after(ms, fn) { (globalThis.TIMERS ||= []).push({ ms, fn }); return { cancel() {} }; } },
     stop_propagation() { (globalThis.STOPS ||= []).push(1); },
     write_to_clipboard(t) { (globalThis.CLIP ||= []).push(t); },
+    read_from_clipboard() { const c = globalThis.CLIP || []; return c.length ? c[c.length - 1] : undefined; },
     spawn(fn) {
       if (!cx.alive) dead("spawn");
       const c = mkcx();
@@ -394,6 +395,165 @@ console.log(JSON.stringify(globalThis.CLIP[1]));'
   [ "${lines[0]}" = '["**Hello**\n\n- a"] m1 1500' ]
   [ "${lines[1]}" = "null" ]
   [ "${lines[2]}" = '"x"' ]
+}
+
+# Right-click menus (ticket #170). The panel's handlers are driven the way herdr drives them: a row or the box
+# names itself on its own right press (pressRight), then the panel root's right press (rootRight) opens the menu at
+# its local position, which is where the pointer is in the panel.
+THEME='{ foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chrome: "#111", raised: "#222", surface: "#111", accent: "#06f", hover: "#222", popover: "#181818", blocked: "#f90", working: "#0f0", done: "#09f", idle: "#888" }'
+
+@test "right-click menu: a message's Copy puts that message's text on the clipboard and shows Copied, and the menu goes" {
+  run panel_js '
+panel.turns = [{ role: "user", text: "Hi", ts: "" }, { role: "assistant", text: "**Hello**\n\n- a", ts: "" }];
+click((cx) => { panel.pressRight({ kind: "message", key: "m1", text: panel.turns[1].text }); panel.rootRight({ button: "right", local_position: { x: 40, y: 90 } }, cx); });
+console.log(JSON.stringify([panel.menu.kind, panel.menu.x, panel.menu.y, panel.menu.items]));
+click((cx) => panel.pickMenu("copy", cx));
+console.log(JSON.stringify([globalThis.CLIP, panel.copied, panel.menu]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '["message",40,90,[{"id":"copy","label":"Copy","enabled":true}]]' ]
+  [ "${lines[1]}" = '[["**Hello**\n\n- a"],"m1",null]' ]
+}
+
+@test "right-click menu: the chat box offers Cut, Copy and Paste; Cut takes the selection out and onto the clipboard" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 0, end: 5 };
+globalThis.CLIP = ["from elsewhere"];
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 40, y: 400 } }, cx); });
+console.log(JSON.stringify(panel.menu.items));
+click((cx) => panel.pickMenu("cut", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP.at(-1), panel.menu]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[{"id":"cut","label":"Cut","enabled":true},{"id":"copy","label":"Copy","enabled":true},{"id":"paste","label":"Paste","enabled":true}]' ]
+  [ "${lines[1]}" = '[" world","hello",null]' ]
+}
+
+@test "right-click menu: a selection that is lost between opening the menu and choosing (the click moved the keyboard) is put back first" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 0, end: 5 };
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+input.sel = { start: 11, end: 11 };
+click((cx) => panel.pickMenu("cut", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[" world",["hello"]]' ]
+}
+
+@test "right-click menu: typing while the menu is open closes it, and a stale choice cuts nothing" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 6, end: 11 };
+const open = () => click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+open();
+input.handlers.change({}, { notify() {} });
+console.log(panel.menu);
+open();
+input.text = "XXXX hello world";
+click((cx) => panel.pickMenu("cut", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP || null]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "null" ]
+  [ "${lines[1]}" = '["XXXX hello world",null]' ]
+}
+
+@test "right-click menu: choosing another agent closes an open menu" {
+  run panel_js '
+click((cx) => { panel.pressRight({ kind: "message", key: "m0", text: "x" }); panel.rootRight({ button: "right", local_position: { x: 1, y: 1 } }, cx); });
+click((cx) => panel.select({ ...agent, address: "t2", name: "Amy" }, cx));
+console.log(panel.menu, panel.rightFor);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "null null" ]
+}
+
+@test "right-click menu: render wires a right press on a row, on the box and on the panel root" {
+  run panel_js '
+panel.turns = [{ role: "assistant", text: "Hello", ts: "" }];
+globalThis.HANDLERS = [];
+click((cx) => panel.render('"$THEME"', {}, cx));
+const hs = globalThis.HANDLERS.filter((a) => a[0] === "right").map((a) => a[1]);
+const kinds = hs.map((h) => {
+  panel.menu = null; panel.rightFor = { kind: "pre" };
+  click((cx) => h({ local_position: { x: 1, y: 1 } }, cx));
+  return panel.menu ? "root:" + panel.menu.kind : panel.rightFor.kind;
+});
+console.log(JSON.stringify(kinds.sort()));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["box","message","root:pre"]' ]
+}
+
+@test "right-click menu: chat box Copy copies the selection and leaves the text alone" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 6, end: 11 };
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+click((cx) => panel.pickMenu("copy", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP, panel.menu]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["hello world",["world"],null]' ]
+}
+
+@test "right-click menu: with no selection Cut and Copy are disabled and do nothing" {
+  run panel_js '
+input.text = "hello"; input.sel = { start: 2, end: 2 };
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+console.log(JSON.stringify(panel.menu.items.map((i) => [i.id, i.enabled])));
+click((cx) => panel.pickMenu("cut", cx));
+click((cx) => panel.pickMenu("copy", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP || null, panel.menu === null]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '[["cut",false],["copy",false],["paste",false]]' ]
+  [ "${lines[1]}" = '["hello",null,false]' ]
+}
+
+@test "right-click menu: Paste puts the clipboard at the cursor, or over the selection, and is disabled when the clipboard is empty" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 5, end: 5 };
+globalThis.CLIP = ["XY"];
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+click((cx) => panel.pickMenu("paste", cx));
+console.log(JSON.stringify([input.text, panel.menu]));
+input.sel = { start: 0, end: 5 };
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+click((cx) => panel.pickMenu("paste", cx));
+console.log(input.text);
+globalThis.CLIP = [];
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+console.log(JSON.stringify(panel.menu.items.map((i) => [i.id, i.enabled])));
+click((cx) => panel.pickMenu("paste", cx));
+console.log(input.text);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '["helloXY world",null]' ]
+  [ "${lines[1]}" = "XYXY world" ]
+  [ "${lines[2]}" = '[["cut",false],["copy",false],["paste",false]]' ]
+  [ "${lines[3]}" = "XYXY world" ]
+}
+
+@test "right-click menu: it closes on Escape and on a press outside it, and a right press on nothing opens none" {
+  run panel_js '
+const open = () => click((cx) => { panel.pressRight({ kind: "message", key: "m0", text: "x" }); panel.rootRight({ button: "right", local_position: { x: 1, y: 1 } }, cx); });
+open(); click((cx) => panel.menuKey({ key: "a", modifiers: {} }, cx)); console.log(panel.menu !== null);
+click((cx) => panel.menuKey({ key: "escape", modifiers: {} }, cx)); console.log(panel.menu === null);
+open(); click((cx) => panel.closeMenu(cx)); console.log(panel.menu === null);
+open(); click((cx) => panel.rootRight({ button: "right", local_position: { x: 9, y: 9 } }, cx)); console.log(panel.menu === null);
+click((cx) => panel.rootRight({ button: "right", local_position: { x: 9, y: 9 } }, cx)); console.log(panel.menu === null);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true" ]
+  [ "${lines[1]}" = "true" ]
+  [ "${lines[2]}" = "true" ]
+  [ "${lines[3]}" = "true" ]
+  [ "${lines[4]}" = "true" ]
+}
+
+@test "right-click menu: the panel draws with either menu open, and closing the chat closes the menu" {
+  run panel_js '
+panel.turns = [{ role: "assistant", text: "Hello", ts: "" }];
+for (const target of [{ kind: "message", key: "m0", text: "Hello" }, { kind: "box" }]) {
+  click((cx) => { panel.pressRight(target); panel.rootRight({ button: "right", local_position: { x: 400, y: 200 } }, cx); });
+  click((cx) => panel.render('"$THEME"', {}, cx));
+}
+console.log(panel.menu.x <= panel.width);
+click((cx) => panel.close(cx));
+console.log(panel.menu);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "true" ]
+  [ "${lines[1]}" = "null" ]
 }
 
 @test "render: a log with Matt's, the agent's, another agent's and a launch turn draws without error" {

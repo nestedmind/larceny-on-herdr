@@ -659,6 +659,21 @@ console.log(closed);'
   [ "$output" = "false" ]
 }
 
+@test "Esc with the office root focused closes an open chat menu first, and leaves the chat open" {
+  run office_js '
+const a = office.crewNow.find((c) => c.name === "sheba");
+office.panel.select(a, cx);
+const root = render();
+let closedPanel = false, stops = 0, menuClosed = false;
+office.panel.close = () => { closedPanel = true; };
+office.panel.menu = { kind: "message", items: [] };
+office.panel.closeMenu = () => { menuClosed = true; office.panel.menu = null; };
+root.node.props.on_key_down[0]({ key: "escape" }, { stop_propagation() { stops++; }, notify() {} });
+console.log(menuClosed, closedPanel, stops);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "true false 1" ]
+}
+
 @test "the full-terminal bar stops a press anywhere on it, so the window cannot be dragged" {
   run office_js '
 globalThis.PROPS = { terminalBar: true, agent: { name: "sheba" } };
