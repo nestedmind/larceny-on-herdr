@@ -437,7 +437,12 @@ export class Panel {
   // `cx.write_to_clipboard`) and the text box's selection and replace (`selected_range`, `replace`). A press goes to
   // the element under the pointer first and then to its parents, so a row or the box says what it is with pressRight,
   // and the panel's root, which is the only element that knows where the pointer is in the panel, opens the menu.
-  pressRight(target) { this.rightFor = target; }
+  // For the box it also keeps the selection as it was at this press: a click on a menu item may move the keyboard
+  // off the box, and Cut and Copy act on what was selected when the menu opened.
+  pressRight(target) {
+    const st = target.kind === "box" && this.agent && this.inputs.get(this.agent.address);
+    this.rightFor = st ? { ...target, sel: st.selected_range() } : target;
+  }
 
   rootRight(e, cx) {
     const target = this.rightFor;
@@ -445,19 +450,18 @@ export class Panel {
     if (!target) { this.closeMenu(cx); return; }
     const p = (e && e.local_position) || { x: 0, y: 0 };
     const box = target.kind === "box";
-    const items = box ? this.boxItems(cx) : [{ id: "copy", label: "Copy", enabled: true }];
+    const items = box ? this.boxItems(target.sel, cx) : [{ id: "copy", label: "Copy", enabled: true }];
     const h = items.length * MENU_ROW + 2 * MENU_PAD + 2;
     // The box is at the bottom of the panel, so its menu opens upward from the pointer; one is kept inside the panel.
     const x = Math.max(0, Math.min(p.x, this.width - MENU_W));
     const y = Math.max(0, box ? p.y - h : p.y);
-    this.menu = { kind: target.kind, key: target.key, text: target.text, x, y, items };
+    this.menu = { kind: target.kind, key: target.key, text: target.text, sel: target.sel, x, y, items };
     cx.notify();
   }
 
   // Cut and Copy need a selection; Paste needs text on the clipboard.
-  boxItems(cx) {
-    const st = this.agent && this.inputs.get(this.agent.address);
-    const r = st ? st.selected_range() : { start: 0, end: 0 };
+  boxItems(r, cx) {
+    r = r || { start: 0, end: 0 };
     const sel = r.end > r.start;
     const clip = !!cx.read_from_clipboard();
     return [{ id: "cut", label: "Cut", enabled: sel }, { id: "copy", label: "Copy", enabled: sel }, { id: "paste", label: "Paste", enabled: clip }];
@@ -483,7 +487,9 @@ export class Panel {
     if (m.kind === "message") { this.copy(m.key, m.text, cx); return; }
     const st = this.agent && this.inputs.get(this.agent.address);
     if (!st) { cx.notify(); return; }
-    const r = st.selected_range();
+    // Put the selection back as it was when the menu opened, then act on it (replace works on the selection).
+    const r = m.sel || st.selected_range();
+    st.set_selected_range(r);
     if (id === "copy" || id === "cut") {
       if (r.end > r.start) {
         cx.write_to_clipboard(st.value().slice(r.start, r.end));

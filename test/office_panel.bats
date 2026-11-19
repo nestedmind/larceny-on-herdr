@@ -26,7 +26,7 @@ JS
   cat > "$d/node_modules/gpui-base/index.js" <<'JS'
 import { div } from "gpui-kit";
 export const v_flex = div, h_flex = div, Textarea = { new: () => div() }, TextView = { markdown: () => div() };
-export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); delete s.sel; }, selected_range: () => s.sel || { start: s.text.length, end: s.text.length }, replace(v) { const r = s.selected_range(); s.text = s.text.slice(0, r.start) + v + s.text.slice(r.end); s.sel = { start: r.start + v.length, end: r.start + v.length }; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
+export const TextareaState = { new: () => { const s = { text: "", sets: [], set_value(v) { s.text = v; s.sets.push(v); delete s.sel; }, set_selected_range(r) { s.sel = r; }, selected_range: () => s.sel || { start: s.text.length, end: s.text.length }, replace(v) { const r = s.selected_range(); s.text = s.text.slice(0, r.start) + v + s.text.slice(r.end); s.sel = { start: r.start + v.length, end: r.start + v.length }; }, value: () => s.text, on(e, h) { (s.handlers ||= {})[e] = h; return true; }, focus() {}, set_soft_wrap() {}, set_auto_grow(a, b) { s.grow = [a, b]; } }; return s; } };
 export const ScrollHandle = { new: () => ({ scroll_to_item(i) { (globalThis.SCROLLS ||= []).push(i); } }) };
 JS
   cat > "$d/node_modules/herdr/index.js" <<'JS'
@@ -425,6 +425,17 @@ console.log(JSON.stringify([input.text, globalThis.CLIP.at(-1), panel.menu]));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = '[{"id":"cut","label":"Cut","enabled":true},{"id":"copy","label":"Copy","enabled":true},{"id":"paste","label":"Paste","enabled":true}]' ]
   [ "${lines[1]}" = '[" world","hello",null]' ]
+}
+
+@test "right-click menu: a selection that is lost between opening the menu and choosing (the click moved the keyboard) is put back first" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 0, end: 5 };
+click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+input.sel = { start: 11, end: 11 };
+click((cx) => panel.pickMenu("cut", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[" world",["hello"]]' ]
 }
 
 @test "right-click menu: chat box Copy copies the selection and leaves the text alone" {
