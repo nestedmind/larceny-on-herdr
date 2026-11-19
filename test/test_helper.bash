@@ -27,3 +27,22 @@ use_fake_hc() {
   : >"$FAKE_HC_LOG"
   PATH="$REPO_ROOT/test/fakes:$PATH"
 }
+
+# Headless Chrome hygiene for the parity tests. Each test gets its own profile folder parent (PARITY_TMP) and a file
+# (PARITY_PIDS) where chrome.mjs records the process group of every Chrome it starts. parity_teardown ends those groups,
+# and only those, if the test left one running (bats interrupted, node killed). It never matches by name.
+parity_setup() {
+  export PARITY_TMP="$BATS_TEST_TMPDIR/parity-tmp" PARITY_PIDS="$BATS_TEST_TMPDIR/parity-pids"
+  mkdir -p "$PARITY_TMP"
+  : >"$PARITY_PIDS"
+}
+
+parity_teardown() {
+  local pid
+  [ -n "${PARITY_PIDS:-}" ] && [ -f "$PARITY_PIDS" ] || return 0
+  while read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    kill -KILL -- "-$pid" 2>/dev/null || true
+  done <"$PARITY_PIDS"
+  [ -n "${PARITY_TMP:-}" ] && rm -rf "$PARITY_TMP"
+}
