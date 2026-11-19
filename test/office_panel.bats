@@ -15,7 +15,7 @@ panel_js() {
   local d="$BATS_TEST_TMPDIR/panel"
   mkdir -p "$d/node_modules/gpui-kit" "$d/node_modules/gpui-base" "$d/node_modules/herdr"
   cat > "$d/node_modules/gpui-kit/index.js" <<'JS'
-const el = () => new Proxy({}, { get: () => () => el() });
+const el = () => new Proxy({}, { get: (_, k) => (...a) => { if (k === "on_mouse_down") (globalThis.HANDLERS ||= []).push(a); return el(); } });
 export const div = el;
 export const svg = () => el();
 export const image = (p) => { (globalThis.IMAGES ||= []).push(p); return el(); };
@@ -436,6 +436,47 @@ click((cx) => panel.pickMenu("cut", cx));
 console.log(JSON.stringify([input.text, globalThis.CLIP]));'
   [ "$status" -eq 0 ]
   [ "$output" = '[" world",["hello"]]' ]
+}
+
+@test "right-click menu: typing while the menu is open closes it, and a stale choice cuts nothing" {
+  run panel_js '
+input.text = "hello world"; input.sel = { start: 6, end: 11 };
+const open = () => click((cx) => { panel.pressRight({ kind: "box" }); panel.rootRight({ button: "right", local_position: { x: 5, y: 400 } }, cx); });
+open();
+input.handlers.change({}, { notify() {} });
+console.log(panel.menu);
+open();
+input.text = "XXXX hello world";
+click((cx) => panel.pickMenu("cut", cx));
+console.log(JSON.stringify([input.text, globalThis.CLIP || null]));'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "null" ]
+  [ "${lines[1]}" = '["XXXX hello world",null]' ]
+}
+
+@test "right-click menu: choosing another agent closes an open menu" {
+  run panel_js '
+click((cx) => { panel.pressRight({ kind: "message", key: "m0", text: "x" }); panel.rootRight({ button: "right", local_position: { x: 1, y: 1 } }, cx); });
+click((cx) => panel.select({ ...agent, address: "t2", name: "Amy" }, cx));
+console.log(panel.menu, panel.rightFor);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "null null" ]
+}
+
+@test "right-click menu: render wires a right press on a row, on the box and on the panel root" {
+  run panel_js '
+panel.turns = [{ role: "assistant", text: "Hello", ts: "" }];
+globalThis.HANDLERS = [];
+click((cx) => panel.render('"$THEME"', {}, cx));
+const hs = globalThis.HANDLERS.filter((a) => a[0] === "right").map((a) => a[1]);
+const kinds = hs.map((h) => {
+  panel.menu = null; panel.rightFor = { kind: "pre" };
+  click((cx) => h({ local_position: { x: 1, y: 1 } }, cx));
+  return panel.menu ? "root:" + panel.menu.kind : panel.rightFor.kind;
+});
+console.log(JSON.stringify(kinds.sort()));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '["box","message","root:pre"]' ]
 }
 
 @test "right-click menu: chat box Copy copies the selection and leaves the text alone" {

@@ -90,6 +90,8 @@ export class Panel {
 
   select(a, cx) {
     if (this.address !== a.address) {
+      this.menu = null;
+      this.rightFor = null;
       this.address = a.address;
       this.turns = [];
       this.pending = [];
@@ -110,6 +112,8 @@ export class Panel {
       st.set_auto_grow(1, 6);
       // Every key in the box counts as Matt typing in herdr: the office seats him at his desk.
       st.on("change", (_e, c) => {
+        // An edit while the menu is open: its saved selection is no longer the box's.
+        if (this.menu && this.menu.kind === "box") { this.menu = null; c.notify(); }
         // Remember the text before a lone newline went in, so Enter's newline can be taken back out.
         const v = st.value(), was = this.last.get(a.address) ?? "";
         // Any other change forgets it: only the very last edit being that newline counts.
@@ -441,7 +445,7 @@ export class Panel {
   // off the box, and Cut and Copy act on what was selected when the menu opened.
   pressRight(target) {
     const st = target.kind === "box" && this.agent && this.inputs.get(this.agent.address);
-    this.rightFor = st ? { ...target, sel: st.selected_range() } : target;
+    this.rightFor = st ? { ...target, sel: st.selected_range(), value: st.value() } : target;
   }
 
   rootRight(e, cx) {
@@ -455,7 +459,7 @@ export class Panel {
     // The box is at the bottom of the panel, so its menu opens upward from the pointer; one is kept inside the panel.
     const x = Math.max(0, Math.min(p.x, this.width - MENU_W));
     const y = Math.max(0, box ? p.y - h : p.y);
-    this.menu = { kind: target.kind, key: target.key, text: target.text, sel: target.sel, x, y, items };
+    this.menu = { kind: target.kind, key: target.key, text: target.text, sel: target.sel, value: target.value, x, y, items };
     cx.notify();
   }
 
@@ -488,6 +492,9 @@ export class Panel {
     const st = this.agent && this.inputs.get(this.agent.address);
     if (!st) { cx.notify(); return; }
     // Put the selection back as it was when the menu opened, then act on it (replace works on the selection).
+    // The saved range is only good for the text it was taken from: if the box changed since (typing while the
+    // menu was open), act on nothing rather than on the wrong span.
+    if (m.value !== undefined && st.value() !== m.value) { cx.notify(); return; }
     const r = m.sel || st.selected_range();
     st.set_selected_range(r);
     if (id === "copy" || id === "cut") {

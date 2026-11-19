@@ -1232,7 +1232,8 @@ export default class CrewOffice extends View {
         if (this.offerKey(e, cx)) { cx.stop_propagation(); return; }
         if ((e.key === "l" || e.key === "L") && !e.modifiers?.control && !e.modifiers?.alt && !e.modifiers?.platform && this.handle.is_focused()) { this.setLights(!this.lights, cx); cx.stop_propagation(); return; }
         if ((e.key === "c" || e.key === "C") && !e.modifiers?.control && !e.modifiers?.alt && !e.modifiers?.platform && this.handle.is_focused()) { this.setChime(!this.chime, cx); cx.stop_propagation(); return; }
-        if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
+        if (e.key === "escape" && this.panel.menu) { this.panel.closeMenu(cx); cx.stop_propagation(); }
+        else if (e.key === "escape" && this.fs) { this.leaveFullscreen(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && view.zoomed && view.mine) { run("pane.zoom", { pane: view.mine }); cx.stop_propagation(); }
         else if (e.key === "escape" && this.chat) { this.closeChat(cx); cx.stop_propagation(); }
         else if (e.key === "escape" && this.panel.open) { this.panel.close(cx); cx.stop_propagation(); }
