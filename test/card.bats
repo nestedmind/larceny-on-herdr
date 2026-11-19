@@ -137,3 +137,24 @@ setup() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"place"* && "$stderr" == *"meeting"* ]]
 }
+
+@test "card matt=out and matt= set and clear the away label; other values are refused" {
+  run "$LOH" card matt=out
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tmatt=out' ]
+  : > "$FAKE_HC_LOG"
+  run "$LOH" card matt=
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HC_LOG")" = $'label\tt9\tmatt=' ]
+  : > "$FAKE_HC_LOG"
+  run --separate-stderr "$LOH" card matt=away
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"matt is out"* ]]
+  [ ! -s "$FAKE_HC_LOG" ]
+}
+
+@test "card help documents matt=out" {
+  run --separate-stderr "$LOH" card
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"matt=out"* ]]
+}

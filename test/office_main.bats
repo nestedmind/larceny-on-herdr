@@ -1817,3 +1817,24 @@ console.log(pieces(render()).length, office.bursts.length);'
   [ "$status" -eq 0 ]
   [ "$output" = "40 1" ]
 }
+
+@test "matt=out through the office: out at the entrance; a sign sends loh back once; the coordinator clearing it seats him at his desk" {
+  run office_js '
+const backs = [];
+globalThis.EXEC_HOOK = (c, a) => { if (a[0] === "back") { backs.push(a.join(" ")); return Promise.resolve({ code: 0 }); } return new Promise(() => {}); };
+const matt = () => office.layoutNow.people.find((p) => p.id === "matt");
+const out = [];
+terms().find((t) => t.name === "scofield").labels.matt = "out";
+later(5000); render(); out.push(matt().place);
+later(5000); render(); out.push(matt().place, backs.length);
+office.typed(null); later(1000); render(); render(); out.push(matt().place, backs.join("|"));
+delete terms().find((t) => t.name === "scofield").labels.matt;
+later(3600000); render(); out.push(matt().place);
+terms().find((t) => t.name === "scofield").labels.matt = "out";
+later(1000); render(); out.push(matt().place);
+delete terms().find((t) => t.name === "scofield").labels.matt;
+later(7200000); render(); out.push(matt().place);
+console.log(out.join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "entrance entrance 0 matt back scofield matt entrance matt" ]
+}

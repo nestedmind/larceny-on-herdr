@@ -37,6 +37,7 @@ Paths are in larceny 0.1.5, commit 03a9bfc. Where one of these says to use `Agen
 | `loh wake [--timeout S]` | Run it in the background. Exits when a coder's turn ends, blocks, ends its terminal or changes its note, when a `loh say --queue` of yours fails, or when a review lands or a PR's head, mergeability or state changes in a workspace repo. Prints one line per change; at the timeout (default 900) prints `timeout after <S>s` |
 | `loh release <coder> [--force]` | Archives the coder's transcript into `.loh/transcripts/`, then ends it. Refuses a non-coder, and a working coder without `--force` |
 | `loh down [--all]` | Default: archives the transcript of, and kills, every coder of this crew, working or not. `--all`: kills every terminal with this crew label, standing agents included. Use it to stop the round, never to clear finished coders |
+| `loh card matt=out` / `matt=` | The coordinator says Matt is away (a Discord message, "going out") or back. The office shows him walking out of, and into, the entrance. `loh back <name>` clears it on an agent; the office runs it |
 | `loh office lights [on\|off]` | Switches the office lights, as the office's own button does: the open office follows within about 5 s, and the last choice, from here or from the button, wins. With no argument prints `on` or `off`: what an open office last reported, else the last choice made here. Needs no herdr-app |
 | `loh chime [on\|off]` | Switches the sound `loh watch` makes with each notification, or with no argument prints `on` or `off`. Takes effect at once: `loh watch` reads `.loh/chime` at every notice. The office's Chime button does the same |
 
@@ -129,6 +130,10 @@ Every agent does this, Maya and Opemipo included, whatever channel Matt asks in 
 - `loh card` refuses any other room. Then tell Matt which rooms exist.
 
 Meetings: when Matt says "let's meet", "let's collaborate" or "let's sync" in the meeting room, run `loh card meeting=1`. Matt sits there with you. A new prompt does not clear it. When Matt names several agents in one ask, also run `hc label <name> meeting=1` for each one he named. When he says "meeting's over" or "back to your desk", run `loh card meeting=` and `hc label <name> meeting=` for each other agent in the meeting. "<name>, you can go" clears that one agent only. Starting a named agent who has no session needs ticket #48 and is not part of this.
+
+## Matt away
+
+The office cannot see Discord, so the coordinator says when Matt is away. When Matt writes to you on Discord, or says he is away ("I'm not at my desk", "going out"), run `loh card matt=out`: in the office he walks out of the entrance, and his chair is empty with the monitors off. Run `loh card matt=` when he writes to you in the terminal, or says he is back ("I'm at my desk", "back"). The office clears the label itself (`loh back`) at its own signs of him: a key in its message box, a click on a person, focus moving onto a terminal he opened from it. A Discord message from his desk is then undone by his next sign in herdr. By convention only the coordinator sets it.
 
 ## Safety
 

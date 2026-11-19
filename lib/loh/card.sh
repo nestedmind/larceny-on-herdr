@@ -2,7 +2,7 @@
 # loh card k=v...: set fields on this agent's own status card.
 #
 # A card is a set of labels on the agent's herdr terminal (`hc label`). Agents
-# may set only step, pr, round, note, place and meeting. An empty value
+# may set only step, pr, round, note, place, meeting and matt. An empty value
 # (`note=`) removes the field. The hooks in hooks/status-card.sh write step and
 # pr on their own, and clear place when the next turn starts.
 # shellcheck source=lib/loh/common.sh
@@ -11,12 +11,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 card_usage() {
   cat >&2 <<'EOF'
 Usage: loh card <key>=<value>...
-Keys: step, pr, round, note, place, meeting. An empty value removes the field.
+Keys: step, pr, round, note, place, meeting, matt. An empty value removes the field.
   place=<room>  go to a room and stay until your next prompt starts a turn.
                 Rooms: lounge, kitchen, ping pong, rest room, meeting room, desk
                 (desk: back to your seat, kept until the idle time runs out).
   meeting=1     sit in the meeting room, with Matt, until you clear it
                 (meeting=). A new prompt does not clear it.
+  matt=out      the coordinator sets it when Matt is away (he writes on Discord,
+                or says he is going out): in the office he walks out of the
+                entrance. Clear it (matt=) when he is back; the office clears
+                it too at its own sign of him.
 EOF
 }
 
@@ -74,12 +78,18 @@ for arg in "$@"; do
         exit 2
       }
       ;;
+    matt)
+      [[ -z "$value" || "$value" == out ]] || {
+        echo "loh: card: matt is out (Matt is away) or empty (Matt is back), got: $value" >&2
+        exit 2
+      }
+      ;;
     with_matt | crew | role | task | ctx)
       echo "loh: card: $key is set by loh and cannot be changed here" >&2
       exit 2
       ;;
     *)
-      echo "loh: card: unknown field: $key (allowed: step, pr, round, note, place, meeting)" >&2
+      echo "loh: card: unknown field: $key (allowed: step, pr, round, note, place, meeting, matt)" >&2
       exit 2
       ;;
   esac
