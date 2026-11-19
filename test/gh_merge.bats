@@ -19,17 +19,31 @@ setup() {
   add_terminal mahone t10 '{"crew":"sandbox","role":"coder","task":"web#1","pr":"7"}' idle
 }
 
+# A fake gh that answers `pr view` with $FAKE_PR_STATE (default MERGED) and logs every call.
+fake_state_gh() {
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$FAKE_GH_LOG"\nif [[ "$1 $2" == "pr view" ]]; then printf "%%s\\n" "${FAKE_PR_STATE:-MERGED}"; fi\n' >"$BATS_TEST_TMPDIR/bin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+}
+
 @test "a merge made through loh gh flips the labels of the coder whose pr it was" {
+  fake_state_gh
   run "$LOH" gh scofield pr merge 7 -R o/api --squash
   [ "$status" -eq 0 ]
-  [ "$output" = "fake gh ran" ]
   grep -qx $'label\tt9\tpr=\tprdone=1\tprstate=merged' "$FAKE_HC_LOG"
 }
 
 @test "another repo's coder with the same pr number is not touched" {
+  fake_state_gh
   run "$LOH" gh scofield pr merge 7 -R o/api
   [ "$(grep -c '^label' "$FAKE_HC_LOG")" -eq 1 ]
   ! grep -q $'^label\tt10' "$FAKE_HC_LOG"
+}
+
+@test "a merge that leaves the pr open (--auto, a merge queue) changes no label" {
+  fake_state_gh
+  FAKE_PR_STATE=OPEN run "$LOH" gh scofield pr merge 7 -R o/api --auto --squash
+  [ "$status" -eq 0 ]
+  ! grep -q '^label' "$FAKE_HC_LOG"
 }
 
 @test "a failed merge changes no label and keeps gh's exit status" {
@@ -46,6 +60,7 @@ setup() {
 }
 
 @test "a merge in a repo the crew does not list changes no label" {
+  fake_state_gh
   run "$LOH" gh scofield pr merge 7 -R o/other
   [ "$status" -eq 0 ]
   ! grep -q '^label' "$FAKE_HC_LOG"

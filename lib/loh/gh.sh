@@ -59,7 +59,7 @@ loh_gh_main() {
   exit "$rc"
 }
 
-# merged_flip <gh args>: after a successful `pr merge <n> -R <repo>`, have loh
+# merged_flip <gh args>: after a successful `pr merge <n> -R <repo>` that GitHub reports MERGED, have loh
 # status flip the labels of the crew coder whose pr it was. Only a numeric pr and
 # an explicit repo are understood; anything else is left to the coder's own hook
 # and to `loh status --prs`. Never fails the merge: its output is discarded.
@@ -79,6 +79,8 @@ merged_flip() {
     esac
   done
   [[ -n "$repo" && -n "${LOH_ROOT:-}" && -x "$LOH_ROOT/bin/loh" ]] || return 0
+  # A zero exit is not a merge: --auto, --disable-auto and a merge queue exit 0 with the PR still open.
+  [[ "$(gh pr view "$n" -R "$repo" --json state --jq .state 2>/dev/null)" == MERGED ]] || return 0
   "$LOH_ROOT/bin/loh" status --merged "$n" "$repo" >/dev/null 2>&1 || true
 }
 
