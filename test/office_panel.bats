@@ -407,11 +407,34 @@ THEME='{ foreground: "#fff", muted: "#999", border: "#333", canvas: "#000", chro
 panel.turns = [{ role: "user", text: "Hi", ts: "" }, { role: "assistant", text: "**Hello**\n\n- a", ts: "" }];
 click((cx) => { panel.pressRight({ kind: "message", key: "m1", text: panel.turns[1].text }); panel.rootRight({ button: "right", local_position: { x: 40, y: 90 } }, cx); });
 console.log(JSON.stringify([panel.menu.kind, panel.menu.x, panel.menu.y, panel.menu.items]));
+globalThis.window = { dispatch_action(n) { (globalThis.ACTIONS ||= []).push(n); } };
 click((cx) => panel.pickMenu("copy", cx));
-console.log(JSON.stringify([globalThis.CLIP, panel.copied, panel.menu]));'
+console.log(JSON.stringify([globalThis.ACTIONS, globalThis.CLIP || null, panel.copied, panel.menu]));'
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = '["message",40,90,[{"id":"copy","label":"Copy","enabled":true}]]' ]
-  [ "${lines[1]}" = '[["**Hello**\n\n- a"],"m1",null]' ]
+  [ "${lines[1]}" = '[["shell_root::Copy"],null,null,null]' ]
+}
+
+@test "right-click menu: the log's Copy asks the host to copy the highlight and leaves the clipboard alone" {
+  run panel_js '
+panel.turns = [{ role: "assistant", text: "Hello there", ts: "" }];
+globalThis.CLIP = ["kept"];
+globalThis.window = { dispatch_action(n) { (globalThis.ACTIONS ||= []).push(n); } };
+click((cx) => { panel.pressRight({ kind: "message", key: "m0", text: "Hello there" }); panel.rootRight({ button: "right", local_position: { x: 1, y: 1 } }, cx); });
+click((cx) => panel.pickMenu("copy", cx));
+console.log(JSON.stringify([globalThis.ACTIONS, globalThis.CLIP]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["shell_root::Copy"],["kept"]]' ]
+}
+
+@test "right-click menu: if the host refuses the copy action, the log's Copy copies the whole message" {
+  run panel_js '
+globalThis.window = { dispatch_action() { throw new Error("unknown action"); } };
+click((cx) => { panel.pressRight({ kind: "message", key: "m0", text: "Hello there" }); panel.rootRight({ button: "right", local_position: { x: 1, y: 1 } }, cx); });
+click((cx) => panel.pickMenu("copy", cx));
+console.log(JSON.stringify([globalThis.CLIP, panel.copied]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = '[["Hello there"],"m0"]' ]
 }
 
 @test "right-click menu: the chat box offers Cut, Copy and Paste; Cut takes the selection out and onto the clipboard" {
