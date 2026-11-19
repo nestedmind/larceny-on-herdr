@@ -1722,7 +1722,7 @@ console.log([
   [ "$output" = 'false true null null null null {"cmd":"/x/loh","args":["chime","off"],"options":{"cwd":"/ws","timeout":5000}} {"cmd":"loh","args":["chime","on"],"options":{"timeout":5000}}' ]
 }
 
-@test "the Chime button shows the state, and a click runs loh chime on|off, and C does the same" {
+@test "the Chime button names its action, and a click runs loh chime on|off, and C does the same" {
   run office_js "$lights_ping"'
 const calls = [];
 const hook = globalThis.EXEC_HOOK;
@@ -1737,10 +1737,10 @@ find(render(), "root").props.on_key_down[0]({ key: "c", modifiers: {} }, { stop_
 await Promise.resolve();
 console.log(a, "/", b.join("/"), "/", office.chime, "/", calls.join("|"));'
   [ "$status" -eq 0 ]
-  [ "$output" = "🔊 Chime on / false/🔇 Chime off / true / chime off@/ws/scofield|chime on@/ws/scofield" ]
+  [ "$output" = "🔇 Chime off / false/🔊 Chime on / true / chime off@/ws/scofield|chime on@/ws/scofield" ]
 }
 
-@test "the ping's chime line sets what the button shows, so a terminal change shows within one ping" {
+@test "the ping's chime line sets which action the button names, so a terminal change shows within one ping" {
   run office_js "$lights_ping"'
 const label = () => find(render(), "chime").kids.join("");
 const seen = [label()];
@@ -1749,7 +1749,7 @@ answer.out = "lights on 5\nchime on\n"; await ping(); seen.push(label());
 answer.out = "junk"; await ping(); seen.push(label());
 console.log(seen.join("|"));'
   [ "$status" -eq 0 ]
-  [ "$output" = "🔊 Chime on|🔇 Chime off|🔊 Chime on|🔊 Chime on" ]
+  [ "$output" = "🔇 Chime off|🔊 Chime on|🔇 Chime off|🔇 Chime off" ]
 }
 
 @test "a ping that was already out when the button was pressed does not undo the press" {

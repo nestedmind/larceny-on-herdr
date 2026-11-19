@@ -908,7 +908,7 @@ export default class CrewOffice extends View {
       .child(div().flex_1())
       .when(!!this.chat && !view.zoomed, (el) => el.child(div().text_size(12).text_color(t.muted).child(`Chat: ${this.chat.name}`)))
       .child(button("lights", this.lights ? "Lights off" : "Lights on", (_e, cx) => this.setLights(!this.lights, cx)))
-      .child(button("chime", this.chime ? "🔊 Chime on" : "🔇 Chime off", (_e, cx) => this.setChime(!this.chime, cx)))
+      .child(button("chime", this.chime ? "🔇 Chime off" : "🔊 Chime on", (_e, cx) => this.setChime(!this.chime, cx)))
       .child(button("fullscreen", this.fs ? "Exit full screen (Esc)" : "Full screen", (_e, cx) => (this.fs ? this.leaveFullscreen(cx) : this.enterFullscreen(view, cx))))
       .when(!!this.chat && !view.zoomed, (el) => el.child(button("close-chat", "Close chat", (_e, cx) => this.closeChat(cx))));
   }
