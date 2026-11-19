@@ -181,6 +181,8 @@ export function crewOf(terminals, workspace) {
       place: PLACES.includes(l.place) ? l.place : "",
       // In a meeting with Matt (`loh card meeting=1`), until the label is cleared.
       meeting: l.meeting === "1",
+      // `loh card matt=out`: the coordinator says Matt is away.
+      matt: l.matt === "out" ? "out" : "",
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.address.localeCompare(b.address, undefined, { numeric: true }));
@@ -193,6 +195,21 @@ export function crewOf(terminals, workspace) {
  */
 export function lockCall(agent, loh) {
   return { cmd: loh || "loh", args: ["lock", agent.rawName], options: { cwd: agent.cwd || undefined, timeout: 5000 } };
+}
+
+/** Whether any agent says Matt is away (matt=out on its card). */
+export function mattOutOf(crew) {
+  return crew.some((a) => a.matt === "out");
+}
+
+/** The command that clears matt=out on an agent (loh back), run in that agent's folder: the office saw a sign of Matt. */
+export function backCall(agent, loh) {
+  return { cmd: loh || "loh", args: ["back", agent.rawName], options: { cwd: agent.cwd || undefined, timeout: 5000 } };
+}
+
+/** Whether Matt is out of sight: away, and at rest at the entrance (`rest` says he is not walking). */
+export function hiddenAt(p, rest) {
+  return !!p.out && !!rest;
 }
 
 /** The command that releases the lock when the chat closes. Same folder and name rules as lockCall. */
@@ -557,6 +574,8 @@ export function worldFor(repoNames = [], aspect = 0, names = null) {
     corr: { y: topH, h: corrH },
     // The entrance in the outer left wall: its mat, the light over it and the gap in the wall,
     // all centred on the corridor.
+    // `door`: where Matt stands when he has left, and where Waffles waits for him, just inside the gap.
+    door: { x: 6, y: topH + corrH / 2 },
     entrance: { y: topH + (corrH - 24) / 2, h: 24, light: { y: topH + corrH / 2 - 4, h: 8 }, gap: { y0: topH + (corrH - 24) / 2 - 2, y1: topH + (corrH + 24) / 2 + 2 } },
     bed: at(room("lounge"), 196 + 88, 270),
     meetSeats: { yoda: seat("yoda", 20, "e"), sara: seat("sara", 70, "w") },
@@ -1241,9 +1260,11 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // Seated at his desk while a sign is recent (3 minutes); his hands type only for the first part of it (`mattTyping`). With only
   // `mattTyping` given, he is seated for as long as he types.
   // While any agent is in a meeting he sits in the meeting room with them, whatever his typing says.
-  const meeting = people.some((p) => p.mode === "meeting");
-  const seated = !meeting && (opts.mattSeated !== undefined ? !!opts.mattSeated : !!opts.mattTyping);
-  matt.state = meeting ? "meeting" : seated ? "matt" : "away";
+  const out = !!opts.mattOut;
+  const meeting = !out && people.some((p) => p.mode === "meeting");
+  const seated = !out && !meeting && (opts.mattSeated !== undefined ? !!opts.mattSeated : !!opts.mattTyping);
+  matt.state = out ? "out" : meeting ? "meeting" : seated ? "matt" : "away";
+  matt.out = out;
   matt.typing = seated && !!opts.mattTyping;
 
   // Who is at ping pong now, for the waiting coder who goes there sooner when someone plays alone.
@@ -1256,7 +1277,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   for (const p of people) {
     if (p.id === "dog") continue;
     if (p.id === "matt") {
-      if (meeting) need(p, ["meeting"]);
+      if (out) { p.x = world.door.x; p.y = world.door.y; p.face = "w"; p.place = "entrance"; }
+      else if (meeting) need(p, ["meeting"]);
       else if (seated) { p.x = world.mattDesk.seat.x; p.y = world.mattDesk.seat.y; p.face = "n"; p.place = "matt"; p.desk = "matt"; } else need(p, AWAY);
       continue;
     }
@@ -1354,8 +1376,9 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // Matt's room, the kitchen and the lounge are where she walks to now and then; a blocked agent wins over a walk.
   const dog = by("dog");
   const ms = world.mattDesk.seat, kit = spots.kitchen[4], lng = spots.lounge[7];
-  const walk = dogWalk(mem, now, rand, wakes, [{ x: ms.x + 11, y: ms.y + 5, dir: -1 }, { x: kit.x + 8, y: kit.y + 4, dir: 1 }, { x: lng.x + 8, y: lng.y + 6, dir: 1 }]);
-  if (people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = matt.x + 11; dog.y = matt.y + 5; dog.dir = -1; }
+  const walk = out ? null : dogWalk(mem, now, rand, wakes, [{ x: ms.x + 11, y: ms.y + 5, dir: -1 }, { x: kit.x + 8, y: kit.y + 4, dir: 1 }, { x: lng.x + 8, y: lng.y + 6, dir: 1 }]);
+  if (out && people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = world.door.x + 14; dog.y = world.door.y; dog.dir = -1; }
+  else if (people.some((p) => p.state === "blocked")) { dog.state = "sit"; dog.x = matt.x + 11; dog.y = matt.y + 5; dog.dir = -1; }
   else if (walk) { dog.state = "sit"; dog.x = walk.x; dog.y = walk.y; dog.dir = walk.dir; }
   else { dog.state = "sleep"; dog.x = world.bed.x; dog.y = world.bed.y; }
   dog.place = "dog";
@@ -1373,7 +1396,7 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     if (p.place !== "desk") { screens[p.desk] = "dim"; continue; }
     screens[p.desk] = p.state === "working" ? "work" : p.state === "blocked" ? (p.kind === "permission" ? "perm" : p.kind === "question" ? "q" : "esc") : "dim";
   }
-  screens.matt = seated ? "work" : "dim";
+  screens.matt = out ? "off" : seated ? "work" : "dim";
   for (const p of people) if (p.id !== "matt") p.typing = p.state === "working" && p.place === "desk";
 
   const rally = people.filter((p) => p.spot === "pong:0" || p.spot === "pong:1").length === 2;

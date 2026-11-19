@@ -583,8 +583,9 @@ export function wallScreen(world) {
 // ---------- the moving parts ----------
 
 const blink = (el) => el.loop("opacity", { from: 0.35, to: 0.95, period: 1000 });
-/** The lit strip on a desk's monitor. `s` is work, perm, q, esc or dim. */
+/** The lit strip on a desk's monitor. `s` is work, perm, q, esc, dim or off (nothing lit). */
 export function glow(d, s, k) {
+  if (s === "off") return [];
   const col = s === "work" ? PAL.work : s === "dim" ? PAL.screen : PAL[s];
   const y = d.side === "n" ? d.y + d.h - 6.6 : d.y + 5;
   const g = new Layer(k, d.cx - 6.5, y, 13, 1.6, s === "dim" ? "e6" : "f2").rr(d.cx - 6.5, y, 13, 1.6, 0.8, col);

@@ -11,6 +11,7 @@ setup() {
   add_terminal sucre t9 '{"crew":"sandbox","role":"coder","task":"api#3"}'
   add_terminal locked t10 '{"crew":"sandbox","role":"coder","with_matt":"1"}'
   add_terminal other t11 '{"crew":"elsewhere","role":"coder"}'
+  add_terminal away t13 '{"crew":"sandbox","role":"coordinator","matt":"out"}'
   add_terminal plain t12 '{"role":"coder"}'
 }
 
@@ -160,4 +161,19 @@ app_log() { cat "$FAKE_APP_LOG"; }
   run bash -c 'set -euo pipefail; source "$1/lib/loh/lock.sh"; declare -F set_lock' _ "$REPO_ROOT"
   [ "$status" -eq 0 ]
   [ "$output" = "set_lock" ]
+}
+
+@test "back removes the matt label from a crew agent that has it" {
+  run "$LOH" back away
+  [ "$status" -eq 0 ]
+  grep -qx $'label\taway\tmatt=' "$FAKE_HC_LOG"
+}
+
+@test "back on an agent that does not say Matt is out changes nothing; another crew is refused" {
+  run "$LOH" back sucre
+  [ "$status" -eq 0 ]
+  ! grep -q '^label' "$FAKE_HC_LOG"
+  run "$LOH" back other
+  [ "$status" -eq 1 ]
+  ! grep -q '^label' "$FAKE_HC_LOG"
 }

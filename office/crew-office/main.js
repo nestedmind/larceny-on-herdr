@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir } from "./crew.js";
+import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir, mattOutOf, backCall, hiddenAt } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, confettiEls, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -151,6 +151,9 @@ export default class CrewOffice extends View {
     this.toastH = new Map();
     this.pingAt = 0;
     this.mattLast = 0;
+    // matt=out: when the office first saw it (a sign of Matt after that brings him back), and whether `loh back` was sent for it.
+    this.outSince = 0;
+    this.backSent = false;
     this.lastFocus = null;
     // The one timer that renders again when time alone changes something (an idle time ends, a wait ends): { at, task }.
     this.wake = null;
@@ -310,13 +313,21 @@ export default class CrewOffice extends View {
     });
   }
 
+  // Clear matt=out on every agent that says it, in the background: it is only the label, the office already shows him back.
+  sendBack(crew) {
+    for (const a of crew.filter((x) => x.matt === "out")) {
+      const c = backCall(a, (props() || {}).loh);
+      try { exec(c.cmd, c.args, c.options).catch(() => { this.backSent = false; }); } catch (_) { this.backSent = false; }
+    }
+  }
+
   // Matt typed in the office's message box: his hands type for TYPING_HOLD from now, and he stays at his desk for
   // MATT_SEAT_HOLD. The render that finds him still there after that sends him away (see wakeIn).
   typed(cx) {
     const was = mattTypingAt(Date.now(), this.mattLast);
     this.mattLast = Date.now();
     // A key while his hands already type changes nothing on screen: render only when they start.
-    if (cx && !was) cx.notify();
+    if (cx && (!was || this.outSince)) cx.notify();
   }
 
   // Render again in `ms`, once: the earliest wish wins. Time alone changes things (an idle time ends, a wait for a review
@@ -999,9 +1010,21 @@ export default class CrewOffice extends View {
     const here = focus && focus.terminal ? focus.terminal : null;
     if (focusArrived(here, this.lastFocus, this.openTerminals())) this.mattLast = now;
     this.lastFocus = here;
+    // Matt is out while a card says matt=out, until a sign of him comes after the office first saw it. The sign clears the label
+    // too (loh back), so the next matt=out, set while he is at his desk, is seen as new.
+    let mattOut = mattOutOf(crew);
+    if (!mattOut) { this.outSince = 0; this.backSent = false; }
+    else {
+      if (!this.outSince) this.outSince = now;
+      if (this.mattLast > this.outSince) {
+        mattOut = false;
+        if (!this.backSent) { this.backSent = true; this.sendBack(crew); }
+      }
+    }
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
       mem: this.mem, now, names: this.names, rand: this.random(),
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),
+      mattOut,
       mattSeated: mattSeatedAt(now, this.mattLast),
       mattTyping: mattTypingAt(now, this.mattLast),
     });
@@ -1089,11 +1112,11 @@ export default class CrewOffice extends View {
     this.screensNow = seen;
     for (const d of L.desks) {
       const s = seen[d.key];
-      if (s) { screens.push([d, s]); if (s !== "dim") lit.push([d, s]); }
+      if (s) { screens.push([d, s]); if (s !== "dim" && s !== "off") lit.push([d, s]); }
     }
     for (const dx of [-9, 9]) {
       const d = { cx: L.mattDesk.cx + dx, y: L.mattDesk.y, h: L.mattDesk.h, side: "s" };
-      screens.push([d, seen.matt]); if (seen.matt !== "dim") lit.push([d, seen.matt]);
+      screens.push([d, seen.matt]); if (seen.matt !== "dim" && seen.matt !== "off") lit.push([d, seen.matt]);
     }
     const glows = screens.flatMap(([d, s]) => glow(d, s, k));
     // The desk of someone Matt is talking to gets an accent strip.
@@ -1119,7 +1142,9 @@ export default class CrewOffice extends View {
     const figures = order.map((p) => {
       const m = mo.get(p.id);
       const look = looks.get(p.id);
-      const kids = p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls({ ...p, mug: look.mug, paddle: look.paddle }, k, m.face, m.walking, L, m.rest);
+      // Matt, out and at rest at the entrance, has left the floor.
+      const gone = p.id === "matt" && hiddenAt(p, m.rest && !m.walking);
+      const kids = gone ? [] : p.id === "dog" ? dogEls(p, k, m.walking, m.face) : personEls({ ...p, mug: look.mug, paddle: look.paddle }, k, m.face, m.walking, L, m.rest);
       const clickable = !!p.agent || (!p.running && p.id !== "matt" && p.id !== "dog");
       return mover("m-" + p.id, m.from, m.chain, k, m.walking, figureBox(p.id, k, kids));
     });
@@ -1147,7 +1172,7 @@ export default class CrewOffice extends View {
       // Where the tag's corner is from the person, in px.
       const off = s.m.walking ? { x: -s.w / 2, y: u(9) } : { x: s.x - u(s.m.x), y: Math.max(u(2), tops.get(s.id)) - u(s.m.y) };
       const slide = this.anim ? TAG_SLIDE : { duration: 1 };
-      const body = s.p.agent ? this.tag(s.p, off.x, off.y, s.w, F, t, slide) : this.chip(s.p, off.x, off.y, slide);
+      const body = s.p.id === "matt" && hiddenAt(s.p, s.m.rest && !s.m.walking) ? div() : s.p.agent ? this.tag(s.p, off.x, off.y, s.w, F, t, slide) : this.chip(s.p, off.x, off.y, slide);
       return mover("tm-" + s.id, s.m.from, s.m.chain, k, s.m.walking, body);
     });
     // The night layers are built once for a set of lit screens, a little at a time like the floor. A
