@@ -1226,7 +1226,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       if (!p || !sleeper(p) || turn(p) !== n.turn) mem.nap.delete(id);
       else if (now - n.since >= NAP_MAX_MS) { mem.nap.delete(id); mem.napped.set(id, { turn: n.turn, at: now }); }
     }
-    for (const [id, n] of [...mem.napped]) { const p = by(id); if (!p || !sleeper(p) || turn(p) !== n.turn) mem.napped.delete(id); }
+    // kept through a meeting or a room Matt chose (no turn): the 60 minutes after waking go on, and only a new turn restarts them
+    for (const [id, n] of [...mem.napped]) { const p = by(id); if (!p || turn(p) !== n.turn) mem.napped.delete(id); }
     const fixed = people.filter((p) => p.agent && (p.mode === "go:rest" || p.mode === "rest")).length;
     // Compaction, a clear and a sent agent always get a bed: the napper who lay down last gets up and goes to its usual place.
     const byLatest = [...mem.nap].sort((a, b) => b[1].since - a[1].since || (a[0] < b[0] ? 1 : -1));

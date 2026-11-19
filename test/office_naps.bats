@@ -251,3 +251,26 @@ console.log(a.people.find((p) => p.id === "yoda").place, place(b, "yoda"), place
   [ "$status" -eq 0 ]
   [ "$output" = "rest meeting lounge rest" ]
 }
+
+@test "no session, one person: wakes at 90 minutes, sleeps again 60 minutes later (and not before)" {
+  run crew_js "$HELPERS"'
+draw(0, [mk("yoda", "working")]); draw(10, idle(["yoda"])); draw(20, []);
+const t = 10 + HOUR;
+const at = (s) => (place(draw(s, []), "yoda") === "rest" ? "rest" : "up"); // Yoda wanders when awake
+console.log([at(t - 1), at(t), at(t + 90 * MIN - 1), at(t + 90 * MIN), at(t + 150 * MIN - 1), at(t + 150 * MIN), at(t + 240 * MIN)].join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "up,rest,rest,up,up,rest,up" ]
+}
+
+@test "woken from a nap, a short meeting with no turn does not bring the second nap forward" {
+  run crew_js "$HELPERS"'
+start(["amy"]); draw(10, idle(["amy"]));
+const t = 10 + HOUR;
+draw(t, idle(["amy"]));
+draw(t + 90 * MIN, idle(["amy"])); // awake
+const m = draw(t + 100 * MIN, [mk("amy", "idle", {meeting: "1"})]);
+const a = draw(t + 110 * MIN, idle(["amy"])), b = draw(t + 150 * MIN - 1, idle(["amy"])), c = draw(t + 150 * MIN, idle(["amy"]));
+console.log([m, a, b, c].map((L) => place(L, "amy")).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "meeting,lounge,lounge,rest" ]
+}
