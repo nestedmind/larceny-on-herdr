@@ -869,11 +869,11 @@ export const PONG_LONE = 2000;
 // After a clear, someone rests this long (zz) and then goes to the lounge.
 export const REST_MS = 4000;
 
-// Naps (ticket #152): someone idle this long since their last turn lies down in the rest room, for at most NAP_MAX_MS.
+// Naps (ticket #167): anyone idle this long since their last turn lies down in the rest room, for at most NAP_MAX_MS.
 export const NAP_AFTER_MS = 60 * 60 * 1000;
 export const NAP_MAX_MS = 90 * 60 * 1000;
-/** The rest room has this many beds; at most NAP_BEDS - 1 are taken by naps, so compaction always finds one. */
-export const NAP_BEDS = 4;
+/** At most this many sleep at once; compaction, a clear and a sent agent count toward it, and are never bumped by a nap. */
+export const NAP_BEDS = 3;
 
 /** The idle time in ms from a setting in minutes (a number or a numeric string). Anything else gives IDLE_MS. */
 export function idleMsOf(minutes) {
@@ -1057,10 +1057,11 @@ const KITCHEN = ["kitchen", "lounge"];
  *    about 15 s (2 s when someone plays alone); one that has escalated (its note starts with "escalation:", set by `loh card`) is at ping pong at once;
  *  - compacting (label ctx=compact) or clearing (ctx=clear): the rest room, zz; a compaction ends at the desk, a
  *    clear ends in the lounge after REST_MS;
- *  - idle for NAP_AFTER_MS (an hour) since the last turn: the rest room, zz, for at most NAP_MAX_MS; never a coder with a
- *    ticket, never in a meeting, at most NAP_BEDS - 1 at once (the longest idle first), none again before the next turn;
- *  - a coder whose pull request it just saw merge (the pr label gone, prstate=merged): the rest room, zz, for REST_MS after
- *    its turn ends, then its usual place; its desk is free as soon as the pr label is gone;
+ *  - idle for NAP_AFTER_MS (an hour) since the last turn, anyone with a session (a coder with a ticket too): the rest room,
+ *    zz, for at most NAP_MAX_MS; never in a meeting or a room Matt chose, at most NAP_BEDS at once together with compaction,
+ *    clear and sent agents (first to reach the hour first), none again before the next turn;
+ *  - a coder whose pull request it just saw merge (the pr label gone, prstate=merged): its usual idle place (lounge or
+ *    kitchen) once its turn ends, never the rest room; its desk is free as soon as the pr label is gone;
  *  - no session: the lounge;
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
@@ -1126,8 +1127,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     p.recent = p.idleFor < idleMs;
   }
 
-  // A merge seen: a coder whose pr label was there at the last render and is gone, with the pull request merged. It rests in
-  // the rest room for REST_MS once its turn is over (below). The first render only records the labels, so a pull request
+  // A merge seen: a coder whose pr label was there at the last render and is gone, with the pull request merged. It goes to
+  // its usual idle place once its turn is over (below). The first render only records the labels, so a pull request
   // that merged before the office opened sends nobody to rest.
   if (mem.prs) {
     for (const p of people) { const a = p.agent; if (a && mem.prs.get(p.id) && !a.pr && a.prDone && a.prMerged) mem.merged.set(p.id, null); }
@@ -1153,12 +1154,11 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     mem.cleared.delete(p.id);
     // Matt sent the agent to a room: honoured once its turn has ended, and held until the next turn starts.
     if (!p.busy && a.place && a.place !== "desk") { p.mode = "go:" + a.place; continue; }
-    // A merger rests where compaction rests, REST_MS after its turn ends; while it works (it cleans up) it keeps its desk.
-    if (mem.merged.has(p.id) && !p.busy) {
-      if (mem.merged.get(p.id) === null) mem.merged.set(p.id, now);
-      const left = REST_MS - (now - mem.merged.get(p.id));
-      if (left > 0) { p.mode = "rest"; wakes.push(left); continue; }
-      mem.merged.delete(p.id);
+    // A merger goes to the lounge or the kitchen once its turn ends; while it works (it cleans up) it keeps its desk.
+    // Its next turn after that is ordinary work again.
+    if (mem.merged.has(p.id)) {
+      if (!p.busy) { mem.merged.set(p.id, true); p.mode = "away"; continue; }
+      if (mem.merged.get(p.id) === true) mem.merged.delete(p.id);
     }
     const sitting = p.busy || p.recent;
     if (!p.busy && p.recent && !(p.role === "coder" && ticket)) wakes.push(idleMs - p.idleFor);
@@ -1169,14 +1169,14 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
     else p.mode = "away";
     if (p.mode === "wait") stillWait.add(p.id);
   }
-  // Naps (ticket #152). Someone idle for NAP_AFTER_MS lies down in the rest room, the longest idle first, while fewer than
-  // NAP_BEDS - 1 beds are taken by naps and sent agents together. Not a coder with a ticket, not Scofield, Matt or Waffles, and
-  // a meeting, a compaction or a room Matt chose wins (their mode is not one of the kinds below). A nap ends at NAP_MAX_MS
+  // Naps (ticket #167). Anyone with a session idle for NAP_AFTER_MS lies down in the rest room, the longest idle first (so
+  // first come, first served), while fewer than NAP_BEDS sleep, naps and compaction, clear and sent agents together. Not Matt
+  // or Waffles, and a meeting, a compaction or a room Matt chose wins (their mode is not one of the kinds below). A nap ends at NAP_MAX_MS
   // (the lounge) or with the next turn, and there is no second nap before a turn: `napped` keeps the turn's start (mem.act since).
   // Limit: the memory lives in the open office, so a reload forgets it and may give a second nap or restart the 90 minutes.
   {
-    const kinds = ["home", "away", "deskfree"];
-    const sleeper = (p) => p.agent && p.id !== "scofield" && (p.role === "coder" || PERSONAS.includes(p.id) || p.id === "amy") && kinds.includes(p.mode) && !p.busy;
+    const kinds = ["home", "away", "deskfree", "desk", "wait", "esc"];
+    const sleeper = (p) => p.agent && kinds.includes(p.mode) && !p.busy;
     const turn = (p) => mem.act.get(p.id).since;
     for (const [id, n] of [...mem.nap]) {
       const p = by(id);
@@ -1184,19 +1184,18 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
       else if (now - n.since >= NAP_MAX_MS) { mem.nap.delete(id); mem.napped.set(id, n.turn); }
     }
     for (const [id, t] of [...mem.napped]) { const p = by(id); if (!p || !p.agent || turn(p) !== t) mem.napped.delete(id); }
-    const sent = people.filter((p) => p.agent && p.mode === "go:rest").length;
-    const fixed = sent + people.filter((p) => p.agent && p.mode === "rest").length;
-    // Compaction, a clear and a sent agent always get a bed: the napper who lay down last gets up and goes to the lounge.
+    const fixed = people.filter((p) => p.agent && (p.mode === "go:rest" || p.mode === "rest")).length;
+    // Compaction, a clear and a sent agent always get a bed: the napper who lay down last gets up and goes to its usual place.
     const byLatest = [...mem.nap].sort((a, b) => b[1].since - a[1].since || (a[0] < b[0] ? 1 : -1));
     for (const [id] of byLatest) if (mem.nap.size + fixed > NAP_BEDS) mem.nap.delete(id);
-    const room = Math.min(NAP_BEDS - 1 - sent - mem.nap.size, NAP_BEDS - fixed - mem.nap.size);
+    const room = NAP_BEDS - fixed - mem.nap.size;
     const ready = people.filter((p) => sleeper(p) && !mem.nap.has(p.id) && mem.napped.get(p.id) !== turn(p) && p.idleFor >= NAP_AFTER_MS)
       .sort((a, b) => b.idleFor - a.idleFor || (a.id < b.id ? -1 : 1));
     for (const p of ready.slice(0, Math.max(0, room))) mem.nap.set(p.id, { since: now, turn: turn(p) });
     for (const p of people) {
       if (!p.agent) continue;
       const n = mem.nap.get(p.id);
-      if (n) { p.mode = "rest"; p.napping = true; wakes.push(NAP_MAX_MS - (now - n.since)); }
+      if (n) { p.mode = "rest"; p.napping = true; stillWait.delete(p.id); wakes.push(NAP_MAX_MS - (now - n.since)); }
       else if (sleeper(p) && mem.napped.get(p.id) !== turn(p) && p.idleFor < NAP_AFTER_MS) wakes.push(NAP_AFTER_MS - p.idleFor);
     }
   }
@@ -1216,8 +1215,8 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // A coder with no task who only sits there after its turn takes a free desk, and never takes one from anyone.
   const free = (key) => [...slots.values()].find((l) => l.includes(key));
   const take = (p, list, key) => { list.splice(list.indexOf(key), 1); p.desk = key; };
-  // A merger resting in the rest room has handed its desk back: the next coder can take it.
-  const ticketed = coders.filter((c) => c.agent.repo && !(c.mode === "rest" && mem.merged.has(c.id)));
+  // A merger gone to the lounge has handed its desk back: the next coder can take it.
+  const ticketed = coders.filter((c) => c.agent.repo && !(c.mode === "away" && mem.merged.has(c.id)));
   for (const p of ticketed) {
     const list = slots.get("repo:" + p.agent.repo), held = mem.desks.get(p.id);
     if (list && held && list.includes(held)) take(p, list, held);
