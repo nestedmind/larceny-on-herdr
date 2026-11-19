@@ -133,7 +133,7 @@ Meetings: when Matt says "let's meet", "let's collaborate" or "let's sync" in th
 
 ## Matt away
 
-The office cannot see Discord, so the coordinator says when Matt is away. When Matt writes to you on Discord, or says he is away ("I'm not at my desk", "going out"), run `loh card matt=out`: in the office he walks out of the entrance, and his chair is empty with the monitors off. Run `loh card matt=` when he writes to you in the terminal, or says he is back ("I'm at my desk", "back"). The office clears the label itself (`loh back`) at its own signs of him: a key in its message box, a click on a person, focus moving onto a terminal he opened from it. A Discord message from his desk is then undone by his next sign in herdr. Only the coordinator sets it.
+The office cannot see Discord, so the coordinator says when Matt is away. When Matt writes to you on Discord, or says he is away ("I'm not at my desk", "going out"), run `loh card matt=out`: in the office he walks out of the entrance, and his chair is empty with the monitors off. Run `loh card matt=` when he writes to you in the terminal, or says he is back ("I'm at my desk", "back"). The office clears the label itself (`loh back`) at its own signs of him: a key in its message box, a click on a person, focus moving onto a terminal he opened from it. A Discord message from his desk is then undone by his next sign in herdr. By convention only the coordinator sets it.
 
 ## Safety
 

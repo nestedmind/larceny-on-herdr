@@ -560,3 +560,12 @@ console.log(out.join(' '));"
   [ "$status" -eq 0 ]
   [ "$output" = "$(printf 'true,true,true,true,true %.0s' 1 2 3 4 5 6 | sed 's/ $//')" ]
 }
+
+@test "a screen that is off draws nothing, where a dim one and a working one draw a strip" {
+  run draw_js '
+const world = (await import("./crew.mjs")).worldFor(["api"]);
+const d = world.mattDesk;
+console.log(draw.glow(d, "off", 4).length, draw.glow(d, "dim", 4).length, draw.glow(d, "work", 4).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 1 2" ]
+}

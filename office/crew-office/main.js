@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir, mattOutOf, backCall, hiddenAt } from "./crew.js";
+import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir, mattOutOf, backCall, hiddenAt, mattOutStep } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, confettiEls, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -317,7 +317,8 @@ export default class CrewOffice extends View {
   sendBack(crew) {
     for (const a of crew.filter((x) => x.matt === "out")) {
       const c = backCall(a, (props() || {}).loh);
-      try { exec(c.cmd, c.args, c.options).catch(() => { this.backSent = false; }); } catch (_) { this.backSent = false; }
+      const fail = () => { this.backSent = false; };
+      try { exec(c.cmd, c.args, c.options).then((r) => { if (!r || r.code !== 0) fail(); }, fail); } catch (_) { fail(); }
     }
   }
 
@@ -1012,15 +1013,10 @@ export default class CrewOffice extends View {
     this.lastFocus = here;
     // Matt is out while a card says matt=out, until a sign of him comes after the office first saw it. The sign clears the label
     // too (loh back), so the next matt=out, set while he is at his desk, is seen as new.
-    let mattOut = mattOutOf(crew);
-    if (!mattOut) { this.outSince = 0; this.backSent = false; }
-    else {
-      if (!this.outSince) this.outSince = now;
-      if (this.mattLast > this.outSince) {
-        mattOut = false;
-        if (!this.backSent) { this.backSent = true; this.sendBack(crew); }
-      }
-    }
+    const step = mattOutStep({ since: this.outSince, sent: this.backSent }, mattOutOf(crew), this.mattLast, now);
+    this.outSince = step.st.since; this.backSent = step.st.sent; this.mattLast = step.last;
+    const mattOut = step.out;
+    if (step.sendBack) this.sendBack(crew);
     const L = layoutCrew(crew, this.repos, aspectOf(size), {
       mem: this.mem, now, names: this.names, rand: this.random(),
       idleMs: pickIdleMs((props() || {}).idleMinutes, this.idleMinutes),

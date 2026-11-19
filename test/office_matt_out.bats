@@ -88,7 +88,30 @@ console.log(call.cmd, call.args.join(" "), call.options.cwd);'
   [ "$output" = "/bin/loh back scofield /ws/scofield" ]
 }
 
-@test "a screen that is off draws nothing, where a dim one draws a strip" {
-  run bash -c "cd '$REPO_ROOT' && grep -n 's === \"off\"' office/crew-office/draw.js"
+@test "the office sign brings Matt back once: matt=out seen at 100, a sign at 150 sends loh back one time and he is seated" {
+  run crew_js "$HELPERS"'
+const S = crew.mattOutStep;
+let r = S(null, true, 0, 100);
+const a = [r.out, r.sendBack, r.st.since];
+r = S(r.st, true, 100, 120); const b = [r.out, r.sendBack];            // a sign at the same ms as first seen does not count
+r = S(r.st, true, 150, 200); const c = [r.out, r.sendBack, r.st.sent];  // a later sign: back, send
+const sent = r.st;
+r = S(sent, true, 150, 300); const d = [r.out, r.sendBack];             // not sent again
+r = S({since: 100, sent: false}, true, 99, 400); const e = [r.out];    // a sign before first seen: still out
+r = S(sent, false, 150, 500); const f = [r.out, r.sendBack, r.st.since, r.st.sent, r.last];
+console.log(JSON.stringify([a, b, c, d, e, f]));'
   [ "$status" -eq 0 ]
+  [ "$output" = '[[true,false,100],[true,false],[false,true,true],[false,false],[true],[false,false,0,false,500]]' ]
+}
+
+@test "the coordinator clearing matt=out counts as Matt back at his desk: his last sign becomes now, so he is seated" {
+  run crew_js "$HELPERS"'
+const S = crew.mattOutStep;
+let r = S(null, true, 0, 1000);
+r = S(r.st, false, 0, 4000000);
+const seated = crew.mattSeatedAt(4000000, r.last);
+const never = S(null, false, 0, 4000000);
+console.log(r.out, r.last, seated, never.last);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "false 4000000 true 0" ]
 }

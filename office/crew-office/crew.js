@@ -202,6 +202,20 @@ export function mattOutOf(crew) {
   return crew.some((a) => a.matt === "out");
 }
 
+/**
+ * One render's decision about matt=out. `st` is { since, sent } (when the office first saw the label, whether `loh back` was sent
+ * for it), `labelOut` whether a card says it now, `last` Matt's last sign (ms, 0 for none). Returns the next state, `out` (show him
+ * away), `sendBack` (run loh back now) and `last`: the label going away, set or cleared by the coordinator, counts as Matt back
+ * at his desk, so `last` is `now` then. A sign after the office first saw the label brings him back and clears it.
+ */
+export function mattOutStep(st, labelOut, last, now) {
+  const was = st && st.since ? st : { since: 0, sent: false };
+  if (!labelOut) return { st: { since: 0, sent: false }, out: false, sendBack: false, last: was.since ? now : last };
+  const since = was.since || now;
+  if (last > since) return { st: { since, sent: true }, out: false, sendBack: !was.sent, last };
+  return { st: { since, sent: false }, out: true, sendBack: false, last };
+}
+
 /** The command that clears matt=out on an agent (loh back), run in that agent's folder: the office saw a sign of Matt. */
 export function backCall(agent, loh) {
   return { cmd: loh || "loh", args: ["back", agent.rawName], options: { cwd: agent.cwd || undefined, timeout: 5000 } };
@@ -1081,6 +1095,7 @@ const KITCHEN = ["kitchen", "lounge"];
  *  - a coder whose pull request it just saw merge (the pr label gone, prstate=merged): the rest room, zz, for REST_MS after
  *    its turn ends, then its usual place; its desk is free as soon as the pr label is gone;
  *  - no session: the lounge;
+ *  - Matt out (`opts.mattOut`): at the entrance, gone from the floor, Waffles on her bed (at the entrance while an agent is blocked);
  *  - Matt at his desk while `mattTyping`, else away in the lounge; Waffles on her bed, or beside Matt while an agent is blocked.
  * Places are kept: `opts.mem` (see newMemory) remembers every desk and spot, and only someone who arrives or leaves
  * moves. `opts.now` is the time in ms and `opts.idleMs` the idle time. `wakeIn` in the result is when time alone changes
