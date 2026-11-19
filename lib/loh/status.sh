@@ -6,6 +6,10 @@
 # loh status --settings: the manifest's office settings as a JSON object
 # ({"idle_minutes": 3}); the office reads the idle time from here.
 #
+# loh status --merged <pr> <github>: the same label flip for the one agent whose pr
+# label is <pr> and whose task repo is <github>, as merged, with no gh call.
+# `loh gh <persona> pr merge` runs it after a successful merge.
+#
 # loh status --prs: ask GitHub whether the pull request of each crew agent that
 # has a `pr` label is still open. A merged or closed one has its `pr` label
 # cleared (hc label <agent> pr=), so the agent stops waiting on review. This
@@ -22,12 +26,14 @@ set -euo pipefail
 # shellcheck source=lib/loh/lock.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lock.sh"
 
-usage() { echo "Usage: loh status [--json | --repos | --settings | --prs]" >&2; }
+usage() { echo "Usage: loh status [--json | --repos | --settings | --prs | --merged <pr> <github>]" >&2; }
 
 json=""
 repos=""
 settings=""
 prs=""
+only_pr=""
+only_github=""
 case "${1:-}" in
   "") ;;
   --repos)
@@ -41,6 +47,19 @@ case "${1:-}" in
   --prs)
     prs=1
     shift
+    ;;
+  --merged)
+    # loh status --merged <pr> <github>: `loh gh` calls this after a merge it made, so
+    # the label flip below does not wait for the next --prs. No gh call: the merge
+    # just succeeded.
+    [[ $# -eq 3 && "$2" =~ ^[0-9]+$ ]] || {
+      usage
+      exit 2
+    }
+    prs=1
+    only_pr="$2"
+    only_github="$3"
+    shift 3
     ;;
   --json)
     json=1
@@ -91,7 +110,12 @@ if [[ -n "$prs" ]]; then
       [[ "${REPO_NAMES[i]}" == "${task%%#*}" ]] && github="${REPO_GITHUBS[i]}"
     done
     [[ -n "$github" ]] || continue
-    state="$("${tmo[@]}" gh pr view "$pr" -R "$github" --json state --jq .state 2>/dev/null)" || continue
+    if [[ -n "$only_pr" ]]; then
+      [[ "$pr" == "$only_pr" && "$github" == "$only_github" ]] || continue
+      state=MERGED
+    else
+      state="$("${tmo[@]}" gh pr view "$pr" -R "$github" --json state --jq .state 2>/dev/null)" || continue
+    fi
     case "$state" in
       MERGED | CLOSED)
         hc label "$addr" "pr=" "prdone=1" "prstate=${state,,}" >/dev/null 2>&1 || continue

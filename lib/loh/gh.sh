@@ -50,7 +50,38 @@ loh_gh_main() {
   if [[ -n "$token" ]]; then
     export GH_TOKEN="$token"
   fi
-  exec gh "$@"
+  if [[ "${1:-}" != pr || "${2:-}" != merge ]]; then
+    exec gh "$@"
+  fi
+  local rc=0
+  gh "$@" || rc=$?
+  ((rc == 0)) && merged_flip "$@"
+  exit "$rc"
+}
+
+# merged_flip <gh args>: after a successful `pr merge <n> -R <repo>` that GitHub reports MERGED, have loh
+# status flip the labels of the crew coder whose pr it was. Only a numeric pr and
+# an explicit repo are understood; anything else is left to the coder's own hook
+# and to `loh status --prs`. Never fails the merge: its output is discarded.
+merged_flip() {
+  local n="${3:-}" repo="" a
+  [[ "$n" =~ ^[0-9]+$ ]] || return 0
+  shift 3
+  while (($#)); do
+    a="$1"
+    shift
+    case "$a" in
+      -R | --repo)
+        repo="${1:-}"
+        shift || true
+        ;;
+      -R=* | --repo=*) repo="${a#*=}" ;;
+    esac
+  done
+  [[ -n "$repo" && -n "${LOH_ROOT:-}" && -x "$LOH_ROOT/bin/loh" ]] || return 0
+  # A zero exit is not a merge: --auto, --disable-auto and a merge queue exit 0 with the PR still open.
+  [[ "$(gh pr view "$n" -R "$repo" --json state --jq .state 2>/dev/null)" == MERGED ]] || return 0
+  "$LOH_ROOT/bin/loh" status --merged "$n" "$repo" >/dev/null 2>&1 || true
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
