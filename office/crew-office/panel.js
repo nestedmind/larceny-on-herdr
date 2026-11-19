@@ -520,6 +520,7 @@ export class Panel {
   copyLogSelection(m, cx) {
     try {
       window.dispatch_action(LOG_COPY_ACTION);
+      cx.notify(); // the menu is closed (pickMenu), so draw without it
     } catch (_) {
       this.copy(m.key, m.text, cx);
     }
