@@ -9,7 +9,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
 import { terminals, panes, run, exec, appHome, notify, props, theme, settings, layout, shared, setShared, openOverlay, closeOverlay, focused, window as appWindow } from "herdr";
-import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir, mattOutOf, backCall, hiddenAt, mattOutStep } from "./crew.js";
+import { OFFICE_PING_MS, confettiPieces, pingCall, newToasts, toastStep, toastDismiss, toastPhase, TOAST_SLIDE_MS, seededRand, rallyOf, standLook, MATT_SEAT_HOLD, mattSeatedAt, restAt, screensSeen, snapStay, LIGHTS_KEY, LIGHTS_SEEN_KEY, lightsFrom, lightsSignal, lightsValue, chimeSignal, chimeCall, chimePlayCall, cheerDone, PAD, TYPING_HOLD, aspectOf, doArgs, findNode as findNodeById, entryFor, floorKey, focusArrived, idleMinutesOf, mattTypingAt, newMemory, pickIdleMs, recoveryFor, chatGone, clampPanelW, crewOf, fullTerminalOverlay, termId, modNameOf, modScanCall, resolveModName, holdersAcquire, holdersRelease, panelWidthKey, PANEL_MIN, serialQueue, settingsCall, termHeld, fitScale, fullscreenPlan, restoreSteps, stageBg, layoutCrew, legsOf, prsCall, PRS_EVERY_MS, REPOS_EVERY_MS, lockCall, nextGoal, officePane, pathTo, pickWorkspace, posAt, repoNames, reposCall, crewCall, namesOf, reactDirCall, reactDirOf, stackTags, stageSize, startCall, startPlan, unlockCall, walkChain, WALK_SPEED, workspaceDir, mattOutOf, backCall, hiddenAt, mattOutStep } from "./crew.js";
 import { BLOCKED, PAL, SLOTS, ball, confettiEls, dogEls, figureBox, floorLayer, floorSvg, floorSvgName, glow, hitBox, labels, mover, nightLayers, personEls, Layer } from "./draw.js";
 import { imagePath } from "./photos.js";
 import * as fs from "fs/promises";
@@ -932,6 +932,13 @@ export default class CrewOffice extends View {
     if (cx) cx.notify();
   }
 
+  // `loh chime play`, in the workspace folder; a failure (no sound player, no loh) is silent, as the watcher's is.
+  playChime(crew) {
+    const dir = this.workspaceDir(crew);
+    const c = chimePlayCall(dir ? { cwd: dir } : null, (props() || {}).loh);
+    try { Promise.resolve(exec(c.cmd, c.args, c.options)).catch(() => {}); } catch (_) { /* loh is missing */ }
+  }
+
   // The Chime button and C: run `loh chime on|off`, which keeps the setting; the next ping confirms what loh holds.
   setChime(on, cx) {
     this.chime = !!on;
@@ -998,7 +1005,10 @@ export default class CrewOffice extends View {
     // The toasts: what the crew's change calls for, and when the oldest goes. (Not while the crew is still unlisted, so the
     // first listing is only recorded, never announced.)
     if (crew.length) {
-      const ts = toastStep(this.toasts, crew, now);
+      const ts = toastStep(this.toasts, crew, now, this.chime);
+      // The chime goes with the toasts (#177): one call for the batch a render raised, only while the chime is on. `loh watch`
+      // does not chime while an office is open, so this is the only sound.
+      if (ts.raised > 0 && this.chime) this.playChime(crew);
       this.burstsDue.push(...ts.bursts);
       const due = [ts.nextMs, ts.animMs].filter((x) => x !== null);
       if (due.length) this.wakeIn(Math.min(...due));
@@ -1044,14 +1054,24 @@ export default class CrewOffice extends View {
     this.sig = sig;
     const u = (n) => n * k;
     const mo = this.motion(L, !this.anim);
-    // Confetti at the merger's desk: where they stand now (their walk to the rest room starts after this render). Gone for good
-    // once its longest piece is: each piece is drawn until its own life ends, and a render is asked for at the next end. (herdr gives
-    // no reduced-motion setting to the mods, so it is not honoured: a known gap, noted in the PR.)
+    // Confetti at the merger's desk (#177): a merger at its desk gets the burst at once; one that is elsewhere walks to its desk first
+    // (the layout sends it there) and the burst goes off on arrival, where it stands. Then cheerDone lets it go to its usual idle
+    // place. A merger the layout no longer sends to a desk (no desk free, or CHEER_MAX_MS passed) gets it where it stands.
+    // Gone for good once its longest piece is: each piece is drawn until its own life ends, and a render is asked for at the next
+    // end. (herdr gives no reduced-motion setting to the mods, so it is not honoured: a known gap, noted in the PR.)
+    const cheering = [];
     for (const d of this.burstsDue.splice(0)) {
       const who = L.people.find((p) => p.agent && p.agent.address === d.who);
       const m = who ? mo.get(who.id) : null;
-      if (m) this.bursts.push({ id: `confetti-${++this.burstN}`, x: m.x, y: m.y - 6, at: now, pieces: confettiPieces(this.random()) });
+      if (!m) continue;
+      const heading = who.place === "desk" && who.mode === "deskfree";
+      const arrived = !m.walking && Math.abs(m.x - who.x) < 0.5 && Math.abs(m.y - who.y) < 0.5;
+      if (heading && !arrived) { cheering.push(d); continue; }
+      this.bursts.push({ id: `confetti-${++this.burstN}`, x: m.x, y: m.y - 6, at: now, pieces: confettiPieces(this.random()) });
+      cheerDone(this.mem, who.id);
+      this.wakeIn(50); // the merger leaves for its usual place on the next render
     }
+    if (cheering.length) { this.burstsDue.push(...cheering); this.wakeIn(250); }
     this.bursts = this.bursts.filter((b) => b.pieces.some((p) => now - b.at < p.life));
     const alive = this.bursts.map((b) => ({ b, pieces: b.pieces.filter((p) => now - b.at < p.life) }));
     const ends = alive.flatMap(({ b, pieces }) => pieces.map((p) => b.at + p.life - now));

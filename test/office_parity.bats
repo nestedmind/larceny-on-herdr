@@ -255,12 +255,12 @@ use_fakes() {
   [[ "$output" == *" y: office"* ]]
 }
 
-@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases, and 2, 6, 1, 2, 1 and 5 in the six seating cases" {
+@test "the known differences are exactly the ones listed (#29): 8, 1, 4 and 3 in the four cases, and 2, 6, 1, 3, 1 and 5 in the six seating cases" {
   run node "$TOOL/run.mjs"
   [ "$status" -eq 0 ]
   [[ "$output" == *"two-repos-native"*"8 known"* && "$output" == *"two-repos-16x9"*"1 known"* ]]
   [[ "$output" == *"two-repos-narrow"*"4 known"* && "$output" == *"six-repos"*"3 known"* ]]
-  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 33 ]
+  [ "$(grep -c 'known (#29)' <<< "$output")" -eq 34 ]
 }
 
 # The tool in a temp dir, so a test can change its list of known differences.

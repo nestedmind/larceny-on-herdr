@@ -1508,7 +1508,7 @@ render();
 const msg = "Bash: " + "x".repeat(150);
 block(1, "permission", msg);
 const t = toasts(render());
-console.log(t.length, lines(t[0]).join("|") === "Sheba needs you|permission: " + msg + "|Toast, no sound · click to open", t[0].props.border_color[0]);'
+console.log(t.length, lines(t[0]).join("|") === "Sheba needs you|permission: " + msg + "|Toast, chimed · click to open", t[0].props.border_color[0]);'
   [ "$status" -eq 0 ]
   [ "$output" = "1 true #e7a43a" ]
 }
@@ -1798,7 +1798,7 @@ const lines = (n) => all(n).flatMap((x) => x.kids.filter((k) => typeof k === "st
 const toasts = (root) => all(root.node).filter((n) => /^toast-/.test(id(n) || ""));
 '
 
-@test "a merge seen draws 40 confetti pieces at the coder's desk and one toast, and every piece is gone by 1.8 s" {
+@test "a merge seen draws 40 confetti pieces at the coder's desk and one toast, and every piece is gone by 3 s" {
   run office_js "$MERGE_HELPERS"'
 terms()[1].labels.pr = "12";
 render();
@@ -1806,11 +1806,72 @@ merge(1);
 const a = render();
 const t = toasts(a)[0];
 const asked = office.wake ? office.wake.at - Date.now() : null;
-later(1199); const b = pieces(render()).length;
-later(601); const c = pieces(render()).length;
-console.log(pieces(a).length, toasts(a).length, lines(t).slice(0, 2).join("|"), asked !== null && asked <= 1800, b, c, toasts(render()).length);'
+later(1999); const b = pieces(render()).length;
+later(1001); const c = pieces(render()).length;
+console.log(pieces(a).length, toasts(a).length, lines(t).slice(0, 2).join("|"), asked !== null && asked <= 3000, b, c, toasts(render()).length);'
   [ "$status" -eq 0 ]
   [ "$output" = "40 1 api PR #12 merged|Sheba merged it true 40 0 1" ]
+}
+
+@test "a merge seen while the coder waits in the kitchen: no burst until it reaches its desk, then 40 pieces there, and it goes back to its idle place" {
+  run office_js "$MERGE_HELPERS$HANDS"'
+terms()[1].status = "idle"; terms()[1].labels.pr = "12";
+render(); later(3000); render(); settle();
+const people = () => office.layoutNow.people.find((p) => p.id === "sheba");
+const before = people().place;
+merge(1);
+render();
+const waiting = office.bursts.length + ":" + people().place + ":" + people().mode;
+later(3000); render();
+let seat = null, n = 0;
+for (let i = 0; i < 12 && !office.bursts.length; i++) {
+  timers.filter((t) => !t.cancelled).sort((a, b) => a.ms - b.ms).forEach((t) => { t.cancelled = true; t.fn({ notify() {} }); });
+  later(500); render();
+  if (office.bursts.length) seat = { x: people().x, y: people().y };
+}
+const burst = office.bursts[0];
+console.log(before, waiting, office.bursts.length, !!burst && Math.abs(burst.x - seat.x) < 1 && Math.abs(burst.y + 6 - seat.y) < 1);
+later(100); render(); settle();
+console.log(people().mode, people().place === "desk");'
+  [ "${lines[0]}" = "kitchen 0:desk:deskfree 1 true" ]
+  [ "${lines[1]}" = "away false" ]
+}
+
+@test "the chime plays with a toast while it is on, once for a batch, and a merge toast chimes too" {
+  run office_js "$MERGE_HELPERS"'
+const block = (i, kind, msg) => { terms()[i].status = { state: "blocked", kind, msg }; };
+const calls = [];
+globalThis.EXEC_HOOK = (c, a) => { if (a[0] === "chime") { calls.push(a.join(" ")); return Promise.resolve({ code: 0 }); } return new Promise(() => {}); };
+render();
+block(1, "permission", "x"); block(2, "q", "y");
+const t = toasts(render());
+const hint = lines(t[0]).concat(lines(t[1])).filter((l) => /^Toast/.test(l));
+terms()[1].status = "working"; terms()[2].status = "idle"; terms()[1].labels.pr = "12"; render(); merge(1); render();
+console.log(calls.length, JSON.stringify(calls), hint.join("|"), toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = '2 ["chime play","chime play"] Toast, chimed · click to open|Toast, chimed · click to open 3' ]
+}
+
+@test "a block that clears at once still chimed, because the office chimes on the toast, not on the state it reads later" {
+  run office_js "$TOAST_HELPERS"'
+const calls = [];
+globalThis.EXEC_HOOK = (c, a) => { if (a[0] === "chime") { calls.push(a.join(" ")); return Promise.resolve({ code: 0 }); } return new Promise(() => {}); };
+render(); block(1, "permission", "x"); render(); terms()[1].status = "working"; later(500); render();
+console.log(calls.length, toasts(render()).length);'
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 1" ]
+}
+
+@test "with the chime off no toast plays it, and the hint says the chime is off" {
+  run office_js "$TOAST_HELPERS"'
+const calls = [];
+globalThis.EXEC_HOOK = (c, a) => { if (a[0] === "chime") { calls.push(a.join(" ")); return Promise.resolve({ code: 0 }); } return new Promise(() => {}); };
+office.chime = false;
+render(); block(1, "permission", "x");
+const t = toasts(render());
+console.log(calls.length, lines(t[0]).filter((l) => /^Toast/.test(l)).join("|"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 Toast, chime off · click to open" ]
 }
 
 @test "a pull request already merged when the office opens draws no confetti and no toast" {

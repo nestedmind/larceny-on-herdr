@@ -17,6 +17,7 @@ const R = {amy: "reviewer", maya: "designer", yoda: "advisor", sara: "teacher", 
 const mk = (n, st, l = {}) => T(n, st, {role: R[n] || "coder", ...l});
 const HOUR = 3600, MIN = 60;
 const mem = crew.newMemory();
+mem.born = 1e15; // as if the office started far in the future: people with no session never nap here, unless a test sets mem.born
 const draw = (s, ts) => crew.layoutCrew(crew.crewOf(ts, "w"), ["api"], 0, {mem, now: s * 1000});
 const place = (L, id) => { const r = L.people.find((p) => p.id === id).place; return r === "kitchen" ? "lounge" : r; };
 const rooms = (L, ids) => ids.map((i) => place(L, i)).join(",");
@@ -105,18 +106,19 @@ console.log(rooms(a, n), rooms(b, n), rooms(c, n));'
   [ "$output" = "rest,rest,lounge,rest rest,rest,lounge,rest lounge,lounge,rest,lounge" ]
 }
 
-@test "no second nap without a turn in between, and a turn allows one again" {
+@test "after waking, a nap again 60 minutes later with no turn; a turn restarts the hour" {
   run crew_js "$HELPERS"'
 start(["amy"]); draw(10, idle(["amy"]));
 const t = 10 + HOUR;
 draw(t, idle(["amy"]));
-const a = draw(t + 90 * MIN, idle(["amy"])), b = draw(t + 200 * MIN, idle(["amy"]));
-draw(t + 201 * MIN, [mk("amy", "working")]);
-draw(t + 202 * MIN, idle(["amy"]));
-const c = draw(t + 202 * MIN + HOUR, idle(["amy"]));
-console.log(place(a, "amy"), place(b, "amy"), place(c, "amy"));'
+const a = draw(t + 90 * MIN, idle(["amy"])), b = draw(t + 150 * MIN - 1, idle(["amy"])), c = draw(t + 150 * MIN, idle(["amy"]));
+const d = draw(t + 150 * MIN + 90 * MIN, idle(["amy"]));
+draw(t + 400 * MIN, [mk("amy", "working")]);
+draw(t + 401 * MIN, idle(["amy"]));
+const e = draw(t + 401 * MIN + HOUR - 1, idle(["amy"])), f = draw(t + 401 * MIN + HOUR, idle(["amy"]));
+console.log([a, b, c, d, e, f].map((L) => place(L, "amy")).join(","));'
   [ "$status" -eq 0 ]
-  [ "$output" = "lounge lounge rest" ]
+  [ "$output" = "lounge,lounge,rest,lounge,lounge,rest" ]
 }
 
 @test "a new prompt sends a napper to the desk at once" {
@@ -196,8 +198,81 @@ start(n);
 draw(10, idle(n).concat(open("working")));
 draw(10 + HOUR, idle(n).concat(open("working")));
 const merged = ["sucre", "mahone"].map((x, i) => mk(x, "idle", {task: "api#" + (i + 1), prdone: "1", prstate: "merged"}));
-const L = draw(11 + HOUR, idle(n).concat(merged));
+draw(11 + HOUR, idle(n).concat(merged));
+crew.cheerDone(mem, "sucre"); crew.cheerDone(mem, "mahone"); // their confetti went off
+const L = draw(12 + HOUR, idle(n).concat(merged));
 console.log(rooms(L, ["amy", "maya", "yoda", "sucre", "mahone"]));'
   [ "$status" -eq 0 ]
   [ "$output" = "rest,rest,rest,lounge,lounge" ]
+}
+
+# Ticket #176: with no session, from the last turn the office saw, else from when the office started.
+@test "no session: Yoda and a released coder sleep an hour after their last turn" {
+  run crew_js "$HELPERS"'
+draw(0, [mk("yoda", "working"), mk("sucre", "working", {repo: "api", task: "api#1"})]);
+draw(10, idle(["yoda"]).concat([mk("sucre", "idle", {repo: "api", task: "api#1"})]));
+draw(20, []); // both sessions are gone
+const a = draw(10 + HOUR - 1, []), b = draw(10 + HOUR, []);
+console.log(place(a, "yoda"), place(a, "sucre"), place(b, "yoda"), place(b, "sucre"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "lounge lounge rest rest" ]
+}
+
+@test "no session, never seen: sleeps an hour after the office started, 3 at most" {
+  run crew_js "$HELPERS"'
+mem.born = 500 * 1000;
+const n = (L) => L.people.filter((p) => p.place === "rest").length;
+const a = draw(500 + HOUR - 1, []), b = draw(500 + HOUR, []);
+console.log(n(a), n(b), rooms(b, ["amy", "mahone", "maya", "opemipo"]));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 3 rest,rest,rest,lounge" ]
+}
+
+@test "no session: wakes at 90 minutes, sleeps again 60 minutes later, and the cap of 3 holds across both kinds" {
+  run crew_js "$HELPERS"'
+mem.born = 0;
+draw(0, [mk("amy", "working")]); draw(10, idle(["amy"]));
+// amy has a session; yoda, sara, maya, opemipo, scofield have none (never seen): all reach the hour at 3600 s, amy at 3610
+const names = ["amy", "yoda", "sara", "maya"];
+const a = draw(HOUR, idle(["amy"])), b = draw(HOUR + 10, idle(["amy"]));
+const c = draw(HOUR + 90 * MIN, idle(["amy"])), d = draw(HOUR + 150 * MIN, idle(["amy"]));
+const n = (L) => L.people.filter((p) => p.place === "rest").length;
+console.log(n(a), n(b), n(c), n(d), place(b, "amy"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "3 3 3 3 lounge" ]
+}
+
+@test "a sleeper with no session is woken at once by a session that starts, and the hour restarts" {
+  run crew_js "$HELPERS"'
+draw(0, [mk("yoda", "working")]); draw(10, idle(["yoda"])); draw(20, []);
+const a = draw(10 + HOUR, []);
+const b = draw(4000, [mk("yoda", "working")]);
+draw(4010, idle(["yoda"]));
+const c = draw(4010 + HOUR - 1, idle(["yoda"])), d = draw(4010 + HOUR, idle(["yoda"]));
+console.log(a.people.find((p) => p.id === "yoda").place, place(b, "yoda"), place(c, "yoda"), place(d, "yoda"));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "rest meeting lounge rest" ]
+}
+
+@test "no session, one person: wakes at 90 minutes, sleeps again 60 minutes later (and not before)" {
+  run crew_js "$HELPERS"'
+draw(0, [mk("yoda", "working")]); draw(10, idle(["yoda"])); draw(20, []);
+const t = 10 + HOUR;
+const at = (s) => (place(draw(s, []), "yoda") === "rest" ? "rest" : "up"); // Yoda wanders when awake
+console.log([at(t - 1), at(t), at(t + 90 * MIN - 1), at(t + 90 * MIN), at(t + 150 * MIN - 1), at(t + 150 * MIN), at(t + 240 * MIN)].join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "up,rest,rest,up,up,rest,up" ]
+}
+
+@test "woken from a nap, a short meeting with no turn does not bring the second nap forward" {
+  run crew_js "$HELPERS"'
+start(["amy"]); draw(10, idle(["amy"]));
+const t = 10 + HOUR;
+draw(t, idle(["amy"]));
+draw(t + 90 * MIN, idle(["amy"])); // awake
+const m = draw(t + 100 * MIN, [mk("amy", "idle", {meeting: "1"})]);
+const a = draw(t + 110 * MIN, idle(["amy"])), b = draw(t + 150 * MIN - 1, idle(["amy"])), c = draw(t + 150 * MIN, idle(["amy"]));
+console.log([m, a, b, c].map((L) => place(L, "amy")).join(","));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "meeting,lounge,lounge,rest" ]
 }

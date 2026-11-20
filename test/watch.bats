@@ -12,6 +12,7 @@ TOOLS="bash env jq cat sed tr cut head tail dirname basename mkdir date printf g
 setup() {
   make_plugin_tree
   cp "$REPO_ROOT/lib/loh/watch.sh" "$PLUGIN_TREE/lib/loh/watch.sh"
+  cp "$REPO_ROOT/lib/loh/chime.sh" "$PLUGIN_TREE/lib/loh/chime.sh"
   BIN="$BATS_TEST_TMPDIR/bin"
   D="$BATS_TEST_TMPDIR/hc"
   mkdir -p "$BIN" "$D"
@@ -676,16 +677,37 @@ SH
   [ "$(played 2)" -eq 2 ]
 }
 
-@test "while an office tab is open there is no desktop notice but the chime still plays" {
+@test "while an office tab is open there is no desktop notice and no sound: the office plays the chime with its toasts" {
   stub_player canberra-gtk-play
   date +%s >"$LOH_WORKSPACE/.loh/office-open"
   blocked_one
   run_watch
   [ "$(notified)" -eq 0 ]
-  [ "$(played 1)" -eq 1 ]
+  [ "$(played 0)" -eq 0 ]
 }
 
-@test "with the office open, chime off silences it, and a burst chimes once" {
+@test "loh chime play plays on Linux with no notify-send, and rings the bell with no player" {
+  rm -f "$BIN/notify-send"
+  stub_player canberra-gtk-play
+  run env PATH="$BIN" "$LOH" chime play
+  [ "$status" -eq 0 ]
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/play.log" ] && break; sleep 0.2; done
+  [ "$(wc -l <"$D/play.log")" -eq 1 ]
+  rm "$BIN/canberra-gtk-play"
+  run env PATH="$BIN" "$LOH" chime play
+  [ "$output" = $'\a' ]
+}
+
+@test "loh chime play plays the sound once, whatever the setting" {
+  stub_player canberra-gtk-play
+  echo off >"$LOH_WORKSPACE/.loh/chime"
+  run env PATH="$BIN" "$LOH" chime play
+  [ "$status" -eq 0 ]
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/play.log" ] && break; sleep 0.2; done
+  [ "$(wc -l <"$D/play.log")" -eq 1 ]
+}
+
+@test "with the office open nothing chimes from here, with the chime on or off, for one block or a burst" {
   stub_player canberra-gtk-play
   date +%s >"$LOH_WORKSPACE/.loh/office-open"
   echo off >"$LOH_WORKSPACE/.loh/chime"
@@ -697,7 +719,7 @@ SH
   printf '{"terminals":[{"address":"t1"},{"address":"t2"},{"address":"t3"}]}\n' >"$D/events.jsonl"
   run_watch
   [ "$(notified)" -eq 0 ]
-  [ "$(played 1)" -eq 1 ]
+  [ "$(played 0)" -eq 0 ]
 }
 
 @test "on macOS the notification carries sound name Glass, unless the chime is off" {
@@ -743,7 +765,7 @@ SH
   [ ! -e "$D/paplay.log" ]
 }
 
-@test "with the office open on macOS the chime is afplay with Glass, and no notification" {
+@test "with the office open on macOS there is no afplay and no notification" {
   rm "$BIN/notify-send"
   cat >"$BIN/osascript" <<'SH'
 #!/usr/bin/env bash
@@ -754,16 +776,15 @@ SH
   date +%s >"$LOH_WORKSPACE/.loh/office-open"
   blocked_one
   run_watch
-  [ "$(played 1)" -eq 1 ]
-  [ "$(cat "$D/play.log")" = "/System/Library/Sounds/Glass.aiff" ]
+  [ "$(played 0)" -eq 0 ]
   [ ! -e "$D/osa.log" ]
 }
 
-@test "with the office open and no notifier the chime is a bell on stdout, and nothing else" {
+@test "with the office open and no notifier nothing is printed, no bell either" {
   rm "$BIN/notify-send"
   date +%s >"$LOH_WORKSPACE/.loh/office-open"
   blocked_one
   run_watch
   [ "$status" -eq 0 ]
-  [ "$output" = $'\a' ]
+  [ -z "$output" ]
 }

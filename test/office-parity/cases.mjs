@@ -82,9 +82,9 @@ export const KNOWN = [
   ...known("six-repos", [["sara", "x", 1.12], ["x:t11", "y", 13.87], ["x:t13", "y", 53.87]]),
   // The seating cases: the same tag stacking and clamping differences, in the rooms they stand in.
   ...known("seated-after-turn", [["sara", "x", 2], ["dog", "y", 3]]),
-  ...known("idle-3-minutes", [["sara", "y", -9.99], ["mahone", "y", -29.2], ["sheba", "y", -29.4], ["x:t6", "y", -33.61], ["amy", "y", -6.82], ["dog", "y", 3]]),
+  ...known("idle-3-minutes", [["sara", "y", -9.99], ["mahone", "y", -29.2], ["sheba", "y", -29.4], ["x:t6", "y", -45.6], ["amy", "y", -18.81], ["dog", "y", 3]]),
   ...known("waiting-on-review", [["dog", "y", 3]]),
-  ...known("ping-pong-after-15s", [["amy", "y", -32.2], ["dog", "y", 3]]),
+  ...known("ping-pong-after-15s", [["amy", "y", -37.01], ["whip", "y", -4.81], ["dog", "y", 3]]),
   ...known("escalated-to-matt", [["dog", "y", 3]]),
   ...known("rest-room-and-away", [["sara", "x", 2], ["matt", "y", 17.8], ["scofield", "y", -18.4], ["maya", "y", -18.6], ["dog", "y", 3]]),
 ];

@@ -29,6 +29,10 @@ const worldOf = (P, n) => {
 };
 
 /** Where an item may be, in world units: [lo, hi] on each axis. `room` carries the shift and growth (crew.js mkRoom). */
+// Matt's change of 19 Nov (#176 PR): the lounge's sofa stands near the top wall, 6 units lower than the prototype's (its back at y 174, clear of the
+// LOUNGE label), so its three seats are 6 units lower than the prototype's and keep to the wall as the room grows (no share of the room's extra height).
+const SOFA_SEATS = 3, SOFA_DOWN = 6;
+const spotRange = (room, kind, i, s) => (kind === "lounge" && i < SOFA_SEATS ? { x: rangeIn(room, s.x, s.y).x, y: [s.y + SOFA_DOWN + room.sy, s.y + SOFA_DOWN + room.sy] } : rangeIn(room, s.x, s.y));
 const rangeIn = (room, x, y) => ({ x: [x + room.sx, x + room.sx + room.gw], y: [y + room.sy, y + room.sy + room.gh] });
 
 class Findings {
@@ -89,7 +93,7 @@ export const CHECKS = {
     }
     for (const [room, list] of Object.entries(L.spots)) {
       const q = L.rooms.find((x) => x.kind === room);
-      list.forEach((p, i) => f.point("spots", `${room}:${i}`, p, rangeIn(q, W.spots[room][i].x, W.spots[room][i].y)));
+      list.forEach((p, i) => f.point("spots", `${room}:${i}`, p, spotRange(q, room, i, W.spots[room][i])));
     }
     const meet = L.rooms.find((q) => q.kind === "meet");
     for (const id of ["yoda", "sara"]) f.point("seats", "meet:" + id, L.meetSeats[id], rangeIn(meet, W.meetSeats[id].x, W.meetSeats[id].y));
@@ -132,7 +136,7 @@ export const CHECKS = {
         // The spot is the one nearest to where the person stands; the distance from it is the finding.
         let best = null;
         const out = (v, [lo, hi]) => (v < lo ? lo - v : v > hi ? v - hi : 0);
-        for (const s of spots) { const g = rangeIn(q, s.x, s.y); const d = Math.hypot(out(p.x, g.x), out(p.y, g.y)); if (!best || d < best.d) best = { d, g }; }
+        spots.forEach((s, i) => { const g = spotRange(q, p.place, i, s); const d = Math.hypot(out(p.x, g.x), out(p.y, g.y)); if (!best || d < best.d) best = { d, g }; });
         if (!best) f.list.push({ check: "people", id: p.id, field: "place", got: p.place, want: "a room with spots", off: Infinity });
         else f.point("people", p.id, p, best.g, { place: p.place });
       }

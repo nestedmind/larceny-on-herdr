@@ -53,7 +53,7 @@ setup() {
 @test "chime with another argument prints usage and exits 2, writing nothing" {
   run --separate-stderr "$LOH" chime loud
   [ "$status" -eq 2 ]
-  [[ "$stderr" == *"Usage: loh chime [on|off]"* ]]
+  [[ "$stderr" == *"Usage: loh chime [on|off|play]"* ]]
   run --separate-stderr "$LOH" chime on now
   [ "$status" -eq 2 ]
   [ ! -e "$WS/.loh/chime" ]
