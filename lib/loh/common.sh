@@ -596,10 +596,10 @@ chime_play() {
 # chime_alone: the sound with no desktop notice (an office toast is shown instead):
 # chime_play on Linux, afplay with the Glass sound on macOS, else a bell on stdout.
 chime_alone() {
-  if command -v notify-send >/dev/null 2>&1; then
-    chime_play
-  elif command -v osascript >/dev/null 2>&1; then
+  if command -v osascript >/dev/null 2>&1; then
     (afplay /System/Library/Sounds/Glass.aiff </dev/null >/dev/null 2>&1 &)
+  elif command -v canberra-gtk-play >/dev/null 2>&1 || command -v pw-play >/dev/null 2>&1 || command -v paplay >/dev/null 2>&1; then
+    chime_play
   else
     printf '\a'
   fi

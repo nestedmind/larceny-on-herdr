@@ -1230,9 +1230,16 @@ export function layoutCrew(crew, repoList = [], aspect = 0, opts = {}) {
   // Limit: the memory lives in the open office, so a reload forgets it and may restart the 90 minutes.
   {
     const kinds = ["home", "away", "deskfree", "desk", "wait", "esc"];
-    const sleeper = (p) => p.id !== "matt" && p.id !== "dog" && (p.agent ? kinds.includes(p.mode) && !p.busy : true);
+    // A merger whose confetti has not gone off yet is at its desk for it (mem.merged, see above): the merge wins over a nap.
+    const cheering = (p) => mem.merged.has(p.id) && mem.merged.get(p.id) !== true;
+    const sleeper = (p) => p.id !== "matt" && p.id !== "dog" && !cheering(p) && (p.agent ? kinds.includes(p.mode) && !p.busy : true);
     const turn = (p) => (p.agent ? mem.act.get(p.id).since : mem.last.has(p.id) ? mem.last.get(p.id) : -1);
     const idleOf = (p) => { const n = mem.napped.get(p.id); return n && n.turn === turn(p) ? now - n.at : p.agent ? p.idleFor : now - (mem.last.has(p.id) ? mem.last.get(p.id) : mem.born); };
+    // The merge counted as the end of a nap: after the confetti the hour starts again (it does not nap at once for the hour it was idle).
+    for (const p of people) {
+      const n = mem.napped.get(p.id);
+      if (p.agent && mem.merged.get(p.id) === true && (!n || n.turn !== turn(p))) mem.napped.set(p.id, { turn: turn(p), at: now });
+    }
     for (const [id, n] of [...mem.nap]) {
       const p = by(id);
       if (!p || !sleeper(p) || turn(p) !== n.turn) mem.nap.delete(id);

@@ -686,6 +686,18 @@ SH
   [ "$(played 0)" -eq 0 ]
 }
 
+@test "loh chime play plays on Linux with no notify-send, and rings the bell with no player" {
+  rm -f "$BIN/notify-send"
+  stub_player canberra-gtk-play
+  run env PATH="$BIN" "$LOH" chime play
+  [ "$status" -eq 0 ]
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/play.log" ] && break; sleep 0.2; done
+  [ "$(wc -l <"$D/play.log")" -eq 1 ]
+  rm "$BIN/canberra-gtk-play"
+  run env PATH="$BIN" "$LOH" chime play
+  [ "$output" = $'\a' ]
+}
+
 @test "loh chime play plays the sound once, whatever the setting" {
   stub_player canberra-gtk-play
   echo off >"$LOH_WORKSPACE/.loh/chime"

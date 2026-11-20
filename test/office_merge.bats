@@ -141,3 +141,22 @@ console.log(L.map((l) => P(l, "sucre").mode).join(" "));'
   [ "$status" -eq 0 ]
   [ "$output" = "wait deskfree" ]
 }
+
+@test "a merge wins over a nap: a napping merger gets up and goes to its desk for its confetti, and does not nap again at once" {
+  run crew_js "$HELPERS"'
+const mem = crew.newMemory();
+mem.born = 1e15; // people with no session do not nap here
+const at = (s, ts) => crew.layoutCrew(agents(...ts), ["api"], 0, {mem, now: s * 1000});
+const HOUR = 3600;
+at(0, [T("sucre", {state: "working"}, {pr: "9"})]);
+const wait = idle("sucre", {pr: "9"});
+at(10, [wait]);
+const nap = at(10 + HOUR, [wait]);               // asleep in the rest room
+const m1 = at(10 + HOUR + 5, [merged()]);          // the merge is seen
+const m2 = at(10 + HOUR + 10, [merged()]);
+crew.cheerDone(mem, "sucre");
+const m3 = at(10 + HOUR + 11, [merged()]);
+console.log([nap, m1, m2, m3].map((l) => P(l, "sucre").mode + ":" + (P(l, "sucre").place === "kitchen" ? "lounge" : P(l, "sucre").place)).join(" "));'
+  [ "$status" -eq 0 ]
+  [ "$output" = "rest:rest deskfree:desk deskfree:desk away:lounge" ]
+}
